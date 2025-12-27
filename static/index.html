@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Take a selfie</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; }
+    .box { border: 1px solid #ddd; padding: 16px; border-radius: 10px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
+    img { width: 100%; border-radius: 10px; border: 1px solid #eee; }
+    .small { color: #666; font-size: 14px; }
+    .err { color: #b00020; margin-top: 10px; }
+    video { width: 100%; border-radius: 10px; border: 1px solid #eee; }
+    .preview { width: 100%; border-radius: 10px; border: 1px solid #eee; display: none; }
+  </style>
+</head>
+<body>
+
+<h1>Take a selfie</h1>
+
+<div class="box">
+  <div class="row">
+    <button id="start">Open camera</button>
+    <button id="snap" disabled>Take selfie</button>
+    <button id="match" disabled>Find my photos</button>
+    <span id="status" class="small"></span>
+  </div>
+
+  <div id="error" class="err"></div>
+
+  <div style="margin-top:12px;">
+    <video id="video" playsinline autoplay></video>
+    <img id="preview" class="preview" />
+    <canvas id="canvas" style="display:none;"></canvas>
+  </div>
+</div>
+
+<h2>Results</h2>
+<div id="count" class="small"></div>
+<div id="grid" class="grid"></div>
+
+<script>
+let stream = null;
+let selfieBlob = null;
+
+const startBtn = document.getElementById("start");
+const snapBtn = document.getElementById("snap");
+const matchBtn = document.getElementById("match");
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const preview = document.getElementById("preview");
+const grid = document.getElementById("grid");
+const count = document.getElementById("count");
+const error = document.getElementById("error");
+const status = document.getElementById("status");
+
+startBtn.onclick = async () => {
+  error.textContent = "";
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+  video.srcObject = stream;
+  snapBtn.disabled = false;
+};
+
+snapBtn.onclick = async () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  selfieBlob = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.9));
+
+  preview.src = URL.createObjectURL(selfieBlob);
+  preview.style.display = "block";
+  video.style.display = "none";
+
+  stream.getTracks().forEach(t => t.stop());
+  matchBtn.disabled = false;
+};
+
+matchBtn.onclick = async () => {
+  grid.innerHTML = "";
+  count.textContent = "";
+  status.textContent = "Searching...";
+
+  const fd = new FormData();
+  fd.append("file", selfieBlob, "selfie.jpg");
+
+  const res = await fetch("/match_selfie", { method: "POST", body: fd });
+  const json = await res.json();
+
+  if (!json.ok) {
+    error.textContent = json.error;
+    return;
+  }
+
+  count.textContent = "Photos found: " + json.count;
+
+  json.results.forEach(r => {
+    const img = document.createElement("img");
+    img.src = "/photos/" + r.photo_id;
+    grid.appendChild(img);
+  });
+
+  status.textContent = "";
+};
+</script>
+
+</body>
+</html>
+
