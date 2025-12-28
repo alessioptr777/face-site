@@ -1,4 +1,201 @@
-import os
+from __future__ import annotations
+
+import io
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+
+import numpy as np
+import cv2
+import faiss
+
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from insightface.app import FaceAnalysis
+
+
+# -------------------------
+# Paths
+# -------------------------
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+PHOTOS_DIR = BASE_DIR / "photos"
+STATIC_DIR = BASE_DIR / "static"
+
+INDEX_PATH = DATA_DIR / "faces.index"
+META_PATH = DATA_DIR / "faces.meta.jsonl"
+INDEX_DIM = 512  # InsightFace buffalo_l = 512
+
+
+# -------------------------
+# App
+# -------------------------
+app = FastAPI(title="Face Site")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global cache
+face_app: FaceAnalysis | None = None
+faiss_index: faiss.Index | None = None
+meta_rows: List[Dict[str, Any]] = []
+
+
+# -------------------------
+# Helpers
+# -------------------------
+def _load_meta_jsonl(path: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _ensure_ready():
+    if face_app is None or faiss_index is None or not meta_rows:
+        raise HTTPException(
+            status_code=503,
+            detail="Service not ready: model/index/meta not loaded."
+        )
+
+
+def _read_image_from_upload(file_bytes: bytes) -> np.ndarray:
+    arr = np.frombuffer(file_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image file.")
+    return img
+
+
+def _normalize(v: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(v)
+    if n == 0:
+        return v
+    return v / n
+
+
+# -------------------------
+# Startup
+# -------------------------
+@app.on_event("startup")
+def startup():
+    global face_app, faiss_index, meta_rows
+
+    # 1) Load model
+    face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    face_app.prepare(ctx_id=0, det_size=(640, 640))
+
+    # 2) Load index + meta
+    if not INDEX_PATH.exists() or not META_PATH.exists():
+        # Non crashiamo l’app: risponde 503 finché non ci sono i file
+        faiss_index = None
+        meta_rows = []
+        return
+
+    try:
+        faiss_index = faiss.read_index(str(INDEX_PATH))
+    except Exception as e:
+        faiss_index = None
+        meta_rows = []
+        raise RuntimeError(f"Cannot read FAISS index: {e}")
+
+    meta_rows = _load_meta_jsonl(META_PATH)
+
+
+# -------------------------
+# Routes: UI + Photos
+# -------------------------
+@app.get("/", response_class=HTMLResponse)
+def home():
+    index_file = STATIC_DIR / "index.html"
+    if not index_file.exists():
+        return HTMLResponse("<h1>index.html not found</h1>", status_code=404)
+    return HTMLResponse(index_file.read_text(encoding="utf-8"))
+
+
+@app.get("/photo/{filename}")
+def get_photo(filename: str):
+    # sicurezza base
+    safe_name = Path(filename).name
+    path = PHOTOS_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return FileResponse(path)
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+# -------------------------
+# Core: match selfie
+# -------------------------
+@app.post("/match_selfie")
+async def match_selfie(
+    file: UploadFile = File(...),
+    top_k_faces: int = Query(80, ge=1, le=500),
+    min_score: float = Query(0.08, ge=0.0, le=1.0),
+):
+    _ensure_ready()
+
+    # read upload
+    file_bytes = await file.read()
+    img = _read_image_from_upload(file_bytes)
+
+    # detect faces on selfie
+    assert face_app is not None
+    faces = face_app.get(img)
+    if not faces:
+        return JSONResponse({"ok": True, "count": 0, "results": []})
+
+    # prendi il volto più grande
+    faces_sorted = sorted(
+        faces,
+        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+        reverse=True
+    )
+    emb = faces_sorted[0].embedding.astype("float32")
+    emb = _normalize(emb).reshape(1, -1)
+
+    # search FAISS (IndexFlatIP => score ~ cosine se normalizzato)
+    assert faiss_index is not None
+    D, I = faiss_index.search(emb, top_k_faces)
+
+    results: List[Dict[str, Any]] = []
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0:
+            continue
+        if score < float(min_score):
+            continue
+
+        if idx >= len(meta_rows):
+            continue
+
+        row = meta_rows[idx]
+        photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
+        if not photo_id:
+            continue
+
+        results.append({
+            "photo_id": str(photo_id),
+            "score": float(score),
+        })
+
+    return {"ok": True, "count": len(results), "results": resulimport os
 import io
 import json
 import mimetypes
@@ -75,7 +272,401 @@ _meta_rows: Optional[List[Dict[str, Any]]] = None
 # =========================
 # HELPERS
 # =========================
-def _load_face_engine():
+def _load_face_engine():from __future__ import annotations
+
+import io
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+
+import numpy as np
+import cv2
+import faiss
+
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from insightface.app import FaceAnalysis
+
+
+# -------------------------
+# Paths
+# -------------------------
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+PHOTOS_DIR = BASE_DIR / "photos"
+STATIC_DIR = BASE_DIR / "static"
+
+INDEX_PATH = DATA_DIR / "faces.index"
+META_PATH = DATA_DIR / "faces.meta.jsonl"
+INDEX_DIM = 512  # InsightFace buffalo_l = 512
+
+
+# -------------------------
+# App
+# -------------------------
+app = FastAPI(title="Face Site")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global cache
+face_app: FaceAnalysis | None = None
+faiss_index: faiss.Index | None = None
+meta_rows: List[Dict[str, Any]] = []
+
+
+# -------------------------
+# Helpers
+# -------------------------
+def _load_meta_jsonl(path: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _ensure_ready():
+    if face_app is None or faiss_index is None or not meta_rows:
+        raise HTTPException(
+            status_code=503,
+            detail="Service not ready: model/index/meta not loaded."
+        )
+
+
+def _read_image_from_upload(file_bytes: bytes) -> np.ndarray:
+    arr = np.frombuffer(file_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image file.")
+    return img
+
+
+def _normalize(v: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(v)
+    if n == 0:
+        return v
+    return v / n
+
+
+# -------------------------
+# Startup
+# -------------------------
+@app.on_event("startup")
+def startup():
+    global face_app, faiss_index, meta_rows
+
+    # 1) Load model
+    face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    face_app.prepare(ctx_id=0, det_size=(640, 640))
+
+    # 2) Load index + meta
+    if not INDEX_PATH.exists() or not META_PATH.exists():
+        # Non crashiamo l’app: risponde 503 finché non ci sono i file
+        faiss_index = None
+        meta_rows = []
+        return
+
+    try:
+        faiss_index = faiss.read_index(str(INDEX_PATH))
+    except Exception as e:
+        faiss_index = None
+        meta_rows = []
+        raise RuntimeError(f"Cannot read FAISS index: {e}")
+
+    meta_rows = _load_meta_jsonl(META_PATH)
+
+
+# -------------------------
+# Routes: UI + Photos
+# -------------------------
+@app.get("/", response_class=HTMLResponse)
+def home():
+    index_file = STATIC_DIR / "index.html"
+    if not index_file.exists():
+        return HTMLResponse("<h1>index.html not found</h1>", status_code=404)
+    return HTMLResponse(index_file.read_text(encoding="utf-8"))
+
+
+@app.get("/photo/{filename}")
+def get_photo(filename: str):
+    # sicurezza base
+    safe_name = Path(filename).name
+    path = PHOTOS_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return FileResponse(path)
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+# -------------------------
+# Core: match selfie
+# -------------------------
+@app.post("/match_selfie")
+async def match_selfie(
+    file: UploadFile = File(...),
+    top_k_faces: int = Query(80, ge=1, le=500),
+    min_score: float = Query(0.08, ge=0.0, le=1.0),
+):
+    _ensure_ready()
+
+    # read upload
+    file_bytes = await file.read()
+    img = _read_image_from_upload(file_bytes)
+
+    # detect faces on selfie
+    assert face_app is not None
+    faces = face_app.get(img)
+    if not faces:
+        return JSONResponse({"ok": True, "count": 0, "results": []})
+
+    # prendi il volto più grande
+    faces_sorted = sorted(
+        faces,
+        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+        reverse=True
+    )
+    emb = faces_sorted[0].embedding.astype("float32")
+    emb = _normalize(emb).reshape(1, -1)
+
+    # search FAISS (IndexFlatIP => score ~ cosine se normalizzato)
+    assert faiss_index is not None
+    D, I = faiss_index.search(emb, top_k_faces)
+
+    results: List[Dict[str, Any]] = []
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0:
+            continue
+        if score < float(min_score):
+            continue
+
+        if idx >= len(meta_rows):
+            continue
+
+        row = meta_rows[idx]
+        photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
+        if not photo_id:
+            continue
+
+        results.append({
+            "photo_id": str(photo_id),
+            "score": float(score),
+        })
+
+    return {"ok": True, "count": len(results), "results": results}from __future__ import annotations
+
+import io
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+
+import numpy as np
+import cv2
+import faiss
+
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from insightface.app import FaceAnalysis
+
+
+# -------------------------
+# Paths
+# -------------------------
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+PHOTOS_DIR = BASE_DIR / "photos"
+STATIC_DIR = BASE_DIR / "static"
+
+INDEX_PATH = DATA_DIR / "faces.index"
+META_PATH = DATA_DIR / "faces.meta.jsonl"
+INDEX_DIM = 512  # InsightFace buffalo_l = 512
+
+
+# -------------------------
+# App
+# -------------------------
+app = FastAPI(title="Face Site")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global cache
+face_app: FaceAnalysis | None = None
+faiss_index: faiss.Index | None = None
+meta_rows: List[Dict[str, Any]] = []
+
+
+# -------------------------
+# Helpers
+# -------------------------
+def _load_meta_jsonl(path: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _ensure_ready():
+    if face_app is None or faiss_index is None or not meta_rows:
+        raise HTTPException(
+            status_code=503,
+            detail="Service not ready: model/index/meta not loaded."
+        )
+
+
+def _read_image_from_upload(file_bytes: bytes) -> np.ndarray:
+    arr = np.frombuffer(file_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image file.")
+    return img
+
+
+def _normalize(v: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(v)
+    if n == 0:
+        return v
+    return v / n
+
+
+# -------------------------
+# Startup
+# -------------------------
+@app.on_event("startup")
+def startup():
+    global face_app, faiss_index, meta_rows
+
+    # 1) Load model
+    face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    face_app.prepare(ctx_id=0, det_size=(640, 640))
+
+    # 2) Load index + meta
+    if not INDEX_PATH.exists() or not META_PATH.exists():
+        # Non crashiamo l’app: risponde 503 finché non ci sono i file
+        faiss_index = None
+        meta_rows = []
+        return
+
+    try:
+        faiss_index = faiss.read_index(str(INDEX_PATH))
+    except Exception as e:
+        faiss_index = None
+        meta_rows = []
+        raise RuntimeError(f"Cannot read FAISS index: {e}")
+
+    meta_rows = _load_meta_jsonl(META_PATH)
+
+
+# -------------------------
+# Routes: UI + Photos
+# -------------------------
+@app.get("/", response_class=HTMLResponse)
+def home():
+    index_file = STATIC_DIR / "index.html"
+    if not index_file.exists():
+        return HTMLResponse("<h1>index.html not found</h1>", status_code=404)
+    return HTMLResponse(index_file.read_text(encoding="utf-8"))
+
+
+@app.get("/photo/{filename}")
+def get_photo(filename: str):
+    # sicurezza base
+    safe_name = Path(filename).name
+    path = PHOTOS_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return FileResponse(path)
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+# -------------------------
+# Core: match selfie
+# -------------------------
+@app.post("/match_selfie")
+async def match_selfie(
+    file: UploadFile = File(...),
+    top_k_faces: int = Query(80, ge=1, le=500),
+    min_score: float = Query(0.08, ge=0.0, le=1.0),
+):
+    _ensure_ready()
+
+    # read upload
+    file_bytes = await file.read()
+    img = _read_image_from_upload(file_bytes)
+
+    # detect faces on selfie
+    assert face_app is not None
+    faces = face_app.get(img)
+    if not faces:
+        return JSONResponse({"ok": True, "count": 0, "results": []})
+
+    # prendi il volto più grande
+    faces_sorted = sorted(
+        faces,
+        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+        reverse=True
+    )
+    emb = faces_sorted[0].embedding.astype("float32")
+    emb = _normalize(emb).reshape(1, -1)
+
+    # search FAISS (IndexFlatIP => score ~ cosine se normalizzato)
+    assert faiss_index is not None
+    D, I = faiss_index.search(emb, top_k_faces)
+
+    results: List[Dict[str, Any]] = []
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0:
+            continue
+        if score < float(min_score):
+            continue
+
+        if idx >= len(meta_rows):
+            continue
+
+        row = meta_rows[idx]
+        photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
+        if not photo_id:
+            continue
+
+        results.append({
+            "photo_id": str(photo_id),
+            "score": float(score),
+        })
+
+    return {"ok": True, "count": len(results), "results": results}
     global _face_app
     if _face_app is not None:
         return _face_app
