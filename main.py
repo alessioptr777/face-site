@@ -195,7 +195,7 @@ async def match_selfie(
             "score": float(score),
         })
 
-    return {"ok": True, "count": len(results), "results": resulimport os
+    return {"ok": True, "count": len(results), "results": results}
 import io
 import json
 import mimetypes
@@ -469,22 +469,8 @@ async def match_selfie(
             "score": float(score),
         })
 
-    return {"ok": True, "count": len(results), "results": results}from __future__ import annotations
+    return {"ok": True, "count": len(results), "results": results}
 
-import io
-import json
-from pathlib import Path
-from typing import Any, Dict, List
-
-import numpy as np
-import cv2
-import faiss
-
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-
-from insightface.app import FaceAnalysis
 
 
 # -------------------------
