@@ -11,28 +11,28 @@ from fastapi.staticfiles import StaticFiles
 
 from insightface.app import FaceAnalysis
 
-
 # =========================
 # PATH ASSOLUTI SICURI
 # =========================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PHOTOS_DIR = os.path.join(BASE_DIR, "photos")
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-INDEX_PATH = os.path.join(DATA_DIR, "faces.index")
-META_PATH  = os.path.join(DATA_DIR, "faces.meta.jsonl")
-
-# Crea cartelle se mancano (così Render non esplode)
 os.makedirs(PHOTOS_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
+INDEX_PATH = os.path.join(DATA_DIR, "faces.index")
 
-# =========================
-# FASTAPI
-# =========================
+# il tuo file è "faces.meta.jsonl" (dallo screenshot)
+META_PATH  = os.path.join(DATA_DIR, "faces.meta.jsonl")
+if not os.path.exists(META_PATH):
+    # fallback se per caso l'hai chiamato in modo diverso
+    alt = os.path.join(DATA_DIR, "faces.meta.jsonl")
+    if os.path.exists(alt):
+        META_PATH = alt
+
 app = FastAPI()
 
 app.add_middleware(
@@ -43,47 +43,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static + photos
 app.mount("/photos", StaticFiles(directory=PHOTOS_DIR), name="photos")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
 def home():
-    index_html = os.path.join(STATIC_DIR, "index.html")
-    if os.path.exists(index_html):
-        return FileResponse(index_html)
-    return JSONResponse({"ok": False, "error": "static/index.html not found"}, status_code=404)
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-# =========================
-# UTILS
-# =========================
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
 def norm(v: np.ndarray) -> np.ndarray:
     v = v.astype("float32")
     return v / (np.linalg.norm(v) + 1e-8)
 
 
 # =========================
-# LOAD FACE ENGINE (LOW RAM)
+# CARICO MOTORE FACCIALE
 # =========================
-print("Carico motore facciale (CPU, low memory)...")
-# modello più leggero per Render Starter
-# CPUExecutionProvider evita tentativi GPU
-face_app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
+print("Carico motore facciale (CPU)...")
+face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+# det_size più basso = meno RAM/CPU; se vuoi più sensibilità, prova (1024,1024)
 face_app.prepare(ctx_id=-1, det_size=(640, 640))
 
 
 # =========================
-# LOAD INDEX + META
+# CARICO INDICE + META
 # =========================
 print("Carico indice...")
-
 if not os.path.exists(INDEX_PATH) or not os.path.exists(META_PATH):
     raise RuntimeError(
-        "Indice o meta non trovati. Prima esegui localmente:\n"
-        "python index_folder.py\n"
-        "e assicurati che 'data/faces.index' e 'data/faces.meta.jsonl' siano nel repo."
+        "Indice o meta non trovati.\n"
+        "Prima esegui localmente:\n"
+        "  python index_folder.py\n"
+        "Poi fai commit & push di:\n"
+        "  data/faces.index\n"
+        "  data/faces.meta.jsonl\n"
     )
 
 index = faiss.read_index(INDEX_PATH)
@@ -96,49 +95,49 @@ with open(META_PATH, "r", encoding="utf-8") as f:
             continue
         meta.append(json.loads(line))
 
+print(f"Indice caricato. Vettori totali: {index.ntotal}. Meta righe: {len(meta)}")
+
 
 def get_embedding(image_bgr: np.ndarray):
     faces = face_app.get(image_bgr)
     if not faces:
         return None
 
+    # prendo il volto più "sicuro" (score detection più alto)
     faces.sort(key=lambda f: f.det_score, reverse=True)
     emb = faces[0].embedding
     return norm(emb)
 
 
-# =========================
-# API
-# =========================
 @app.post("/match_selfie")
 async def match_selfie(
     file: UploadFile = File(...),
-    top_k_faces: int = 80,
-    min_score: float = 0.30
+    top_k_faces: int = 200,
+    min_score: float = 0.30,
+    max_results: int = 30,
 ):
     data = await file.read()
     img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
-        return {"ok": False, "error": "Immagine non valida"}
+        return JSONResponse({"ok": False, "error": "Immagine non valida"}, status_code=400)
 
     emb = get_embedding(img)
     if emb is None:
         return {"ok": False, "error": "Nessun volto rilevato nel selfie"}
 
     if index.ntotal == 0:
-        return {"ok": False, "error": "Nessuna faccia indicizzata"}
+        return {"ok": False, "error": "Indice vuoto: nessuna faccia indicizzata"}
 
-    D, I = index.search(emb.reshape(1, -1), top_k_faces)
+    # Faiss con IndexFlatIP + vettori normalizzati => score ~ cosine similarity
+    D, I = index.search(emb.reshape(1, -1), int(top_k_faces))
 
-    # deduplica per foto: tieni lo score migliore
+    # deduplica per foto: tieni lo score migliore per ogni foto
     photo_best = {}
     for score, idx in zip(D[0].tolist(), I[0].tolist()):
         if idx == -1:
             continue
-        if score < min_score:
+        if score < float(min_score):
             continue
-
-        # protezione: idx fuori range meta
         if idx >= len(meta):
             continue
 
@@ -146,11 +145,12 @@ async def match_selfie(
         if not photo_id:
             continue
 
+        # tieni il migliore per quella foto
         if (photo_id not in photo_best) or (score > photo_best[photo_id]):
-            photo_best[photo_id] = score
+            photo_best[photo_id] = float(score)
 
-    results = [{"photo_id": k, "score": float(v)} for k, v in photo_best.items()]
+    results = [{"photo_id": k, "score": v, "url": f"/photos/{k}"} for k, v in photo_best.items()]
     results.sort(key=lambda x: x["score"], reverse=True)
-
+    results = results[: int(max_results)]
 
     return {"ok": True, "count": len(results), "results": results}
