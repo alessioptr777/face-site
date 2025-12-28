@@ -14,8 +14,14 @@ from insightface.app import FaceAnalysis
 # =========================
 # PATH ASSOLUTI SICURI
 # =========================
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-PHOTOS_DIR = os.path.join(BASE_DIR, "photos")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# prova prima ./photos (Render di solito qui), se non esiste usa ../photos (setup locale)
+PHOTOS_DIR_CANDIDATE_1 = os.path.join(BASE_DIR, "photos")
+PHOTOS_DIR_CANDIDATE_2 = os.path.join(BASE_DIR, "..", "photos")
+
+PHOTOS_DIR = PHOTOS_DIR_CANDIDATE_1 if os.path.isdir(PHOTOS_DIR_CANDIDATE_1) else PHOTOS_DIR_CANDIDATE_2
+
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
@@ -34,6 +40,7 @@ if not os.path.exists(META_PATH):
         META_PATH = alt
 
 app = FastAPI()
+app.mount("/photos", StaticFiles(directory=PHOTOS_DIR), name="photos")
 
 app.add_middleware(
     CORSMiddleware,
