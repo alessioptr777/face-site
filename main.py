@@ -57,9 +57,16 @@ def norm(v):
     v = v.astype("float32")
     return v / (np.linalg.norm(v) + 1e-8)
 
-print("Carico motore facciale...")
-face_app = FaceAnalysis(name="buffalo_l")
-face_app.prepare(ctx_id=0, det_size=(1024, 1024))
+face_app = None
+
+def get_face_app():
+    global face_app
+    if face_app is None:
+        print("Carico motore facciale (lazy)...")
+        fa = FaceAnalysis(name="buffalo_l")
+        fa.prepare(ctx_id=-1, det_size=(640, 640))
+        face_app = fa
+    return face_app
 
 print("Carico indice...")
 
@@ -75,7 +82,9 @@ else:
             meta.append(json.loads(line))
 
 def get_embedding(image_bgr):
-    faces = face_app.get(image_bgr)
+    fa = get_face_app()
+faces = fa.get(image_bgr)
+
     if not faces:
         return None
     faces.sort(key=lambda f: f.det_score, reverse=True)
