@@ -1,4 +1,522 @@
 <!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Trova le tue foto</title>
+  <style>
+    :root{
+      --bg1:#5f58ff;
+      --bg2:#7b74ff;
+      --card:#ffffff;
+      --text:#0b1630;
+      --muted:#6b7a90;
+      --accent:#3a86ff;
+      --green:#2bb673;
+      --green2:#1ea463;
+      --shadow: 0 18px 45px rgba(10,20,60,.18);
+      --radius: 28px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;
+      color:var(--text);
+      min-height:100vh;
+      background: radial-gradient(1200px 700px at 20% -10%, rgba(255,255,255,.35), transparent 45%),
+                  linear-gradient(180deg,var(--bg2),var(--bg1));
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+    }
+    .shell{
+      width:min(420px,100%);
+    }
+    .card{
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(10px);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 26px 18px 18px;
+      position:relative;
+      overflow:hidden;
+    }
+    .title{
+      text-align:center;
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing:.2px;
+      margin: 6px 0 18px;
+    }
+    .how{
+      display:flex;
+      gap:14px;
+      align-items:flex-start;
+      padding:14px 14px 12px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.75);
+      border: 1px solid rgba(30,60,120,.08);
+      margin: 0 6px 18px;
+    }
+    .how .bar{
+      width:4px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(58,134,255,.9), rgba(58,134,255,.25));
+      margin-top: 6px;
+      flex:0 0 4px;
+      height: 132px;
+    }
+    .how h3{
+      margin:0 0 8px;
+      font-size: 18px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .steps{
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:grid;
+      gap:10px;
+      color: var(--text);
+    }
+    .steps li{
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      font-size: 16px;
+      line-height:1.25;
+    }
+    .ico{
+      width:22px;height:22px;
+      border-radius: 50%;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 22px;
+      background: rgba(58,134,255,.12);
+      color: var(--accent);
+      font-weight:700;
+      font-size:13px;
+      margin-top:1px;
+    }
+
+    .circleWrap{
+      display:flex;
+      justify-content:center;
+      margin: 10px 0 10px;
+    }
+    .circle{
+      width: 250px;
+      height: 250px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.75);
+      border: 10px solid rgba(255,255,255,.85);
+      box-shadow: 0 18px 40px rgba(0,0,0,.18);
+      position:relative;
+      overflow:hidden;
+    }
+    video{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* selfie mirror */
+      background: #000;
+    }
+    canvas{display:none}
+    .circleHint{
+      text-align:center;
+      color: var(--muted);
+      font-style: italic;
+      margin: 8px 8px 10px;
+      font-size: 15px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+    }
+
+    .btn{
+      width: calc(100% - 20px);
+      margin: 12px auto 8px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 0;
+      background: linear-gradient(180deg, var(--green), var(--green2));
+      color: #fff;
+      font-size: 18px;
+      font-weight: 800;
+      box-shadow: 0 14px 30px rgba(30,164,99,.32);
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active{transform: translateY(1px)}
+    .btn[disabled]{
+      opacity:.55;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
+    .smallRow{
+      display:flex;
+      justify-content:center;
+      gap:10px;
+      margin-top:6px;
+    }
+    .mini{
+      border:0;
+      background: rgba(11,22,48,.06);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor:pointer;
+    }
+    .mini:active{transform: translateY(1px)}
+
+    .status{
+      text-align:center;
+      margin: 10px 10px 2px;
+      color: var(--muted);
+      font-size: 14px;
+      min-height: 18px;
+    }
+
+    .results{
+      margin-top: 14px;
+      padding: 10px 6px 4px;
+    }
+    .resultsTitle{
+      font-weight: 900;
+      font-size: 16px;
+      margin: 6px 6px 10px;
+      color: var(--text);
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 0 6px 10px;
+    }
+    .ph{
+      background: rgba(255,255,255,.85);
+      border: 1px solid rgba(20,40,90,.10);
+      border-radius: 14px;
+      overflow:hidden;
+      position:relative;
+      box-shadow: 0 8px 20px rgba(0,0,0,.08);
+    }
+    .ph img{
+      width:100%;
+      height:120px;
+      object-fit: cover;
+      display:block;
+      background:#f2f4f8;
+    }
+    .meta{
+      padding: 8px 8px 9px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dl{
+      border:0;
+      background: rgba(58,134,255,.10);
+      color: var(--accent);
+      font-weight: 900;
+      border-radius: 10px;
+      padding: 7px 10px;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .dl:active{transform: translateY(1px)}
+
+    .footerNote{
+      text-align:center;
+      font-size:12px;
+      color: rgba(255,255,255,.9);
+      margin-top: 10px;
+      opacity:.9;
+    }
+
+    @media (max-width:380px){
+      .title{font-size: 30px}
+      .circle{width:230px;height:230px}
+      .grid{grid-template-columns: repeat(2, 1fr);}
+      .ph img{height:140px}
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <div class="title">Trova le Tue Foto</div>
+
+      <div class="how">
+        <div class="bar"></div>
+        <div>
+          <h3><span class="ico">i</span>Come Funziona</h3>
+          <ul class="steps">
+            <li><span class="ico">👤</span>La camera si attiva automaticamente</li>
+            <li><span class="ico">📷</span>Scatta un selfie chiaro</li>
+            <li><span class="ico">🔍</span>Il sistema trova le tue foto</li>
+            <li><span class="ico">⬇️</span>Scarica le foto in alta qualità</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="circleWrap">
+        <div class="circle" aria-label="Anteprima camera">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="circleHint">💡 Posizionati bene davanti alla camera e guarda l’obiettivo</div>
+
+      <button class="btn" id="shootBtn">
+        📸 Scatta Selfie
+      </button>
+
+      <div class="smallRow">
+        <button class="mini" id="switchBtn" type="button">Cambia camera</button>
+        <button class="mini" id="retryBtn" type="button">Riprova</button>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="results" id="results" style="display:none;">
+        <div class="resultsTitle">Risultati</div>
+        <div class="grid" id="grid"></div>
+      </div>
+    </div>
+
+    <div class="footerNote">Se la camera non parte, apri il sito in Safari/Chrome e consenti l’accesso alla camera.</div>
+  </div>
+
+  <script>
+    // --- CONFIG ---
+    // endpoint API: deve essere lo stesso dominio (Render) => /match_selfie
+    const API_MATCH = "/match_selfie";
+
+    // parametri default (poi li rifiniamo)
+    const TOP_K = 120;
+    const MIN_SCORE = 0.08;
+
+    // --- UI refs ---
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const shootBtn = document.getElementById("shootBtn");
+    const switchBtn = document.getElementById("switchBtn");
+    const retryBtn = document.getElementById("retryBtn");
+    const statusEl = document.getElementById("status");
+    const resultsEl = document.getElementById("results");
+    const gridEl = document.getElementById("grid");
+
+    let stream = null;
+    let useFront = true;
+
+    function setStatus(msg){
+      statusEl.textContent = msg || "";
+    }
+
+    async function stopStream(){
+      if (stream){
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+    }
+
+    async function startCamera(){
+      setStatus("Apro la camera...");
+      shootBtn.disabled = true;
+
+      await stopStream();
+
+      try{
+        const constraints = {
+          audio:false,
+          video: {
+            facingMode: useFront ? "user" : "environment"
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+
+        // iOS a volte ha bisogno di play esplicito
+        await video.play().catch(()=>{});
+
+        shootBtn.disabled = false;
+        setStatus("");
+      }catch(err){
+        console.error(err);
+        shootBtn.disabled = true;
+        setStatus("Camera non disponibile. Controlla permessi e riprova.");
+      }
+    }
+
+    function captureBlob(){
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if(!w || !h) return null;
+
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext("2d");
+      // se front camera, mirror anche sul canvas per coerenza
+      if (useFront){
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, 0, 0, w, h);
+
+      return new Promise(resolve=>{
+        canvas.toBlob(b=>resolve(b), "image/jpeg", 0.92);
+      });
+    }
+
+    function clearResults(){
+      gridEl.innerHTML = "";
+      resultsEl.style.display = "none";
+    }
+
+    function addPhotoCard(photoId, score){
+      const wrap = document.createElement("div");
+      wrap.className = "ph";
+
+      const img = document.createElement("img");
+      // IMPORTANT: backend deve servire /photo/<filename> (lo hai già usato prima)
+      img.src = "/photo/" + encodeURIComponent(photoId);
+      img.alt = photoId;
+
+      // se non si vede, ti fa capire subito perché (404 o altro)
+      img.onerror = () => {
+        img.style.display = "none";
+        const err = document.createElement("div");
+        err.style.padding = "14px";
+        err.style.fontSize = "12px";
+        err.style.color = "#b00020";
+        err.textContent = "Immagine non trovata: " + photoId;
+        wrap.prepend(err);
+      };
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+
+      const left = document.createElement("div");
+      left.textContent = (score !== null && score !== undefined)
+        ? ("score " + Number(score).toFixed(3))
+        : "";
+
+      const btn = document.createElement("button");
+      btn.className = "dl";
+      btn.textContent = "Download";
+      btn.onclick = () => {
+        // download diretto del file
+        const a = document.createElement("a");
+        a.href = "/photo/" + encodeURIComponent(photoId);
+        a.download = photoId;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+
+      meta.appendChild(left);
+      meta.appendChild(btn);
+
+      wrap.appendChild(img);
+      wrap.appendChild(meta);
+      gridEl.appendChild(wrap);
+    }
+
+    async function matchSelfie(blob){
+      setStatus("Cerco le tue foto...");
+      clearResults();
+      shootBtn.disabled = true;
+
+      try{
+        const url = API_MATCH + "?top_k_faces=" + encodeURIComponent(TOP_K) + "&min_score=" + encodeURIComponent(MIN_SCORE);
+
+        const fd = new FormData();
+        fd.append("file", blob, "selfie.jpg");
+
+        const res = await fetch(url, { method:"POST", body: fd });
+        const data = await res.json().catch(()=>null);
+
+        if(!res.ok || !data || data.ok !== true){
+          console.error("API error", res.status, data);
+          setStatus("Errore server. Riprova tra poco.");
+          shootBtn.disabled = false;
+          return;
+        }
+
+        const results = data.results || [];
+        const count = data.count || results.length;
+
+        if(!results.length){
+          setStatus("Nessuna foto trovata. Prova con più luce e guarda la camera.");
+          shootBtn.disabled = false;
+          return;
+        }
+
+        setStatus("Trovate " + count + " foto.");
+        resultsEl.style.display = "block";
+
+        results.forEach(r => addPhotoCard(r.photo_id, r.score));
+
+        shootBtn.disabled = false;
+      }catch(err){
+        console.error(err);
+        setStatus("Errore di rete. Riprova.");
+        shootBtn.disabled = false;
+      }
+    }
+
+    // --- EVENTS ---
+    shootBtn.addEventListener("click", async ()=>{
+      const blob = await captureBlob();
+      if(!blob){
+        setStatus("Aspetta 1 secondo: la camera si sta avviando.");
+        return;
+      }
+      await matchSelfie(blob);
+    });
+
+    switchBtn.addEventListener("click", async ()=>{
+      useFront = !useFront;
+      clearResults();
+      await startCamera();
+    });
+
+    retryBtn.addEventListener("click", async ()=>{
+      clearResults();
+      await startCamera();
+    });
+
+    // --- BOOT ---
+    window.addEventListener("load", async ()=>{
+      // se device non supporta camera
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        setStatus("Questo browser non supporta la camera.");
+        shootBtn.disabled = true;
+        return;
+      }
+      await startCamera();
+    });
+  </script>
+</body>
+</html><!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
