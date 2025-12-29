@@ -482,6 +482,10 @@
       width: 90%;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -551,6 +555,11 @@
     <div class="add-people-buttons">
       <button class="btn-primary" id="addPersonConfirmBtn">Sì, aggiungi un'altra persona</button>
       <button class="btn-retake" id="skipAddPersonBtn">Non ora, vai all'album</button>
+    </div>
+    <!-- Loading indicator -->
+    <div id="loadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
+      <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      <p style="color: var(--text-muted); margin-top: 15px;">Caricamento foto in corso...</p>
     </div>
   </div>
 
@@ -764,6 +773,15 @@
     async function matchPhotos() {
       if(!capturedBlob) return;
       
+      // Mostra indicatore di caricamento
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      const addPersonBtn = document.getElementById('addPersonConfirmBtn');
+      const skipBtn = document.getElementById('skipAddPersonBtn');
+      
+      if(loadingIndicator) loadingIndicator.style.display = 'block';
+      if(addPersonBtn) addPersonBtn.disabled = true;
+      if(skipBtn) skipBtn.disabled = true;
+      
       try {
         const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
@@ -772,6 +790,32 @@
           method: "POST",
           body: fd
         });
+        
+        // Controlla se la risposta è OK
+        if(!res.ok) {
+          let errorMsg = "Errore server. Riprova tra poco.";
+          try {
+            const errorData = await res.json();
+            if(errorData.detail) {
+              errorMsg = `Errore: ${errorData.detail}`;
+            } else if(errorData.error && errorData.error.message) {
+              errorMsg = `Errore: ${errorData.error.message}`;
+            }
+          } catch(e) {
+            errorMsg = `Errore ${res.status}: ${res.statusText}`;
+          }
+          console.error("Errore risposta server:", res.status, errorMsg);
+          
+          // Nascondi loading
+          if(loadingIndicator) loadingIndicator.style.display = 'none';
+          if(addPersonBtn) addPersonBtn.disabled = false;
+          if(skipBtn) skipBtn.disabled = false;
+          
+          alert(errorMsg);
+          showScreen('selfie');
+          startCamera();
+          return;
+        }
         
         const data = await res.json();
         if(data.ok && data.results && data.results.length > 0) {
@@ -785,13 +829,26 @@
           showOffersPopup(data.results.length);
           showScreen('album');
         } else {
+          // Nascondi loading
+          if(loadingIndicator) loadingIndicator.style.display = 'none';
+          if(addPersonBtn) addPersonBtn.disabled = false;
+          if(skipBtn) skipBtn.disabled = false;
+          
           alert("Nessuna foto trovata. Riprova.");
           showScreen('selfie');
           startCamera();
         }
       } catch(err) {
-        console.error(err);
-        alert("Errore nel caricamento foto.");
+        console.error("Errore nel caricamento foto:", err);
+        
+        // Nascondi loading
+        if(loadingIndicator) loadingIndicator.style.display = 'none';
+        if(addPersonBtn) addPersonBtn.disabled = false;
+        if(skipBtn) skipBtn.disabled = false;
+        
+        alert("Errore di connessione. Controlla la tua connessione internet e riprova.");
+        showScreen('selfie');
+        startCamera();
       }
     }
 
