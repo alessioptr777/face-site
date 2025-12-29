@@ -555,12 +555,21 @@
         const url = API_MATCH + "?top_k_faces=" + encodeURIComponent(TOP_K) + "&min_score=" + encodeURIComponent(MIN_SCORE);
 
         const fd = new FormData();
-        fd.append("file", blob, "selfie.jpg");
+        fd.append("selfie", blob, "selfie.jpg");
 
         const res = await fetch(url, { method:"POST", body: fd });
-        const data = await res.json().catch(()=>null);
+        
+        if(!res.ok){
+          const errorData = await res.json().catch(()=>({}));
+          console.error("API error", res.status, errorData);
+          setStatus("Errore server. Riprova tra poco.");
+          shootBtn.disabled = false;
+          bottomShootBtn.disabled = false;
+          return;
+        }
 
-        if(!res.ok || !data || data.ok !== true){
+        const data = await res.json().catch(()=>null);
+        if(!data || data.ok !== true){
           console.error("API error", res.status, data);
           setStatus("Errore server. Riprova tra poco.");
           shootBtn.disabled = false;
@@ -568,7 +577,7 @@
           return;
         }
 
-        const results = data.results || [];
+        const results = data.matches || data.results || [];
         const count = data.count || results.length;
 
         if(!results.length){
