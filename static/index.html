@@ -910,13 +910,6 @@
       }
     }
 
-    function showOffersPopup(count) {
-      // Popup offerte già implementato
-      const priceCents = calculatePrice(count);
-      const priceEuros = priceCents / 100;
-      buyAllPrice.textContent = `€${priceEuros.toFixed(2)}`;
-    }
-
     function calculatePrice(count) {
       if(count === 1) return 2000;
       if(count === 2) return 4000;
@@ -976,40 +969,6 @@
       e.preventDefault();
     });
     
-    // Popup offerte
-    function showOffersPopup(count) {
-      const offersModal = document.getElementById('offersModal');
-      const offersPhotoCount = document.getElementById('offersPhotoCount');
-      const offersMessage = document.getElementById('offersMessage');
-      const offersPrice = document.getElementById('offersPrice');
-      const offersBuyBtn = document.getElementById('offersBuyBtn');
-      const offersCloseBtn = document.getElementById('offersCloseBtn');
-      
-      const priceCents = calculatePrice(count);
-      const priceEuros = priceCents / 100;
-      
-      let message = "";
-      if(count === 1) message = "Una foto unica del tuo tour!";
-      else if(count <= 3) message = `Acquista tutte le ${count} foto e risparmia!`;
-      else if(count <= 5) message = `Pacchetto completo: ${count} foto del tuo tour!`;
-      else if(count <= 11) message = `Offerta speciale: tutte le ${count} foto in un unico pacchetto!`;
-      else message = `Mega offerta: ${count} foto del tuo tour a prezzo speciale!`;
-      
-      offersPhotoCount.textContent = count;
-      offersMessage.textContent = message;
-      offersPrice.textContent = `€${priceEuros.toFixed(2)}`;
-      
-      offersBuyBtn.onclick = () => {
-        offersModal.classList.remove('active');
-        checkout();
-      };
-      
-      offersCloseBtn.onclick = () => {
-        offersModal.classList.remove('active');
-      };
-      
-      offersModal.classList.add('active');
-    }
 
     // Boot
     window.addEventListener('load', () => {

@@ -69,8 +69,8 @@ with open(META_PATH, "w", encoding="utf-8") as meta_f, \
         
         faces = app.get(img)
         
+        # Foto senza volti (di spalle/ombra/silhouette) - salva come back photo
         if not faces:
-            # Foto senza volti (di spalle) - salva come back photo
             back_record = {
                 "photo_id": photo_id,
                 "has_face": False,
@@ -78,23 +78,23 @@ with open(META_PATH, "w", encoding="utf-8") as meta_f, \
             }
             back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
             back_photos_count += 1
-            continue
+            # Continua per indicizzare anche le facce se ci sono
+        else:
+            # Foto con volti - indicizza ogni volto
+            for f in faces:
+                emb = norm(f.embedding)
+                index.add(emb.reshape(1, -1))
 
-        # Foto con volti - indicizza ogni volto
-        for f in faces:
-            emb = norm(f.embedding)
-            index.add(emb.reshape(1, -1))
-
-            record = {
-                "face_idx": face_count,
-                "photo_id": photo_id,
-                "has_face": True,
-                "tour_date": tour_date,
-                "det_score": float(getattr(f, "det_score", 0.0)),
-                "bbox": [float(x) for x in f.bbox.tolist()],
-            }
-            meta_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            face_count += 1
+                record = {
+                    "face_idx": face_count,
+                    "photo_id": photo_id,
+                    "has_face": True,
+                    "tour_date": tour_date,
+                    "det_score": float(getattr(f, "det_score", 0.0)),
+                    "bbox": [float(x) for x in f.bbox.tolist()],
+                }
+                meta_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                face_count += 1
 
 faiss.write_index(index, INDEX_PATH)
 

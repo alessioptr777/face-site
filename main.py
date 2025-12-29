@@ -628,11 +628,51 @@ async def match_selfie(
         assert face_app is not None
         faces = face_app.get(img)
         
-        # MODIFICA: Mostriamo SOLO foto di spalle (senza volti), non foto matchate
-        # Questo perché l'utente vuole vedere solo foto di gruppo/di spalle
-        matched_results = []  # Non mostriamo foto matchate con volti
+        # Mostriamo TUTTE le foto: matchate (con volti) + foto di spalle/ombra/silhouette (senza volti)
+        matched_results: List[Dict[str, Any]] = []
+        seen_photos = set()  # Evita duplicati
         
-        # Mostriamo SEMPRE foto di spalle (senza volti), anche senza tour_date
+        if faces:
+            # Prendi il volto più grande (presumibilmente il selfie principale)
+            faces_sorted = sorted(
+                faces,
+                key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                reverse=True
+            )
+            
+            # Estrai embedding e normalizza
+            emb = faces_sorted[0].embedding.astype("float32")
+            emb = _normalize(emb).reshape(1, -1)
+            
+            # Cerca nell'indice FAISS (IndexFlatIP => score ~ cosine similarity se normalizzato)
+            assert faiss_index is not None
+            D, I = faiss_index.search(emb, top_k_faces)
+            
+            # Costruisci i risultati delle foto matchate
+            for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                if idx < 0 or idx >= len(meta_rows):
+                    continue
+                if score < float(min_score):
+                    continue
+                
+                row = meta_rows[idx]
+                photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
+                if not photo_id:
+                    continue
+                
+                # Evita duplicati (stessa foto con facce diverse)
+                if photo_id in seen_photos:
+                    continue
+                seen_photos.add(photo_id)
+                
+                matched_results.append({
+                    "photo_id": str(photo_id),
+                    "score": float(score),
+                    "has_face": True,
+                })
+                logger.debug(f"Added matched result: photo_id={photo_id}, score={score:.4f}")
+        
+        # Aggiungi foto di spalle/ombra/silhouette (senza volti visibili)
         back_results: List[Dict[str, Any]] = []
         
         # Se tour_date fornita, filtra per data, altrimenti mostra tutte le foto di spalle
@@ -652,6 +692,11 @@ async def match_selfie(
                     continue
                 seen_back_photos.add(photo_id)
                 
+                # Evita duplicati con foto già matchate
+                if photo_id in seen_photos:
+                    continue
+                seen_photos.add(photo_id)
+                
                 # Filtra per data del tour
                 photo_tour_date = back_photo.get("tour_date")
                 if photo_tour_date and normalized_date in photo_tour_date:
@@ -662,7 +707,7 @@ async def match_selfie(
                         "is_back_photo": True,
                     })
         else:
-            # Senza tour_date, mostra tutte le foto di spalle
+            # Senza tour_date, mostra tutte le foto di spalle/ombra/silhouette
             seen_back_photos = set()
             for back_photo in back_photos:
                 photo_id = back_photo.get("photo_id")
@@ -672,6 +717,11 @@ async def match_selfie(
                 if photo_id in seen_back_photos:
                     continue
                 seen_back_photos.add(photo_id)
+                
+                # Evita duplicati con foto già matchate
+                if photo_id in seen_photos:
+                    continue
+                seen_photos.add(photo_id)
                 
                 back_results.append({
                     "photo_id": str(photo_id),
