@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: face-site
+    name: tenerifepictures
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
