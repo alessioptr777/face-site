@@ -52,11 +52,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Crea cartella photos se non esiste
+PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-if PHOTOS_DIR.exists():
-    app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
+# Monta sempre /photo (senza controllo exists)
+app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
 
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
@@ -101,6 +104,15 @@ def health():
         "service": APP_NAME,
         "version": APP_VERSION,
         "time_utc": datetime.now(timezone.utc).isoformat()
+    }
+
+@app.get("/debug/paths")
+def debug_paths():
+    return {
+        "photos_dir": str(PHOTOS_DIR),
+        "photos_dir_absolute": str(PHOTOS_DIR.resolve()),
+        "photos_exists": PHOTOS_DIR.exists(),
+        "photos_files": [p.name for p in PHOTOS_DIR.iterdir()][:30] if PHOTOS_DIR.exists() else [],
     }
 
 @app.post("/match_selfie")
