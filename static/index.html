@@ -703,11 +703,25 @@
       showScreen('selfie');
     });
     document.getElementById("skipAddPersonBtn").addEventListener("click", () => {
-      matchPhotos();
+      // Se le foto sono già state caricate, mostra direttamente l'album
+      if(allPhotos && allPhotos.length > 0) {
+        displayPhotos();
+        updateCart();
+        showScreen('album');
+      } else {
+        matchPhotos();
+      }
     });
     document.getElementById("addPersonConfirmBtn").addEventListener("click", () => {
       // Per ora salta, poi implementeremo aggiunta persone
-      matchPhotos();
+      // Se le foto sono già state caricate, mostra direttamente l'album
+      if(allPhotos && allPhotos.length > 0) {
+        displayPhotos();
+        updateCart();
+        showScreen('album');
+      } else {
+        matchPhotos();
+      }
     });
     document.getElementById("buyAllBtn").addEventListener("click", checkout);
     document.getElementById("albumBackBtn").addEventListener("click", () => {
@@ -771,7 +785,13 @@
 
     // Funzioni matching
     async function matchPhotos() {
-      if(!capturedBlob) return;
+      if(!capturedBlob) {
+        console.error("capturedBlob è null!");
+        alert("Errore: selfie non trovato. Per favore scatta di nuovo.");
+        showScreen('selfie');
+        startCamera();
+        return;
+      }
       
       // Mostra indicatore di caricamento
       const loadingIndicator = document.getElementById('loadingIndicator');
@@ -783,6 +803,7 @@
       if(skipBtn) skipBtn.disabled = true;
       
       try {
+        console.log("Inizio matchPhotos: invio selfie al server...");
         const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
         
@@ -791,17 +812,21 @@
           body: fd
         });
         
+        console.log("Risposta ricevuta, status:", res.status, res.ok);
+        
         // Controlla se la risposta è OK
         if(!res.ok) {
           let errorMsg = "Errore server. Riprova tra poco.";
           try {
             const errorData = await res.json();
+            console.error("Errore dal server:", errorData);
             if(errorData.detail) {
               errorMsg = `Errore: ${errorData.detail}`;
             } else if(errorData.error && errorData.error.message) {
               errorMsg = `Errore: ${errorData.error.message}`;
             }
           } catch(e) {
+            console.error("Errore nel parsing JSON di errore:", e);
             errorMsg = `Errore ${res.status}: ${res.statusText}`;
           }
           console.error("Errore risposta server:", res.status, errorMsg);
@@ -818,17 +843,37 @@
         }
         
         const data = await res.json();
-        if(data.ok && data.results && data.results.length > 0) {
-          allPhotos = data.results;
+        console.log("Dati ricevuti:", { 
+          ok: data.ok, 
+          count: data.count, 
+          resultsLength: data.results ? data.results.length : 0,
+          matchesLength: data.matches ? data.matches.length : 0
+        });
+        
+        // Usa results o matches (per compatibilità)
+        const photos = data.results || data.matches || [];
+        
+        if(data.ok && photos.length > 0) {
+          console.log(`Trovate ${photos.length} foto, aggiungo al carrello...`);
+          allPhotos = photos;
+          
           // Aggiungi automaticamente tutte le foto al carrello
           for(const photo of allPhotos) {
-            await addToCart(photo.photo_id);
+            try {
+              await addToCart(photo.photo_id);
+            } catch(cartErr) {
+              console.error("Errore aggiungendo foto al carrello:", photo.photo_id, cartErr);
+              // Continua anche se una foto fallisce
+            }
           }
+          
+          console.log("Foto aggiunte al carrello, mostro album...");
           displayPhotos();
           updateCart();
-          showOffersPopup(data.results.length);
+          showOffersPopup(photos.length);
           showScreen('album');
         } else {
+          console.warn("Nessuna foto trovata o risposta non valida:", data);
           // Nascondi loading
           if(loadingIndicator) loadingIndicator.style.display = 'none';
           if(addPersonBtn) addPersonBtn.disabled = false;
@@ -840,6 +885,7 @@
         }
       } catch(err) {
         console.error("Errore nel caricamento foto:", err);
+        console.error("Stack trace:", err.stack);
         
         // Nascondi loading
         if(loadingIndicator) loadingIndicator.style.display = 'none';
@@ -864,6 +910,69 @@
         div.querySelector('img').addEventListener('click', () => openLightbox(index));
         albumGrid.appendChild(div);
       });
+    }
+
+    function showOffersPopup(photoCount) {
+      const offersModal = document.getElementById('offersModal');
+      const offersPhotoCount = document.getElementById('offersPhotoCount');
+      const offersMessage = document.getElementById('offersMessage');
+      const offersPrice = document.getElementById('offersPrice');
+      const offersBuyBtn = document.getElementById('offersBuyBtn');
+      const offersCloseBtn = document.getElementById('offersCloseBtn');
+      
+      if(!offersModal) {
+        console.warn("Modal offerte non trovato");
+        return;
+      }
+      
+      // Aggiorna conteggio foto
+      if(offersPhotoCount) {
+        offersPhotoCount.textContent = photoCount;
+      }
+      
+      // Calcola prezzo
+      const priceCents = calculatePrice(photoCount);
+      const priceEuros = (priceCents / 100).toFixed(2);
+      
+      if(offersPrice) {
+        offersPrice.textContent = `€${priceEuros}`;
+      }
+      
+      // Messaggio personalizzato in base al numero di foto
+      let message = "";
+      if(photoCount === 1) {
+        message = "Acquista la tua foto preferita!";
+      } else if(photoCount <= 5) {
+        message = `Acquista tutte le ${photoCount} foto con uno sconto speciale!`;
+      } else if(photoCount <= 11) {
+        message = `Ottimo! Hai ${photoCount} foto. Acquista tutte insieme e risparmia!`;
+      } else {
+        message = `Fantastico! Hai ${photoCount} foto. Acquista tutte insieme al prezzo migliore!`;
+      }
+      
+      if(offersMessage) {
+        offersMessage.textContent = message;
+      }
+      
+      // Event listener per pulsante acquista (se non già presente)
+      if(offersBuyBtn && !offersBuyBtn.dataset.listenerAdded) {
+        offersBuyBtn.addEventListener('click', () => {
+          checkout();
+          offersModal.classList.remove('active');
+        });
+        offersBuyBtn.dataset.listenerAdded = 'true';
+      }
+      
+      // Event listener per pulsante chiudi (se non già presente)
+      if(offersCloseBtn && !offersCloseBtn.dataset.listenerAdded) {
+        offersCloseBtn.addEventListener('click', () => {
+          offersModal.classList.remove('active');
+        });
+        offersCloseBtn.dataset.listenerAdded = 'true';
+      }
+      
+      // Mostra modal
+      offersModal.classList.add('active');
     }
 
     function openLightbox(index) {
