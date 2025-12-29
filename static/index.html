@@ -540,6 +540,11 @@
       <button class="btn-confirm" id="confirmBtn">Conferma</button>
       <button class="btn-retake" id="retakeBtn">Scatta di nuovo</button>
     </div>
+    <!-- Loading indicator per ricerca foto -->
+    <div id="confirmLoadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
+      <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      <p style="color: var(--text-muted); margin-top: 15px;">Ricerca foto in corso...</p>
+    </div>
   </div>
 
   <!-- Add People Screen -->
@@ -780,7 +785,8 @@
     }
 
     function confirmSelfie() {
-      showScreen('addPeople');
+      // Dopo la conferma del selfie, cerca direttamente le foto
+      matchPhotos();
     }
 
     // Funzioni matching
@@ -793,14 +799,14 @@
         return;
       }
       
-      // Mostra indicatore di caricamento
-      const loadingIndicator = document.getElementById('loadingIndicator');
-      const addPersonBtn = document.getElementById('addPersonConfirmBtn');
-      const skipBtn = document.getElementById('skipAddPersonBtn');
+      // Mostra indicatore di caricamento nello schermo di conferma
+      const confirmLoadingIndicator = document.getElementById('confirmLoadingIndicator');
+      const confirmBtn = document.getElementById('confirmBtn');
+      const retakeBtn = document.getElementById('retakeBtn');
       
-      if(loadingIndicator) loadingIndicator.style.display = 'block';
-      if(addPersonBtn) addPersonBtn.disabled = true;
-      if(skipBtn) skipBtn.disabled = true;
+      if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'block';
+      if(confirmBtn) confirmBtn.disabled = true;
+      if(retakeBtn) retakeBtn.disabled = true;
       
       try {
         console.log("Inizio matchPhotos: invio selfie al server...");
@@ -832,9 +838,9 @@
           console.error("Errore risposta server:", res.status, errorMsg);
           
           // Nascondi loading
-          if(loadingIndicator) loadingIndicator.style.display = 'none';
-          if(addPersonBtn) addPersonBtn.disabled = false;
-          if(skipBtn) skipBtn.disabled = false;
+          if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'none';
+          if(confirmBtn) confirmBtn.disabled = false;
+          if(retakeBtn) retakeBtn.disabled = false;
           
           alert(errorMsg);
           showScreen('selfie');
@@ -875,9 +881,9 @@
         } else {
           console.warn("Nessuna foto trovata o risposta non valida:", data);
           // Nascondi loading
-          if(loadingIndicator) loadingIndicator.style.display = 'none';
-          if(addPersonBtn) addPersonBtn.disabled = false;
-          if(skipBtn) skipBtn.disabled = false;
+          if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'none';
+          if(confirmBtn) confirmBtn.disabled = false;
+          if(retakeBtn) retakeBtn.disabled = false;
           
           alert("Nessuna foto trovata. Riprova.");
           showScreen('selfie');
@@ -888,9 +894,9 @@
         console.error("Stack trace:", err.stack);
         
         // Nascondi loading
-        if(loadingIndicator) loadingIndicator.style.display = 'none';
-        if(addPersonBtn) addPersonBtn.disabled = false;
-        if(skipBtn) skipBtn.disabled = false;
+        if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'none';
+        if(confirmBtn) confirmBtn.disabled = false;
+        if(retakeBtn) retakeBtn.disabled = false;
         
         alert("Errore di connessione. Controlla la tua connessione internet e riprova.");
         showScreen('selfie');
