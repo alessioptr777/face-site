@@ -513,11 +513,15 @@
   <div class="screen selfie-screen" id="selfieScreen">
     <div class="selfie-preview">
       <div class="selfie-video">
-        <video id="video" autoplay playsinline muted></video>
+        <video id="video" autoplay playsinline muted webkit-playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
+        <div id="videoPlaceholder" style="display: none; text-align: center; padding: 40px; color: var(--text-muted);">
+          <p>La fotocamera non è disponibile</p>
+          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 20px;">Riprova</button>
+        </div>
       </div>
       <div class="selfie-controls">
-        <button class="camera-btn" id="captureBtn">
+        <button class="camera-btn" id="captureBtn" disabled>
           <svg viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10"/>
           </svg>
@@ -696,9 +700,12 @@
     }
 
     // Event listeners
-    document.getElementById("welcomeContinueBtn").addEventListener("click", () => {
-      startCamera();
+    document.getElementById("welcomeContinueBtn").addEventListener("click", async () => {
       showScreen('selfie');
+      // Aspetta un attimo che lo schermo sia visibile, poi avvia la camera
+      setTimeout(async () => {
+        await startCamera();
+      }, 100);
     });
 
     document.getElementById("captureBtn").addEventListener("click", captureSelfie);
@@ -706,6 +713,13 @@
     document.getElementById("retakeBtn").addEventListener("click", () => {
       startCamera();
       showScreen('selfie');
+    });
+    document.getElementById("retryCameraBtn")?.addEventListener("click", async () => {
+      const placeholder = document.getElementById('videoPlaceholder');
+      const video = document.getElementById('video');
+      if(placeholder) placeholder.style.display = 'none';
+      if(video) video.style.display = 'block';
+      await startCamera();
     });
     document.getElementById("skipAddPersonBtn").addEventListener("click", () => {
       // Se le foto sono già state caricate, mostra direttamente l'album
@@ -757,31 +771,197 @@
     // Funzioni camera
     async function startCamera() {
       try {
+        // Verifica supporto camera
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Questo browser non supporta l'accesso alla fotocamera. Prova con Chrome o Safari.");
+          return;
+        }
+
+        // Ferma stream precedente se esiste
+        if(stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+
+        console.log("Richiesta accesso camera...");
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: useFront ? 'user' : 'environment' }
+          video: { 
+            facingMode: useFront ? 'user' : 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
         });
+        
+        console.log("Stream ottenuto, assegno al video...");
         video.srcObject = stream;
+        
+        // Aspetta che il video sia pronto (importante su mobile)
+        await new Promise((resolve, reject) => {
+          let resolved = false;
+          
+          const onPlaying = () => {
+            if(!resolved && video.videoWidth > 0 && video.videoHeight > 0) {
+              console.log("Video in riproduzione, dimensioni:", video.videoWidth, "x", video.videoHeight);
+              resolved = true;
+              resolve();
+            }
+          };
+          
+          const checkReady = () => {
+            if(video.readyState >= 2 && !resolved) { // HAVE_CURRENT_DATA o superiore
+              console.log("Video metadata caricati, dimensioni:", video.videoWidth, "x", video.videoHeight);
+              video.play().then(() => {
+                console.log("Video play() chiamato");
+                // Su iOS a volte serve aspettare l'evento 'playing'
+                video.addEventListener('playing', onPlaying, { once: true });
+                // Fallback: controlla dopo un delay
+                setTimeout(() => {
+                  if(!resolved && video.videoWidth > 0 && video.videoHeight > 0) {
+                    onPlaying();
+                  }
+                }, 500);
+              }).catch((playErr) => {
+                console.error("Errore play():", playErr);
+                // Su iOS potrebbe essere necessario un interazione utente
+                if(playErr.name === 'NotAllowedError') {
+                  reject(new Error("Premi sul video per avviare la fotocamera"));
+                } else {
+                  reject(playErr);
+                }
+              });
+            }
+          };
+          
+          video.onloadedmetadata = checkReady;
+          video.onplaying = onPlaying;
+          video.onerror = (e) => {
+            console.error("Errore video:", e);
+            if(!resolved) {
+              resolved = true;
+              reject(new Error("Errore nel caricamento del video"));
+            }
+          };
+          
+          // Avvia il check
+          if(video.readyState >= 2) {
+            checkReady();
+          } else {
+            video.onloadedmetadata = checkReady;
+          }
+          
+          // Timeout dopo 10 secondi
+          setTimeout(() => {
+            if(!resolved) {
+              resolved = true;
+              reject(new Error("Timeout caricamento video"));
+            }
+          }, 10000);
+        });
+        
+        // Abilita il pulsante di cattura
+        const captureBtn = document.getElementById('captureBtn');
+        if(captureBtn) {
+          captureBtn.disabled = false;
+        }
+        
+        // Nascondi placeholder se visibile
+        const placeholder = document.getElementById('videoPlaceholder');
+        if(placeholder) {
+          placeholder.style.display = 'none';
+        }
+        
       } catch (err) {
-        alert("Errore accesso camera: " + err.message);
+        console.error("Errore accesso camera:", err);
+        
+        // Mostra placeholder
+        const placeholder = document.getElementById('videoPlaceholder');
+        const video = document.getElementById('video');
+        if(placeholder && video) {
+          placeholder.style.display = 'block';
+          video.style.display = 'none';
+        }
+        
+        // Disabilita pulsante cattura
+        const captureBtn = document.getElementById('captureBtn');
+        if(captureBtn) {
+          captureBtn.disabled = true;
+        }
+        
+        let errorMsg = "Errore accesso camera.";
+        if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          errorMsg = "Permesso camera negato. Abilita l'accesso alla fotocamera nelle impostazioni del browser.";
+        } else if(err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          errorMsg = "Nessuna fotocamera trovata.";
+        } else if(err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          errorMsg = "La fotocamera è già in uso da un'altra app.";
+        } else {
+          errorMsg = "Errore accesso camera: " + err.message;
+        }
+        
+        // Mostra messaggio nel placeholder
+        if(placeholder) {
+          const msgEl = placeholder.querySelector('p');
+          if(msgEl) {
+            msgEl.textContent = errorMsg;
+          }
+        }
       }
     }
 
     function captureSelfie() {
-      const ctx = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-      
-      canvas.toBlob((blob) => {
-        capturedBlob = blob;
-        const url = URL.createObjectURL(blob);
-        confirmPreview.src = url;
-        mainPersonAvatar.src = url;
-        if(stream) {
-          stream.getTracks().forEach(track => track.stop());
+      try {
+        // Verifica che il video sia pronto
+        if(!video || !video.videoWidth || !video.videoHeight) {
+          console.error("Video non pronto:", {
+            video: !!video,
+            width: video?.videoWidth,
+            height: video?.videoHeight,
+            readyState: video?.readyState
+          });
+          alert("La fotocamera non è ancora pronta. Attendi un attimo e riprova.");
+          return;
         }
-        showScreen('confirm');
-      }, 'image/jpeg', 0.9);
+
+        console.log("Cattura selfie, dimensioni video:", video.videoWidth, "x", video.videoHeight);
+        
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // Disegna il frame corrente del video sul canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        console.log("Canvas creato, dimensioni:", canvas.width, "x", canvas.height);
+        
+        // Converti canvas in blob
+        canvas.toBlob((blob) => {
+          if(!blob) {
+            console.error("Errore: blob non creato");
+            alert("Errore nella cattura della foto. Riprova.");
+            return;
+          }
+          
+          console.log("Blob creato, dimensione:", blob.size, "bytes");
+          capturedBlob = blob;
+          const url = URL.createObjectURL(blob);
+          confirmPreview.src = url;
+          if(mainPersonAvatar) {
+            mainPersonAvatar.src = url;
+          }
+          
+          // Ferma lo stream
+          if(stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+          }
+          
+          showScreen('confirm');
+        }, 'image/jpeg', 0.9);
+        
+      } catch(err) {
+        console.error("Errore nella cattura selfie:", err);
+        alert("Errore nella cattura della foto: " + err.message);
+      }
     }
 
     function confirmSelfie() {
