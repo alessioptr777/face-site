@@ -77,9 +77,9 @@ app.add_middleware(
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Monta SEMPRE /photo (senza condizioni)
-app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
-logger.info(f"Mounted /photo -> {PHOTOS_DIR.resolve()}")
+# NON usare mount per /photo - usiamo endpoint esplicito per controllo migliore
+# app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
+logger.info(f"Will serve photos from: {PHOTOS_DIR.resolve()}")
 
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
@@ -153,16 +153,35 @@ def debug_paths():
 
 @app.get("/photo/{filename:path}")
 async def serve_photo(filename: str):
-    """Endpoint alternativo per servire le foto (fallback se StaticFiles non funziona)"""
+    """Endpoint per servire le foto"""
+    # Decodifica il filename (potrebbe essere URL encoded)
+    try:
+        from urllib.parse import unquote
+        filename = unquote(filename)
+    except:
+        pass
+    
     photo_path = PHOTOS_DIR / filename
     
     # Sicurezza: previeni directory traversal
     try:
-        photo_path.resolve().relative_to(PHOTOS_DIR.resolve())
-    except ValueError:
+        resolved_path = photo_path.resolve()
+        resolved_photos_dir = PHOTOS_DIR.resolve()
+        resolved_path.relative_to(resolved_photos_dir)
+    except (ValueError, OSError):
+        logger.warning(f"Directory traversal attempt blocked: {filename}")
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if not photo_path.exists() or not photo_path.is_file():
+    # Log per debug
+    logger.info(f"Serving photo request: {filename} -> {resolved_path}")
+    logger.info(f"File exists: {photo_path.exists()}, is_file: {photo_path.is_file() if photo_path.exists() else False}")
+    
+    if not photo_path.exists():
+        logger.error(f"Photo not found: {filename} (path: {resolved_path})")
+        raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
+    
+    if not photo_path.is_file():
+        logger.error(f"Path is not a file: {filename} (path: {resolved_path})")
         raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
     
     return FileResponse(photo_path)
