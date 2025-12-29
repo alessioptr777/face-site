@@ -152,39 +152,49 @@ def debug_paths():
     }
 
 @app.get("/photo/{filename:path}")
-async def serve_photo(filename: str):
+async def serve_photo(filename: str, request: Request):
     """Endpoint per servire le foto"""
+    logger.info(f"=== PHOTO REQUEST ===")
+    logger.info(f"Request path: {request.url.path}")
+    logger.info(f"Filename parameter: {filename}")
+    
     # Decodifica il filename (potrebbe essere URL encoded)
     try:
         from urllib.parse import unquote
         filename = unquote(filename)
-    except:
-        pass
+        logger.info(f"Decoded filename: {filename}")
+    except Exception as e:
+        logger.warning(f"Error decoding filename: {e}")
     
     photo_path = PHOTOS_DIR / filename
+    logger.info(f"Photo path: {photo_path}")
     
     # Sicurezza: previeni directory traversal
     try:
         resolved_path = photo_path.resolve()
         resolved_photos_dir = PHOTOS_DIR.resolve()
-        resolved_path.relative_to(resolved_photos_dir)
-    except (ValueError, OSError):
-        logger.warning(f"Directory traversal attempt blocked: {filename}")
+        relative_path = resolved_path.relative_to(resolved_photos_dir)
+        logger.info(f"Resolved path: {resolved_path}")
+        logger.info(f"Relative path check OK: {relative_path}")
+    except (ValueError, OSError) as e:
+        logger.error(f"Directory traversal attempt blocked: {filename} - {e}")
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Log per debug
-    logger.info(f"Serving photo request: {filename} -> {resolved_path}")
-    logger.info(f"File exists: {photo_path.exists()}, is_file: {photo_path.is_file() if photo_path.exists() else False}")
+    logger.info(f"Checking file: exists={photo_path.exists()}, is_file={photo_path.is_file() if photo_path.exists() else False}")
     
     if not photo_path.exists():
-        logger.error(f"Photo not found: {filename} (path: {resolved_path})")
+        logger.error(f"Photo not found: {filename}")
+        logger.error(f"Full path checked: {resolved_path}")
+        logger.error(f"PHOTOS_DIR contents: {list(PHOTOS_DIR.iterdir())}")
         raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
     
     if not photo_path.is_file():
-        logger.error(f"Path is not a file: {filename} (path: {resolved_path})")
+        logger.error(f"Path is not a file: {filename}")
         raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
     
-    return FileResponse(photo_path)
+    logger.info(f"Returning file: {resolved_path}")
+    return FileResponse(resolved_path)
 
 @app.post("/match_selfie")
 async def match_selfie(
