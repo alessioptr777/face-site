@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Trova le tue foto</title>
+  <title>Metaproos - Trova le tue foto</title>
   <style>
     :root{
       --bg1:#5f58ff;
@@ -25,14 +25,32 @@
       min-height:100vh;
       background: radial-gradient(1200px 700px at 20% -10%, rgba(255,255,255,.35), transparent 45%),
                   linear-gradient(180deg,var(--bg2),var(--bg1));
-      display:flex;
-      align-items:center;
-      justify-content:center;
       padding:18px;
+      padding-bottom: 100px;
     }
+    
     .shell{
-      width:min(420px,100%);
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
     }
+    
+    @media (min-width: 980px){
+      .shell{
+        grid-template-columns: 420px 1fr;
+        align-items: start;
+      }
+      body{
+        padding-bottom: 18px;
+      }
+    }
+    
+    .leftCol, .rightCol{
+      width: 100%;
+    }
+    
     .card{
       background: rgba(255,255,255,.92);
       backdrop-filter: blur(10px);
@@ -41,14 +59,52 @@
       padding: 26px 18px 18px;
       position:relative;
       overflow:hidden;
+      margin-bottom: 20px;
     }
+    
+    .brandCard{
+      text-align: center;
+      padding: 32px 24px;
+    }
+    
+    .brandLogo{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--bg1));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 36px;
+      font-weight: 900;
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(58,134,255,.3);
+    }
+    
+    .brandTitle{
+      font-size: 32px;
+      font-weight: 900;
+      margin: 0 0 8px;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+    
+    .brandSubtitle{
+      font-size: 16px;
+      color: var(--muted);
+      margin: 0;
+      font-weight: 500;
+    }
+    
     .title{
       text-align:center;
-      font-size: 34px;
+      font-size: 28px;
       font-weight: 800;
       letter-spacing:.2px;
-      margin: 6px 0 18px;
+      margin: 0 0 18px;
     }
+    
     .how{
       display:flex;
       gap:14px;
@@ -122,7 +178,7 @@
       width:100%;
       height:100%;
       object-fit: cover;
-      transform: scaleX(-1); /* selfie mirror */
+      transform: scaleX(-1);
       background: #000;
     }
     canvas{display:none}
@@ -156,6 +212,8 @@
       cursor:pointer;
       user-select:none;
       -webkit-tap-highlight-color: transparent;
+      position: relative;
+      z-index: 10;
     }
     .btn:active{transform: translateY(1px)}
     .btn[disabled]{
@@ -177,6 +235,8 @@
       padding: 10px 12px;
       font-weight: 700;
       cursor:pointer;
+      position: relative;
+      z-index: 10;
     }
     .mini:active{transform: translateY(1px)}
 
@@ -194,14 +254,14 @@
     }
     .resultsTitle{
       font-weight: 900;
-      font-size: 16px;
-      margin: 6px 6px 10px;
+      font-size: 20px;
+      margin: 0 0 16px;
       color: var(--text);
     }
     .grid{
       display:grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
       padding: 0 6px 10px;
     }
     .ph{
@@ -214,7 +274,7 @@
     }
     .ph img{
       width:100%;
-      height:120px;
+      height:140px;
       object-fit: cover;
       display:block;
       background:#f2f4f8;
@@ -247,9 +307,42 @@
       margin-top: 10px;
       opacity:.9;
     }
+    
+    .bottomBar{
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(0,0,0,.08);
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      align-items: center;
+      z-index: 1000;
+      box-shadow: 0 -4px 20px rgba(0,0,0,.08);
+    }
+    
+    .bottomBar .btn{
+      width: auto;
+      flex: 1;
+      max-width: 200px;
+      margin: 0;
+      font-size: 16px;
+      padding: 12px 16px;
+    }
+    
+    @media (min-width: 980px){
+      .bottomBar{
+        display: none;
+      }
+    }
 
     @media (max-width:380px){
-      .title{font-size: 30px}
+      .brandTitle{font-size: 28px}
+      .title{font-size: 24px}
       .circle{width:230px;height:230px}
       .grid{grid-template-columns: repeat(2, 1fr);}
       .ph img{height:140px}
@@ -258,57 +351,70 @@
 </head>
 <body>
   <div class="shell">
-    <div class="card">
-      <div class="title">Trova le Tue Foto</div>
+    <div class="leftCol">
+      <div class="card brandCard">
+        <div class="brandLogo">M</div>
+        <h1 class="brandTitle">Metaproos</h1>
+        <p class="brandSubtitle">Trova le tue foto in 10 secondi</p>
+      </div>
 
-      <div class="how">
-        <div class="bar"></div>
-        <div>
-          <h3><span class="ico">i</span>Come Funziona</h3>
-          <ul class="steps">
-            <li><span class="ico">👤</span>La camera si attiva automaticamente</li>
-            <li><span class="ico">📷</span>Scatta un selfie chiaro</li>
-            <li><span class="ico">🔍</span>Il sistema trova le tue foto</li>
-            <li><span class="ico">⬇️</span>Scarica le foto in alta qualità</li>
-          </ul>
+      <div class="card">
+        <div class="title">Trova le Tue Foto</div>
+
+        <div class="how">
+          <div class="bar"></div>
+          <div>
+            <h3><span class="ico">i</span>Come Funziona</h3>
+            <ul class="steps">
+              <li><span class="ico">👤</span>La camera si attiva automaticamente</li>
+              <li><span class="ico">📷</span>Scatta un selfie chiaro</li>
+              <li><span class="ico">🔍</span>Il sistema trova le tue foto</li>
+              <li><span class="ico">⬇️</span>Scarica le foto in alta qualità</li>
+            </ul>
+          </div>
         </div>
-      </div>
 
-      <div class="circleWrap">
-        <div class="circle" aria-label="Anteprima camera">
-          <video id="video" autoplay playsinline muted></video>
-          <canvas id="canvas"></canvas>
+        <div class="circleWrap">
+          <div class="circle" aria-label="Anteprima camera">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+          </div>
         </div>
+
+        <div class="circleHint">💡 Posizionati bene davanti alla camera e guarda l'obiettivo</div>
+
+        <button class="btn" id="shootBtn">
+          📸 Scatta Selfie
+        </button>
+
+        <div class="smallRow">
+          <button class="mini" id="switchBtn" type="button">Cambia camera</button>
+          <button class="mini" id="retryBtn" type="button">Riprova</button>
+        </div>
+
+        <div class="status" id="status"></div>
       </div>
 
-      <div class="circleHint">💡 Posizionati bene davanti alla camera e guarda l’obiettivo</div>
-
-      <button class="btn" id="shootBtn">
-        📸 Scatta Selfie
-      </button>
-
-      <div class="smallRow">
-        <button class="mini" id="switchBtn" type="button">Cambia camera</button>
-        <button class="mini" id="retryBtn" type="button">Riprova</button>
-      </div>
-
-      <div class="status" id="status"></div>
-
-      <div class="results" id="results" style="display:none;">
-        <div class="resultsTitle">Risultati</div>
-        <div class="grid" id="grid"></div>
-      </div>
+      <div class="footerNote">Se la camera non parte, apri il sito in Safari/Chrome e consenti l'accesso alla camera.</div>
     </div>
 
-    <div class="footerNote">Se la camera non parte, apri il sito in Safari/Chrome e consenti l’accesso alla camera.</div>
+    <div class="rightCol">
+      <div class="card">
+        <div class="results" id="results" style="display:none;">
+          <div class="resultsTitle">Risultati</div>
+          <div class="grid" id="grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottomBar">
+    <button class="btn" id="bottomShootBtn">📸 Scatta Selfie</button>
   </div>
 
   <script>
     // --- CONFIG ---
-    // endpoint API: deve essere lo stesso dominio (Render) => /match_selfie
     const API_MATCH = "/match_selfie";
-
-    // parametri default (poi li rifiniamo)
     const TOP_K = 120;
     const MIN_SCORE = 0.08;
 
@@ -321,6 +427,7 @@
     const statusEl = document.getElementById("status");
     const resultsEl = document.getElementById("results");
     const gridEl = document.getElementById("grid");
+    const bottomShootBtn = document.getElementById("bottomShootBtn");
 
     let stream = null;
     let useFront = true;
@@ -339,6 +446,7 @@
     async function startCamera(){
       setStatus("Apro la camera...");
       shootBtn.disabled = true;
+      bottomShootBtn.disabled = true;
 
       await stopStream();
 
@@ -353,14 +461,15 @@
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
 
-        // iOS a volte ha bisogno di play esplicito
         await video.play().catch(()=>{});
 
         shootBtn.disabled = false;
+        bottomShootBtn.disabled = false;
         setStatus("");
       }catch(err){
         console.error(err);
         shootBtn.disabled = true;
+        bottomShootBtn.disabled = true;
         setStatus("Camera non disponibile. Controlla permessi e riprova.");
       }
     }
@@ -374,7 +483,6 @@
       canvas.height = h;
 
       const ctx = canvas.getContext("2d");
-      // se front camera, mirror anche sul canvas per coerenza
       if (useFront){
         ctx.translate(w, 0);
         ctx.scale(-1, 1);
@@ -396,11 +504,9 @@
       wrap.className = "ph";
 
       const img = document.createElement("img");
-      // IMPORTANT: backend deve servire /photo/<filename> (lo hai già usato prima)
       img.src = "/photo/" + encodeURIComponent(photoId);
       img.alt = photoId;
 
-      // se non si vede, ti fa capire subito perché (404 o altro)
       img.onerror = () => {
         img.style.display = "none";
         const err = document.createElement("div");
@@ -423,7 +529,6 @@
       btn.className = "dl";
       btn.textContent = "Download";
       btn.onclick = () => {
-        // download diretto del file
         const a = document.createElement("a");
         a.href = "/photo/" + encodeURIComponent(photoId);
         a.download = photoId;
@@ -444,6 +549,7 @@
       setStatus("Cerco le tue foto...");
       clearResults();
       shootBtn.disabled = true;
+      bottomShootBtn.disabled = true;
 
       try{
         const url = API_MATCH + "?top_k_faces=" + encodeURIComponent(TOP_K) + "&min_score=" + encodeURIComponent(MIN_SCORE);
@@ -458,6 +564,7 @@
           console.error("API error", res.status, data);
           setStatus("Errore server. Riprova tra poco.");
           shootBtn.disabled = false;
+          bottomShootBtn.disabled = false;
           return;
         }
 
@@ -467,6 +574,7 @@
         if(!results.length){
           setStatus("Nessuna foto trovata. Prova con più luce e guarda la camera.");
           shootBtn.disabled = false;
+          bottomShootBtn.disabled = false;
           return;
         }
 
@@ -476,22 +584,27 @@
         results.forEach(r => addPhotoCard(r.photo_id, r.score));
 
         shootBtn.disabled = false;
+        bottomShootBtn.disabled = false;
       }catch(err){
         console.error(err);
         setStatus("Errore di rete. Riprova.");
         shootBtn.disabled = false;
+        bottomShootBtn.disabled = false;
       }
     }
 
     // --- EVENTS ---
-    shootBtn.addEventListener("click", async ()=>{
+    async function handleShoot(){
       const blob = await captureBlob();
       if(!blob){
         setStatus("Aspetta 1 secondo: la camera si sta avviando.");
         return;
       }
       await matchSelfie(blob);
-    });
+    }
+
+    shootBtn.addEventListener("click", handleShoot);
+    bottomShootBtn.addEventListener("click", handleShoot);
 
     switchBtn.addEventListener("click", async ()=>{
       useFront = !useFront;
@@ -506,721 +619,14 @@
 
     // --- BOOT ---
     window.addEventListener("load", async ()=>{
-      // se device non supporta camera
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
         setStatus("Questo browser non supporta la camera.");
         shootBtn.disabled = true;
+        bottomShootBtn.disabled = true;
         return;
       }
       await startCamera();
     });
   </script>
 </body>
-</html><!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Find Your Photos</title>
-  <style>
-    body { font-family: -apple-system, system-ui, Arial; margin: 18px; padding-bottom: 120px; }
-    h1 { font-size: 20px; margin: 0 0 10px; }
-    .box { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-    button { padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 1px solid #111; background: #111; color: #fff; }
-    button:disabled { opacity: 0.6; }
-    input[type="number"] { width: 90px; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
-    .row { display:flex; gap:10px; flex-wrap: wrap; align-items: center; }
-    .muted { color:#666; font-size: 13px; line-height: 1.4; }
-    .err { color:#b00020; font-size: 14px; }
-    .ok { color:#0a7b2e; font-size: 14px; }
-    .loading { font-size: 14px; }
-
-    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }
-    .card { border:1px solid #eee; border-radius: 10px; overflow:hidden; background:#fafafa; }
-    .card img { width:100%; height:140px; object-fit: cover; display:block; }
-    .card a { display:block; padding:10px; text-decoration:none; color:#111; font-size: 14px; }
-
-    video { width: 100%; max-width: 420px; border-radius: 12px; background: #000; }
-    canvas { display:none; }
-
-    /* Barra controlli in basso stile fotocamera */
-    .bottomBar {
-      position: fixed;
-      left: 0; right: 0; bottom: 0;
-      padding: 14px 16px 18px;
-      background: rgba(255,255,255,0.92);
-      backdrop-filter: blur(10px);
-      border-top: 1px solid #e6e6e6;
-      display: flex;
-      justify-content: center;
-      gap: 14px;
-      align-items: center;
-      z-index: 999;
-    }
-
-    .pillBtn {
-      border-radius: 999px;
-      padding: 12px 16px;
-      font-size: 15px;
-      border: 1px solid #111;
-      background: #111;
-      color: #fff;
-    }
-
-    .captureBtn {
-      width: 76px;
-      height: 76px;
-      border-radius: 999px;
-      border: 5px solid #111;
-      background: #fff;
-      position: relative;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-    }
-    .captureBtn::after {
-      content: "";
-      position: absolute;
-      inset: 10px;
-      border-radius: 999px;
-      background: #111;
-      opacity: 0.08;
-    }
-
-    .captureBtn:active { transform: scale(0.98); }
-    .captureBtn:disabled { opacity: 0.5; }
-
-    .miniHint {
-      position: fixed;
-      left: 0; right: 0; bottom: 98px;
-      display:flex;
-      justify-content:center;
-      pointer-events:none;
-      z-index: 998;
-    }
-    .miniHint > div {
-      background: rgba(0,0,0,0.75);
-      color: #fff;
-      font-size: 13px;
-      padding: 8px 10px;
-      border-radius: 999px;
-    }
-  </style>
-</head>
-<body>
-  <h1>Find Your Photos</h1>
-
-  <div class="box">
-    <video id="video" playsinline></video>
-    <canvas id="canvas"></canvas>
-
-    <div style="height:12px"></div>
-
-    <div class="row">
-      <div class="muted">Precision:</div>
-      <input id="minScore" type="number" step="0.01" value="0.12" />
-      <div class="muted">(higher = stricter)</div>
-    </div>
-
-    <div style="height:10px"></div>
-    <div class="muted">
-      Tips: keep your face big, look at the camera, avoid heavy shadows. If you wear glasses/cap, take the selfie with them.
-    </div>
-
-    <div id="status" style="margin-top:10px"></div>
-  </div>
-
-  <div class="box">
-    <div class="row" style="justify-content: space-between;">
-      <div class="muted" id="count"></div>
-      <div class="muted" id="hint"></div>
-    </div>
-    <div style="height:10px"></div>
-    <div class="grid" id="grid"></div>
-  </div>
-
-  <div class="miniHint" id="miniHint" style="display:none;">
-    <div>Tap the circle to take a selfie</div>
-  </div>
-
-  <div class="bottomBar">
-    <button class="pillBtn" id="openCam">Open Camera</button>
-    <button class="captureBtn" id="capture" disabled aria-label="Capture selfie"></button>
-    <button class="pillBtn" id="search" disabled>Search</button>
-  </div>
-
-<script>
-  const openCamBtn = document.getElementById('openCam');
-  const captureBtn = document.getElementById('capture');
-  const searchBtn = document.getElementById('search');
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const statusEl = document.getElementById('status');
-  const grid = document.getElementById('grid');
-  const countEl = document.getElementById('count');
-  const hintEl = document.getElementById('hint');
-  const minScoreEl = document.getElementById('minScore');
-  const miniHint = document.getElementById('miniHint');
-
-  let stream = null;
-  let selfieBlob = null;
-
-  function setStatus(kind, msg) {
-    statusEl.className = kind === 'err' ? 'err' : (kind === 'ok' ? 'ok' : 'loading');
-    statusEl.textContent = msg;
-  }
-
-  function clearResults() {
-    grid.innerHTML = '';
-    countEl.textContent = '';
-    hintEl.textContent = '';
-  }
-
-  async function openCamera() {
-    try {
-      setStatus('loading', 'Requesting camera permission...');
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play();
-      captureBtn.disabled = false;
-      miniHint.style.display = 'flex';
-      setTimeout(() => miniHint.style.display = 'none', 2200);
-      setStatus('ok', 'Camera ready. Tap the circle.');
-    } catch (e) {
-      setStatus('err', 'Camera blocked. iPhone: Settings > Safari > Camera > Allow. Or Safari: aA > Website Settings > Camera > Allow.');
-    }
-  }
-
-  function captureSelfie() {
-    if (!video.videoWidth || !video.videoHeight) {
-      setStatus('err', 'Camera not ready yet.');
-      return;
-    }
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, w, h);
-
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        setStatus('err', 'Failed to capture image.');
-        return;
-      }
-      selfieBlob = blob;
-      searchBtn.disabled = false;
-      setStatus('ok', 'Selfie captured. Tap Search.');
-    }, 'image/jpeg', 0.92);
-  }
-
-  async function search() {
-    clearResults();
-    if (!selfieBlob) {
-      setStatus('err', 'Take a selfie first.');
-      return;
-    }
-
-    const minScore = parseFloat(minScoreEl.value || '0.12');
-    searchBtn.disabled = true;
-    setStatus('loading', 'Searching...');
-
-    try {
-      const fd = new FormData();
-      fd.append('file', selfieBlob, 'selfie.jpg');
-
-      const url = `/match_selfie?top_k_faces=200&min_score=${encodeURIComponent(minScore)}&max_results=30`;
-      const res = await fetch(url, { method: 'POST', body: fd });
-      const data = await res.json();
-
-      if (!data.ok) {
-        setStatus('err', data.error || 'Error.');
-        searchBtn.disabled = false;
-        return;
-      }
-
-      setStatus('ok', 'Done.');
-      countEl.textContent = `Found: ${data.count}`;
-      hintEl.textContent = data.count === 0 ? 'Try better light or lower precision slightly.' : '';
-
-      for (const r of data.results) {
-        const card = document.createElement('div');
-        card.className = 'card';
-
-        const img = document.createElement('img');
-        img.src = r.url || (`/photos/${encodeURIComponent(r.photo_id)}`);
-        img.loading = 'lazy';
-
-        const a = document.createElement('a');
-        a.href = img.src;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = 'OPEN / DOWNLOAD';
-
-        card.appendChild(img);
-        card.appendChild(a);
-        grid.appendChild(card);
-      }
-
-    } catch (e) {
-      setStatus('err', 'Network error. Please try again.');
-    } finally {
-      searchBtn.disabled = false;
-    }
-  }
-
-  openCamBtn.addEventListener('click', openCamera);
-  captureBtn.addEventListener('click', captureSelfie);
-  searchBtn.addEventListener('click', search);
-</script>
-</body>
-</html><!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Find Your Photos</title>
-  <style>
-    body { font-family: -apple-system, system-ui, Arial; margin: 18px; }
-    h1 { font-size: 20px; margin: 0 0 10px; }
-    .box { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-    button { padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 1px solid #111; background: #111; color: #fff; }
-    button:disabled { opacity: 0.6; }
-    input[type="number"] { width: 90px; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
-    .row { display:flex; gap:10px; flex-wrap: wrap; align-items: center; }
-    .muted { color:#666; font-size: 13px; line-height: 1.4; }
-    .err { color:#b00020; font-size: 14px; }
-    .ok { color:#0a7b2e; font-size: 14px; }
-    .loading { font-size: 14px; }
-
-    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }
-    .card { border:1px solid #eee; border-radius: 10px; overflow:hidden; background:#fafafa; }
-    .card img { width:100%; height:140px; object-fit: cover; display:block; }
-    .card a { display:block; padding:10px; text-decoration:none; color:#111; font-size: 14px; }
-
-    video { width: 100%; max-width: 420px; border-radius: 12px; background: #000; }
-    canvas { display:none; }
-  </style>
-</head>
-<body>
-  <h1>Find Your Photos</h1>
-
-  <div class="box">
-    <div class="row">
-      <button id="openCam">OPEN CAMERA</button>
-      <button id="take" disabled>TAKE SELFIE</button>
-      <button id="search" disabled>SEARCH</button>
-    </div>
-
-    <div style="height:12px"></div>
-
-    <video id="video" playsinline></video>
-    <canvas id="canvas"></canvas>
-
-    <div style="height:12px"></div>
-
-    <div class="row">
-      <div class="muted">Precision:</div>
-      <input id="minScore" type="number" step="0.01" value="0.12" />
-      <div class="muted">(higher = stricter)</div>
-    </div>
-
-    <div style="height:10px"></div>
-    <div class="muted">
-      Tips: keep your face big, look at the camera, avoid heavy shadows. If you wear glasses/cap, take the selfie with them.
-    </div>
-
-    <div id="status" style="margin-top:10px"></div>
-  </div>
-
-  <div class="box">
-    <div class="row" style="justify-content: space-between;">
-      <div class="muted" id="count"></div>
-      <div class="muted" id="hint"></div>
-    </div>
-    <div style="height:10px"></div>
-    <div class="grid" id="grid"></div>
-  </div>
-
-<script>
-  const openCamBtn = document.getElementById('openCam');
-  const takeBtn = document.getElementById('take');
-  const searchBtn = document.getElementById('search');
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const statusEl = document.getElementById('status');
-  const grid = document.getElementById('grid');
-  const countEl = document.getElementById('count');
-  const hintEl = document.getElementById('hint');
-  const minScoreEl = document.getElementById('minScore');
-
-  let stream = null;
-  let selfieBlob = null;
-
-  function setStatus(kind, msg) {
-    statusEl.className = kind === 'err' ? 'err' : (kind === 'ok' ? 'ok' : 'loading');
-    statusEl.textContent = msg;
-  }
-
-  function clearResults() {
-    grid.innerHTML = '';
-    countEl.textContent = '';
-    hintEl.textContent = '';
-  }
-
-  async function openCamera() {
-    try {
-      setStatus('loading', 'Requesting camera permission...');
-      // front camera
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play();
-      takeBtn.disabled = false;
-      setStatus('ok', 'Camera ready.');
-    } catch (e) {
-      setStatus('err', 'Camera blocked. On iPhone: Settings > Safari > Camera > Allow (or check site permissions).');
-    }
-  }
-
-  function takeSelfie() {
-    if (!video.videoWidth || !video.videoHeight) {
-      setStatus('err', 'Camera not ready yet.');
-      return;
-    }
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, w, h);
-
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        setStatus('err', 'Failed to capture image.');
-        return;
-      }
-      selfieBlob = blob;
-      searchBtn.disabled = false;
-      setStatus('ok', 'Selfie captured. Now tap SEARCH.');
-    }, 'image/jpeg', 0.92);
-  }
-
-  async function search() {
-    clearResults();
-    if (!selfieBlob) {
-      setStatus('err', 'Take a selfie first.');
-      return;
-    }
-
-    const minScore = parseFloat(minScoreEl.value || '0.12');
-    searchBtn.disabled = true;
-    setStatus('loading', 'Searching...');
-
-    try {
-      const fd = new FormData();
-      fd.append('file', selfieBlob, 'selfie.jpg');
-
-      const url = `/match_selfie?top_k_faces=200&min_score=${encodeURIComponent(minScore)}&max_results=30`;
-      const res = await fetch(url, { method: 'POST', body: fd });
-      const data = await res.json();
-
-      if (!data.ok) {
-        setStatus('err', data.error || 'Error.');
-        searchBtn.disabled = false;
-        return;
-      }
-
-      setStatus('ok', 'Done.');
-      countEl.textContent = `Found: ${data.count}`;
-      if (data.count === 0) {
-        hintEl.textContent = 'Try better light or lower precision slightly.';
-      }
-
-      for (const r of data.results) {
-        const card = document.createElement('div');
-        card.className = 'card';
-
-        const img = document.createElement('img');
-        img.src = r.url || (`/photos/${encodeURIComponent(r.photo_id)}`);
-        img.loading = 'lazy';
-
-        const a = document.createElement('a');
-        a.href = img.src;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = 'OPEN / DOWNLOAD';
-
-        card.appendChild(img);
-        card.appendChild(a);
-        grid.appendChild(card);
-      }
-
-    } catch (e) {
-      setStatus('err', 'Network error. Please try again.');
-    } finally {
-      searchBtn.disabled = false;
-    }
-  }
-
-  openCamBtn.addEventListener('click', openCamera);
-  takeBtn.addEventListener('click', takeSelfie);
-  searchBtn.addEventListener('click', search);
-</script>
-</body>
-</html><!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Find Your Photos</title>
-  <style>
-    body { font-family: -apple-system, system-ui, Arial; margin: 18px; }
-    h1 { font-size: 20px; margin: 0 0 10px; }
-    .box { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-    button { padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 1px solid #111; background: #111; color: #fff; }
-    button:disabled { opacity: 0.6; }
-    input[type="number"] { width: 90px; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
-    .row { display:flex; gap:10px; flex-wrap: wrap; align-items: center; }
-    .muted { color:#666; font-size: 13px; line-height: 1.4; }
-    .err { color:#b00020; font-size: 14px; }
-    .ok { color:#0a7b2e; font-size: 14px; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }
-    .card { border:1px solid #eee; border-radius: 10px; overflow:hidden; background:#fafafa; }
-    .card img { width:100%; height:140px; object-fit: cover; display:block; }
-    .card a { display:block; padding:10px; text-decoration:none; color:#111; font-size: 14px; }
-    .loading { font-size: 14px; }
-  </style>
-</head>
-<body>
-  <h1>Find Your Photos</h1>
-
-  <div class="box">
-    <div class="row">
-      <!-- iPhone Safari: capture="user" apre la camera frontale -->
-      <input id="selfie" type="file" accept="image/*" capture="user" />
-      <button id="btn">SEARCH</button>
-    </div>
-
-    <div style="height:10px"></div>
-
-    <div class="row">
-      <div class="muted">Precision:</div>
-      <input id="minScore" type="number" step="0.01" value="0.12" />
-      <div class="muted">(higher = stricter)</div>
-    </div>
-
-    <div style="height:10px"></div>
-
-    <div class="muted">
-      Tips: use good light, keep your face big in the frame, remove heavy shadows. If you wear glasses/cap, take the selfie with them.
-    </div>
-
-    <div id="status" style="margin-top:10px"></div>
-  </div>
-
-  <div class="box">
-    <div class="row" style="justify-content: space-between;">
-      <div class="muted" id="count"></div>
-      <div class="muted" id="hint"></div>
-    </div>
-    <div style="height:10px"></div>
-    <div class="grid" id="grid"></div>
-  </div>
-
-<script>
-  const btn = document.getElementById('btn');
-  const selfie = document.getElementById('selfie');
-  const statusEl = document.getElementById('status');
-  const grid = document.getElementById('grid');
-  const countEl = document.getElementById('count');
-  const hintEl = document.getElementById('hint');
-  const minScoreEl = document.getElementById('minScore');
-
-  function setStatus(kind, msg) {
-    statusEl.className = kind === 'err' ? 'err' : (kind === 'ok' ? 'ok' : 'loading');
-    statusEl.textContent = msg;
-  }
-
-  function clearResults() {
-    grid.innerHTML = '';
-    countEl.textContent = '';
-    hintEl.textContent = '';
-  }
-
-  btn.addEventListener('click', async () => {
-    clearResults();
-
-    if (!selfie.files || selfie.files.length === 0) {
-      setStatus('err', 'Please take a selfie first.');
-      return;
-    }
-
-    const minScore = parseFloat(minScoreEl.value || '0.12');
-    btn.disabled = true;
-    setStatus('loading', 'Searching...');
-
-    try {
-      const fd = new FormData();
-      fd.append('file', selfie.files[0]);
-
-      const url = `/match_selfie?top_k_faces=200&min_score=${encodeURIComponent(minScore)}&max_results=30`;
-      const res = await fetch(url, { method: 'POST', body: fd });
-      const data = await res.json();
-
-      if (!data.ok) {
-        setStatus('err', data.error || 'Error.');
-        btn.disabled = false;
-        return;
-      }
-
-      setStatus('ok', 'Done.');
-      countEl.textContent = `Found: ${data.count}`;
-      if (data.count === 0) {
-        hintEl.textContent = 'Try better light or raise/lower precision slightly.';
-      }
-
-      for (const r of data.results) {
-        const card = document.createElement('div');
-        card.className = 'card';
-
-        const img = document.createElement('img');
-        img.src = r.url || (`/photos/${encodeURIComponent(r.photo_id)}`);
-        img.loading = 'lazy';
-
-        const a = document.createElement('a');
-        a.href = img.src;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = 'OPEN / DOWNLOAD';
-
-        card.appendChild(img);
-        card.appendChild(a);
-        grid.appendChild(card);
-      }
-
-    } catch (e) {
-      setStatus('err', 'Network error. Please try again.');
-    } finally {
-      btn.disabled = false;
-    }
-  });
-</script>
-</body>
-</html><!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Take a selfie</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; }
-    .box { border: 1px solid #ddd; padding: 16px; border-radius: 10px; }
-    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
-    img { width: 100%; border-radius: 10px; border: 1px solid #eee; }
-    .small { color: #666; font-size: 14px; }
-    .err { color: #b00020; margin-top: 10px; }
-    video { width: 100%; border-radius: 10px; border: 1px solid #eee; }
-    .preview { width: 100%; border-radius: 10px; border: 1px solid #eee; display: none; }
-  </style>
-</head>
-<body>
-
-<h1>Take a selfie</h1>
-
-<div class="box">
-  <div class="row">
-    <button id="start">Open camera</button>
-    <button id="snap" disabled>Take selfie</button>
-    <button id="match" disabled>Find my photos</button>
-    <span id="status" class="small"></span>
-  </div>
-
-  <div id="error" class="err"></div>
-
-  <div style="margin-top:12px;">
-    <video id="video" playsinline autoplay></video>
-    <img id="preview" class="preview" />
-    <canvas id="canvas" style="display:none;"></canvas>
-  </div>
-</div>
-
-<h2>Results</h2>
-<div id="count" class="small"></div>
-<div id="grid" class="grid"></div>
-
-<script>
-let stream = null;
-let selfieBlob = null;
-
-const startBtn = document.getElementById("start");
-const snapBtn = document.getElementById("snap");
-const matchBtn = document.getElementById("match");
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const preview = document.getElementById("preview");
-const grid = document.getElementById("grid");
-const count = document.getElementById("count");
-const error = document.getElementById("error");
-const status = document.getElementById("status");
-
-startBtn.onclick = async () => {
-  error.textContent = "";
-  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-  video.srcObject = stream;
-  snapBtn.disabled = false;
-};
-
-snapBtn.onclick = async () => {
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
-  selfieBlob = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.9));
-
-  preview.src = URL.createObjectURL(selfieBlob);
-  preview.style.display = "block";
-  video.style.display = "none";
-
-  stream.getTracks().forEach(t => t.stop());
-  matchBtn.disabled = false;
-};
-
-matchBtn.onclick = async () => {
-  grid.innerHTML = "";
-  count.textContent = "";
-  status.textContent = "Searching...";
-
-  const fd = new FormData();
-  fd.append("file", selfieBlob, "selfie.jpg");
-
-  const res = await fetch("/match_selfie", { method: "POST", body: fd });
-  const json = await res.json();
-
-  if (!json.ok) {
-    error.textContent = json.error;
-    return;
-  }
-
-  count.textContent = "Photos found: " + json.count;
-
-  json.results.forEach(r => {
-    const img = document.createElement("img");
-    img.src = "/photos/" + r.photo_id;
-    grid.appendChild(img);
-  });
-
-  status.textContent = "";
-};
-</script>
-
-</body>
 </html>
-
