@@ -60,3 +60,4 @@ urllib3==2.6.2
 uvicorn==0.39.0
 wcwidth==0.2.14
 zipp==3.23.0
+cloudinary==1.41.0

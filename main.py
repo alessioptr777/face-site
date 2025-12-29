@@ -10,11 +10,20 @@ import cv2
 import faiss
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from insightface.app import FaceAnalysis
+
+# Cloudinary per storage esterno (opzionale)
+try:
+    import cloudinary
+    import cloudinary.api
+    from cloudinary.utils import cloudinary_url
+    CLOUDINARY_AVAILABLE = True
+except ImportError:
+    CLOUDINARY_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -41,6 +50,16 @@ if not root_logger.handlers:
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 
 logger = logging.getLogger(__name__)
+
+# Configurazione Cloudinary (opzionale) - dopo logger
+CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "")
+USE_CLOUDINARY = CLOUDINARY_AVAILABLE and bool(CLOUDINARY_URL)
+
+if USE_CLOUDINARY:
+    cloudinary.config()
+    logger.info("Cloudinary configured - using external storage")
+else:
+    logger.info("Cloudinary not configured - using local file storage")
 
 # Crea cartelle necessarie all'avvio
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,10 +172,11 @@ def debug_paths():
 
 @app.get("/photo/{filename:path}")
 async def serve_photo(filename: str, request: Request):
-    """Endpoint per servire le foto"""
+    """Endpoint per servire le foto - supporta Cloudinary e file locali"""
     logger.info(f"=== PHOTO REQUEST ===")
     logger.info(f"Request path: {request.url.path}")
     logger.info(f"Filename parameter: {filename}")
+    logger.info(f"Using Cloudinary: {USE_CLOUDINARY}")
     
     # Decodifica il filename (potrebbe essere URL encoded)
     try:
@@ -166,8 +186,37 @@ async def serve_photo(filename: str, request: Request):
     except Exception as e:
         logger.warning(f"Error decoding filename: {e}")
     
+    # Rimuovi estensione per Cloudinary (se presente)
+    filename_no_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
+    
+    # Se Cloudinary è configurato, prova a servire da lì
+    if USE_CLOUDINARY:
+        try:
+            # Cloudinary usa il filename senza estensione come public_id
+            url, options = cloudinary_url(
+                filename_no_ext,
+                format="jpg",
+                secure=True
+            )
+            logger.info(f"Cloudinary URL generated: {url}")
+            
+            # Verifica che l'immagine esista su Cloudinary
+            try:
+                cloudinary.api.resource(filename_no_ext)
+                logger.info(f"Photo found on Cloudinary: {filename_no_ext}")
+                # Redirect al CDN di Cloudinary
+                return RedirectResponse(url=url, status_code=302)
+            except cloudinary.api.NotFound:
+                logger.warning(f"Photo not found on Cloudinary: {filename_no_ext}, falling back to local")
+                # Fallback a file locale
+            except Exception as e:
+                logger.warning(f"Cloudinary error: {e}, falling back to local")
+        except Exception as e:
+            logger.warning(f"Cloudinary error: {e}, falling back to local storage")
+    
+    # Fallback: servire da file locale
     photo_path = PHOTOS_DIR / filename
-    logger.info(f"Photo path: {photo_path}")
+    logger.info(f"Photo path (local): {photo_path}")
     
     # Sicurezza: previeni directory traversal
     try:
