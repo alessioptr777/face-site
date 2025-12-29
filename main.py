@@ -55,18 +55,6 @@ MAX_DOWNLOADS_PER_PHOTO = int(os.getenv("MAX_DOWNLOADS_PER_PHOTO", "3"))  # Max 
 APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
 APP_NAME = os.getenv("APP_NAME", "TenerifePictures API")
 
-# Configurazione Stripe
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-USE_STRIPE = STRIPE_AVAILABLE and bool(STRIPE_SECRET_KEY)
-
-if USE_STRIPE:
-    stripe.api_key = STRIPE_SECRET_KEY
-    logger.info("Stripe configured")
-else:
-    logger.warning("Stripe not configured - payment features disabled")
-
 # Sistema prezzi
 def calculate_price(photo_count: int) -> int:
     """Calcola il prezzo in centesimi di euro in base al numero di foto"""
@@ -102,6 +90,18 @@ if not root_logger.handlers:
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 
 logger = logging.getLogger(__name__)
+
+# Configurazione Stripe (dopo logger)
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+USE_STRIPE = STRIPE_AVAILABLE and bool(STRIPE_SECRET_KEY)
+
+if USE_STRIPE:
+    stripe.api_key = STRIPE_SECRET_KEY
+    logger.info("Stripe configured")
+else:
+    logger.warning("Stripe not configured - payment features disabled")
 
 # Configurazione Cloudinary (opzionale) - dopo logger
 CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "")
