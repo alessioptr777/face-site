@@ -97,11 +97,19 @@ STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 USE_STRIPE = STRIPE_AVAILABLE and bool(STRIPE_SECRET_KEY)
 
+# Log diagnostico Stripe
+logger.info(f"Stripe diagnostic: STRIPE_AVAILABLE={STRIPE_AVAILABLE}, STRIPE_SECRET_KEY present={bool(STRIPE_SECRET_KEY)}, STRIPE_SECRET_KEY length={len(STRIPE_SECRET_KEY) if STRIPE_SECRET_KEY else 0}")
+
 if USE_STRIPE:
     stripe.api_key = STRIPE_SECRET_KEY
-    logger.info("Stripe configured")
+    logger.info("Stripe configured successfully")
 else:
-    logger.warning("Stripe not configured - payment features disabled")
+    if not STRIPE_AVAILABLE:
+        logger.warning("Stripe not configured - stripe package not available")
+    elif not STRIPE_SECRET_KEY:
+        logger.warning("Stripe not configured - STRIPE_SECRET_KEY environment variable not set or empty")
+    else:
+        logger.warning("Stripe not configured - payment features disabled")
 
 # Configurazione Cloudinary (opzionale) - dopo logger
 CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "")
