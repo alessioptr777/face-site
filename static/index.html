@@ -251,6 +251,7 @@
     .results{
       margin-top: 14px;
       padding: 10px 6px 4px;
+      min-height: 200px;
     }
     .resultsTitle{
       font-weight: 900;
@@ -278,6 +279,11 @@
       object-fit: cover;
       display:block;
       background:#f2f4f8;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .ph img:hover{
+      opacity: 0.9;
     }
     .meta{
       padding: 8px 8px 9px;
@@ -299,6 +305,81 @@
       white-space:nowrap;
     }
     .dl:active{transform: translateY(1px)}
+
+    /* Lightbox per foto a schermo intero */
+    .lightbox{
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.95);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .lightbox.active{
+      display: flex;
+      flex-direction: column;
+    }
+    .lightboxImg{
+      max-width: 100%;
+      max-height: calc(100vh - 120px);
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .lightboxControls{
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 12px;
+      z-index: 2001;
+    }
+    .lightboxBtn{
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 0;
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(10px);
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    .lightboxBtn:hover{
+      background: rgba(255,255,255,0.3);
+    }
+    .lightboxBtn:active{
+      transform: scale(0.95);
+    }
+    .lightboxSave{
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 14px 28px;
+      border-radius: 999px;
+      border: 0;
+      background: linear-gradient(180deg, var(--green), var(--green2));
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(30,164,99,.4);
+      z-index: 2001;
+    }
+    .lightboxSave:active{
+      transform: translateX(-50%) scale(0.98);
+    }
 
     .footerNote{
       text-align:center;
@@ -404,12 +485,24 @@
           <div class="resultsTitle">Risultati</div>
           <div class="grid" id="grid"></div>
         </div>
+        <div id="resultsPlaceholder" style="text-align: center; padding: 40px 20px; color: var(--muted);">
+          <p style="font-size: 16px; margin: 0;">Scatta un selfie per vedere le tue foto qui</p>
+        </div>
       </div>
     </div>
   </div>
 
   <div class="bottomBar">
     <button class="btn" id="bottomShootBtn">📸 Scatta Selfie</button>
+  </div>
+
+  <!-- Lightbox per foto a schermo intero -->
+  <div class="lightbox" id="lightbox">
+    <div class="lightboxControls">
+      <button class="lightboxBtn" id="lightboxClose" aria-label="Chiudi">✕</button>
+    </div>
+    <img class="lightboxImg" id="lightboxImg" alt="Foto a schermo intero" />
+    <button class="lightboxSave" id="lightboxSave">💾 Salva in Galleria</button>
   </div>
 
   <script>
@@ -428,9 +521,15 @@
     const resultsEl = document.getElementById("results");
     const gridEl = document.getElementById("grid");
     const bottomShootBtn = document.getElementById("bottomShootBtn");
+    const resultsPlaceholder = document.getElementById("resultsPlaceholder");
+    const lightbox = document.getElementById("lightbox");
+    const lightboxImg = document.getElementById("lightboxImg");
+    const lightboxClose = document.getElementById("lightboxClose");
+    const lightboxSave = document.getElementById("lightboxSave");
 
     let stream = null;
     let useFront = true;
+    let currentPhotoUrl = null;
 
     function setStatus(msg){
       statusEl.textContent = msg || "";
@@ -493,10 +592,13 @@
         canvas.toBlob(b=>resolve(b), "image/jpeg", 0.92);
       });
     }
-
+    
     function clearResults(){
       gridEl.innerHTML = "";
       resultsEl.style.display = "none";
+      if (resultsPlaceholder) {
+        resultsPlaceholder.style.display = "block";
+      }
     }
 
     function addPhotoCard(photoId, score){
@@ -504,8 +606,14 @@
       wrap.className = "ph";
 
       const img = document.createElement("img");
-      img.src = "/photo/" + encodeURIComponent(photoId);
+      const photoUrl = "/photo/" + encodeURIComponent(photoId);
+      img.src = photoUrl;
       img.alt = photoId;
+
+      // Click sulla foto → apre lightbox
+      img.onclick = () => {
+        openLightbox(photoUrl, photoId);
+      };
 
       img.onerror = () => {
         img.style.display = "none";
@@ -525,25 +633,66 @@
         ? ("score " + Number(score).toFixed(3))
         : "";
 
-      const btn = document.createElement("button");
-      btn.className = "dl";
-      btn.textContent = "Download";
-      btn.onclick = () => {
-        const a = document.createElement("a");
-        a.href = "/photo/" + encodeURIComponent(photoId);
-        a.download = photoId;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      };
-
-      meta.appendChild(left);
-      meta.appendChild(btn);
-
       wrap.appendChild(img);
       wrap.appendChild(meta);
       gridEl.appendChild(wrap);
     }
+
+    function openLightbox(photoUrl, photoId){
+      currentPhotoUrl = photoUrl;
+      lightboxImg.src = photoUrl;
+      lightboxImg.alt = photoId;
+      lightbox.classList.add("active");
+      document.body.style.overflow = "hidden"; // Previeni scroll
+    }
+
+    function closeLightbox(){
+      lightbox.classList.remove("active");
+      document.body.style.overflow = ""; // Ripristina scroll
+      currentPhotoUrl = null;
+    }
+
+    function saveToGallery(){
+      if(!currentPhotoUrl) return;
+      
+      // Su mobile, apri l'immagine in una nuova tab così l'utente può salvare facilmente
+      // Su iOS Safari e Android Chrome, questo permette di salvare nella galleria
+      const a = document.createElement("a");
+      a.href = currentPhotoUrl;
+      a.target = "_blank";
+      a.rel = "noopener";
+      
+      // Prova anche con download attribute (funziona su alcuni browser)
+      const filename = currentPhotoUrl.split("/").pop();
+      a.download = filename;
+      
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Chiudi il lightbox dopo un breve delay
+      setTimeout(() => {
+        closeLightbox();
+      }, 300);
+    }
+
+    // Event listeners per lightbox
+    lightboxClose.addEventListener("click", closeLightbox);
+    lightboxSave.addEventListener("click", saveToGallery);
+    
+    // Chiudi con ESC
+    document.addEventListener("keydown", (e) => {
+      if(e.key === "Escape" && lightbox.classList.contains("active")){
+        closeLightbox();
+      }
+    });
+    
+    // Chiudi cliccando sullo sfondo (ma non sull'immagine)
+    lightbox.addEventListener("click", (e) => {
+      if(e.target === lightbox){
+        closeLightbox();
+      }
+    });
 
     async function matchSelfie(blob){
       setStatus("Cerco le tue foto...");
@@ -589,8 +738,16 @@
 
         setStatus("Trovate " + count + " foto.");
         resultsEl.style.display = "block";
+        if (resultsPlaceholder) {
+          resultsPlaceholder.style.display = "none";
+        }
 
         results.forEach(r => addPhotoCard(r.photo_id, r.score));
+        
+        // Scroll automatico ai risultati su mobile
+        setTimeout(() => {
+          resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 100);
 
         shootBtn.disabled = false;
         bottomShootBtn.disabled = false;
