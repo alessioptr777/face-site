@@ -99,3 +99,18 @@ def health():
         "version": APP_VERSION,
         "time_utc": datetime.now(timezone.utc).isoformat()
     }
+
+@app.post("/match_selfie")
+async def match_selfie(
+    selfie: UploadFile = File(...),
+    top_k_faces: int = Query(120),
+    min_score: float = Query(0.08)
+):
+    return {
+        "ok": True,
+        "filename": selfie.filename,
+        "top_k_faces": top_k_faces,
+        "min_score": min_score,
+        "count": 0,
+        "matches": []
+    }
