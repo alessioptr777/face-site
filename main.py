@@ -55,6 +55,9 @@ app.add_middleware(
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+if PHOTOS_DIR.exists():
+    app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
+
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
 meta_rows: List[Dict[str, Any]] = []
