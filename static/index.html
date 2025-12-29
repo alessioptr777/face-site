@@ -381,6 +381,66 @@
       transform: translateX(-50%) scale(0.98);
     }
 
+    /* Modal istruzioni iOS */
+    .iosHint{
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 3000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .iosHint.active{
+      display: flex;
+    }
+    .iosHintContent{
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 32px 24px;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .iosHintTitle{
+      font-size: 22px;
+      font-weight: 800;
+      margin: 0 0 16px;
+      color: var(--text);
+    }
+    .iosHintSteps{
+      text-align: left;
+      margin: 20px 0;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+    .iosHintSteps li{
+      margin: 12px 0;
+      padding-left: 8px;
+    }
+    .iosHintBtn{
+      margin-top: 20px;
+      padding: 14px 28px;
+      border-radius: 999px;
+      border: 0;
+      background: linear-gradient(180deg, var(--green), var(--green2));
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(30,164,99,.4);
+    }
+    .iosHintBtn:active{
+      transform: scale(0.98);
+    }
+
     .footerNote{
       text-align:center;
       font-size:12px;
@@ -505,6 +565,20 @@
     <button class="lightboxSave" id="lightboxSave">💾 Salva in Galleria</button>
   </div>
 
+  <!-- Modal istruzioni iOS -->
+  <div class="iosHint" id="iosHint">
+    <div class="iosHintContent">
+      <div class="iosHintTitle">📱 Come salvare su iPhone</div>
+      <ol class="iosHintSteps">
+        <li>L'immagine si è aperta in una nuova scheda</li>
+        <li>Tieni premuto sull'immagine</li>
+        <li>Seleziona "Salva immagine"</li>
+        <li>La foto sarà nella tua Galleria!</li>
+      </ol>
+      <button class="iosHintBtn" id="iosHintClose">Ho capito ✓</button>
+    </div>
+  </div>
+
   <script>
     // --- CONFIG ---
     const API_MATCH = "/match_selfie";
@@ -526,6 +600,8 @@
     const lightboxImg = document.getElementById("lightboxImg");
     const lightboxClose = document.getElementById("lightboxClose");
     const lightboxSave = document.getElementById("lightboxSave");
+    const iosHint = document.getElementById("iosHint");
+    const iosHintClose = document.getElementById("iosHintClose");
 
     let stream = null;
     let useFront = true;
@@ -652,8 +728,35 @@
       currentPhotoUrl = null;
     }
 
+    // Rileva se è iOS
+    function isIOS(){
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
     async function saveToGallery(){
       if(!currentPhotoUrl) return;
+      
+      // Se è iOS e supporta Web Share API, usala
+      if(isIOS() && navigator.share){
+        try {
+          const response = await fetch(currentPhotoUrl);
+          const blob = await response.blob();
+          const file = new File([blob], currentPhotoUrl.split("/").pop() || "photo.jpg", { type: "image/jpeg" });
+          
+          if(navigator.canShare && navigator.canShare({ files: [file] })){
+            await navigator.share({
+              files: [file],
+              title: "Salva foto"
+            });
+            closeLightbox();
+            return;
+          }
+        } catch (error) {
+          // Se share fallisce, continua con il metodo normale
+          console.log("Web Share non disponibile, uso metodo alternativo");
+        }
+      }
       
       try {
         // Scarica l'immagine come blob
@@ -666,22 +769,40 @@
         // Estrai il nome del file dall'URL
         const filename = currentPhotoUrl.split("/").pop() || "photo.jpg";
         
-        // Crea un link di download
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = filename;
-        a.style.display = "none";
-        
-        // Aggiungi al DOM, clicca e rimuovi
-        document.body.appendChild(a);
-        a.click();
-        
-        // Pulisci dopo un breve delay
-        setTimeout(() => {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(blobUrl);
+        // Su iOS Safari, apri in nuova tab con istruzioni
+        if(isIOS()){
+          // Apri l'immagine in una nuova tab
+          window.open(blobUrl, "_blank");
+          
+          // Mostra modal con istruzioni
+          setTimeout(() => {
+            iosHint.classList.add("active");
+            document.body.style.overflow = "hidden";
+          }, 300);
+          
+          // Chiudi il lightbox
           closeLightbox();
-        }, 100);
+          
+          // Pulisci blob URL dopo un delay
+          setTimeout(() => {
+            URL.revokeObjectURL(blobUrl);
+          }, 2000);
+        } else {
+          // Su Android/Desktop: download diretto
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = filename;
+          a.style.display = "none";
+          
+          document.body.appendChild(a);
+          a.click();
+          
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+            closeLightbox();
+          }, 100);
+        }
         
       } catch (error) {
         console.error("Errore nel salvataggio:", error);
@@ -696,6 +817,20 @@
     // Event listeners per lightbox
     lightboxClose.addEventListener("click", closeLightbox);
     lightboxSave.addEventListener("click", saveToGallery);
+    
+    // Chiudi modal iOS
+    iosHintClose.addEventListener("click", () => {
+      iosHint.classList.remove("active");
+      document.body.style.overflow = "";
+    });
+    
+    // Chiudi modal iOS cliccando sullo sfondo
+    iosHint.addEventListener("click", (e) => {
+      if(e.target === iosHint){
+        iosHint.classList.remove("active");
+        document.body.style.overflow = "";
+      }
+    });
     
     // Chiudi con ESC
     document.addEventListener("keydown", (e) => {
