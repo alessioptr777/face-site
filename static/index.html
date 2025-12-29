@@ -652,28 +652,45 @@
       currentPhotoUrl = null;
     }
 
-    function saveToGallery(){
+    async function saveToGallery(){
       if(!currentPhotoUrl) return;
       
-      // Su mobile, apri l'immagine in una nuova tab così l'utente può salvare facilmente
-      // Su iOS Safari e Android Chrome, questo permette di salvare nella galleria
-      const a = document.createElement("a");
-      a.href = currentPhotoUrl;
-      a.target = "_blank";
-      a.rel = "noopener";
-      
-      // Prova anche con download attribute (funziona su alcuni browser)
-      const filename = currentPhotoUrl.split("/").pop();
-      a.download = filename;
-      
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      // Chiudi il lightbox dopo un breve delay
-      setTimeout(() => {
-        closeLightbox();
-      }, 300);
+      try {
+        // Scarica l'immagine come blob
+        const response = await fetch(currentPhotoUrl);
+        const blob = await response.blob();
+        
+        // Crea un blob URL
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // Estrai il nome del file dall'URL
+        const filename = currentPhotoUrl.split("/").pop() || "photo.jpg";
+        
+        // Crea un link di download
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        a.style.display = "none";
+        
+        // Aggiungi al DOM, clicca e rimuovi
+        document.body.appendChild(a);
+        a.click();
+        
+        // Pulisci dopo un breve delay
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+          closeLightbox();
+        }, 100);
+        
+      } catch (error) {
+        console.error("Errore nel salvataggio:", error);
+        // Fallback: apri in nuova tab
+        window.open(currentPhotoUrl, "_blank");
+        setTimeout(() => {
+          closeLightbox();
+        }, 300);
+      }
     }
 
     // Event listeners per lightbox
