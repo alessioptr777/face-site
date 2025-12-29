@@ -5,3 +5,7 @@ __pycache__/
 
 data/
 
+# Environment variables (NON committare mai!)
+.env
+.env.local
+
