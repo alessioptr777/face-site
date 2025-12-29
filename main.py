@@ -10,7 +10,7 @@ import cv2
 import faiss
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -42,6 +42,28 @@ if not root_logger.handlers:
 
 logger = logging.getLogger(__name__)
 
+# Crea cartelle necessarie all'avvio
+PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Log diagnostico all'avvio
+logger.info("=" * 60)
+logger.info("STARTUP DIAGNOSTICS")
+logger.info(f"BASE_DIR (absolute): {BASE_DIR.resolve()}")
+logger.info(f"PHOTOS_DIR (absolute): {PHOTOS_DIR.resolve()}")
+logger.info(f"PHOTOS_DIR exists: {PHOTOS_DIR.exists()}")
+logger.info(f"Current working directory: {os.getcwd()}")
+if PHOTOS_DIR.exists():
+    try:
+        photo_files = list(PHOTOS_DIR.iterdir())
+        logger.info(f"Photos found: {len(photo_files)}")
+        logger.info(f"First 10 files: {[p.name for p in photo_files[:10]]}")
+    except Exception as e:
+        logger.error(f"Error listing photos: {e}")
+else:
+    logger.warning("PHOTOS_DIR does not exist!")
+logger.info("=" * 60)
+
 app = FastAPI(title="Face Match API")
 
 app.add_middleware(
@@ -52,14 +74,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Crea cartella photos se non esiste
-PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
-
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Monta sempre /photo (senza controllo exists)
+# Monta SEMPRE /photo (senza condizioni)
 app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
+logger.info(f"Mounted /photo -> {PHOTOS_DIR.resolve()}")
 
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
@@ -108,12 +128,44 @@ def health():
 
 @app.get("/debug/paths")
 def debug_paths():
+    """Endpoint di debug per verificare paths in produzione"""
+    cwd = os.getcwd()
+    photos_absolute = str(PHOTOS_DIR.resolve())
+    photos_exists = PHOTOS_DIR.exists()
+    photos_files = []
+    if PHOTOS_DIR.exists():
+        try:
+            photos_files = [p.name for p in PHOTOS_DIR.iterdir() if p.is_file()][:20]
+        except Exception as e:
+            photos_files = [f"Error listing: {str(e)}"]
+    
     return {
+        "base_dir": str(BASE_DIR.resolve()),
         "photos_dir": str(PHOTOS_DIR),
-        "photos_dir_absolute": str(PHOTOS_DIR.resolve()),
-        "photos_exists": PHOTOS_DIR.exists(),
-        "photos_files": [p.name for p in PHOTOS_DIR.iterdir()][:30] if PHOTOS_DIR.exists() else [],
+        "photos_dir_absolute": photos_absolute,
+        "photos_exists": photos_exists,
+        "current_working_directory": cwd,
+        "photos_files_count": len(photos_files) if isinstance(photos_files, list) else 0,
+        "photos_files": photos_files,
+        "static_dir": str(STATIC_DIR.resolve()),
+        "static_exists": STATIC_DIR.exists(),
     }
+
+@app.get("/photo/{filename:path}")
+async def serve_photo(filename: str):
+    """Endpoint alternativo per servire le foto (fallback se StaticFiles non funziona)"""
+    photo_path = PHOTOS_DIR / filename
+    
+    # Sicurezza: previeni directory traversal
+    try:
+        photo_path.resolve().relative_to(PHOTOS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not photo_path.exists() or not photo_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
+    
+    return FileResponse(photo_path)
 
 @app.post("/match_selfie")
 async def match_selfie(
