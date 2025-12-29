@@ -315,7 +315,14 @@ async def serve_photo(filename: str, request: Request):
     if not photo_path.exists():
         logger.error(f"Photo not found: {filename}")
         logger.error(f"Full path checked: {resolved_path}")
-        logger.error(f"PHOTOS_DIR contents: {list(PHOTOS_DIR.iterdir())}")
+        # Lista i file disponibili per debug
+        available_files = [p.name for p in PHOTOS_DIR.iterdir() if p.is_file()][:10]
+        logger.error(f"Available files (first 10): {available_files}")
+        logger.error(f"Looking for exact match of: '{filename}'")
+        # Prova a trovare file simili
+        similar = [f for f in available_files if filename.lower() in f.lower() or f.lower() in filename.lower()]
+        if similar:
+            logger.error(f"Similar files found: {similar}")
         raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
     
     if not photo_path.is_file():
@@ -391,8 +398,11 @@ async def match_selfie(
                 "photo_id": str(photo_id),
                 "score": float(score),
             })
+            logger.debug(f"Added result: photo_id={photo_id}, score={score:.4f}")
         
         logger.info(f"Match completed: {len(results)} photos found")
+        if results:
+            logger.info(f"First 3 photo_ids: {[r['photo_id'] for r in results[:3]]}")
         
         return {
             "ok": True,
