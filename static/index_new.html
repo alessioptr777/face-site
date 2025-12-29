@@ -450,38 +450,6 @@
       opacity: 0.9;
       margin-top: 4px;
     }
-    
-    /* Modal styles */
-    .ios-share-modal{
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.9);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1001;
-      opacity: 0;
-      visibility: hidden;
-      transition: opacity 0.3s ease, visibility 0.3s ease;
-    }
-    
-    .ios-share-modal.active{
-      opacity: 1;
-      visibility: visible;
-    }
-    
-    .ios-share-modal-content{
-      background: var(--bg-dark2);
-      padding: 30px;
-      border-radius: 20px;
-      text-align: center;
-      max-width: 500px;
-      width: 90%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    }
   </style>
 </head>
 <body>
@@ -590,54 +558,9 @@
   <!-- Lightbox per foto -->
   <div class="ios-share-modal" id="photoLightbox" style="z-index: 2000;">
     <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-      <button id="lightboxClose" style="position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.6); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10;">✕</button>
-      <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px;" id="photoCounter">1/1</div>
-      <button id="lightboxPrev" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">←</button>
-      <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
-      <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none;" alt="Foto">
-    </div>
-  </div>
-  
-  <!-- Modal Carrello -->
-  <div class="ios-share-modal" id="cartModal">
-    <div class="ios-share-modal-content" style="max-width: 500px; width: 90%;">
-      <h3 style="margin-top: 0; font-size: 20px; color: var(--text-light);">🛒 Carrello</h3>
-      <div id="cartItems" style="max-height: 400px; overflow-y: auto; margin: 20px 0;">
-        <p style="text-align: center; color: var(--text-muted);">Il carrello è vuoto</p>
-      </div>
-      <div style="border-top: 2px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 15px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 18px; font-weight: 600; color: var(--text-light);">
-          <span>Totale:</span>
-          <span id="cartTotal">€0.00</span>
-        </div>
-        <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled>💳 Vai al Pagamento</button>
-        <button class="btn-retake" id="closeCartBtn" style="width: 100%;">Chiudi</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal Offerte -->
-  <div class="ios-share-modal" id="offersModal">
-    <div class="ios-share-modal-content" style="max-width: 500px; width: 90%; background: var(--bg-dark2); border: 2px solid var(--accent);">
-      <h3 style="margin-top: 0; font-size: 24px; color: var(--text-light); text-align: center;">🎁 Offerta Speciale!</h3>
-      <div id="offersContent" style="text-align: center; padding: 20px 0;">
-        <p style="font-size: 18px; color: var(--text-light); margin-bottom: 15px;">
-          Hai trovato <strong id="offersPhotoCount" style="color: var(--accent-light);">0</strong> foto!
-        </p>
-        <div id="offersMessage" style="font-size: 16px; color: var(--text-muted); margin-bottom: 20px;">
-          <!-- Messaggio offerta dinamico -->
-        </div>
-        <div style="background: linear-gradient(135deg, var(--purple), var(--pink)); color: #fff; padding: 20px; border-radius: 12px; margin: 20px 0;">
-          <div style="font-size: 32px; font-weight: 900; margin-bottom: 10px;" id="offersPrice">€0</div>
-          <div style="font-size: 14px; opacity: 0.9;">per tutte le tue foto</div>
-        </div>
-        <button class="btn-primary" id="offersBuyBtn" style="width: 100%; margin-bottom: 10px; font-size: 18px; padding: 16px;">
-          💳 Acquista Tutte le Foto
-        </button>
-        <button class="btn-retake" id="offersCloseBtn" style="width: 100%;">
-          Scegli Foto Singole
-        </button>
-      </div>
+      <button style="position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.6); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10;">✕</button>
+      <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10;" id="photoCounter">1/1</div>
+      <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain;" alt="Foto">
     </div>
   </div>
 
@@ -704,27 +627,6 @@
     document.getElementById("albumBackBtn").addEventListener("click", () => {
       showScreen('welcome');
     });
-    document.getElementById("albumCartBtn").addEventListener("click", () => {
-      document.getElementById('cartModal').classList.add('active');
-      updateCartModal();
-    });
-    document.getElementById("closeCartBtn").addEventListener("click", () => {
-      document.getElementById('cartModal').classList.remove('active');
-    });
-    document.getElementById("checkoutBtn").addEventListener("click", checkout);
-    
-    // Chiudi modal cliccando fuori
-    document.getElementById('cartModal').addEventListener('click', (e) => {
-      if(e.target.id === 'cartModal') {
-        document.getElementById('cartModal').classList.remove('active');
-      }
-    });
-    
-    document.getElementById('offersModal').addEventListener('click', (e) => {
-      if(e.target.id === 'offersModal') {
-        document.getElementById('offersModal').classList.remove('active');
-      }
-    });
 
     // Funzioni camera
     async function startCamera() {
@@ -776,10 +678,6 @@
         const data = await res.json();
         if(data.ok && data.results && data.results.length > 0) {
           allPhotos = data.results;
-          // Aggiungi automaticamente tutte le foto al carrello
-          for(const photo of allPhotos) {
-            await addToCart(photo.photo_id);
-          }
           displayPhotos();
           updateCart();
           showOffersPopup(data.results.length);
@@ -813,101 +711,23 @@
       currentPhotoIndex = index;
       const photo = allPhotos[index];
       lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
-      updateLightboxCounter();
+      photoCounter.textContent = `${index + 1}/${allPhotos.length}`;
       photoLightbox.classList.add('active');
-      
-      // Mostra/nascondi frecce
-      const prevBtn = document.getElementById('lightboxPrev');
-      const nextBtn = document.getElementById('lightboxNext');
-      prevBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
-      nextBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
-    }
-    
-    function updateLightboxCounter() {
-      photoCounter.textContent = `${currentPhotoIndex + 1}/${allPhotos.length}`;
-    }
-    
-    function nextPhoto() {
-      if(currentPhotoIndex < allPhotos.length - 1) {
-        currentPhotoIndex++;
-        const photo = allPhotos[currentPhotoIndex];
-        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
-        updateLightboxCounter();
-      }
-    }
-    
-    function prevPhoto() {
-      if(currentPhotoIndex > 0) {
-        currentPhotoIndex--;
-        const photo = allPhotos[currentPhotoIndex];
-        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
-        updateLightboxCounter();
-      }
     }
 
-    async function addToCart(photoId) {
-      try {
-        const res = await fetch(`/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
-          method: "POST"
-        });
-        const data = await res.json();
-        if(data.ok) {
-          currentCart = data;
-          updateCart();
-        }
-      } catch(err) {
-        console.error("Error adding to cart:", err);
-      }
+    function addToCart(photoId) {
+      fetch(`/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+        method: "POST"
+      }).then(res => res.json()).then(data => {
+        currentCart = data;
+        updateCart();
+      });
     }
 
     function updateCart() {
       albumCartCount.textContent = currentCart.count || 0;
       albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
       buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
-    }
-    
-    function updateCartModal() {
-      const cartItems = document.getElementById('cartItems');
-      const cartTotal = document.getElementById('cartTotal');
-      const checkoutBtn = document.getElementById('checkoutBtn');
-      
-      if(currentCart.photo_ids && currentCart.photo_ids.length > 0) {
-        cartItems.innerHTML = '';
-        currentCart.photo_ids.forEach(photoId => {
-          const div = document.createElement('div');
-          div.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);';
-          div.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <img src="/photo/${encodeURIComponent(photoId)}?paid=false" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;" />
-              <span style="font-size: 14px; color: var(--text-light);">${photoId}</span>
-            </div>
-            <button onclick="removeFromCart('${photoId}')" style="background: #ff4444; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;">Rimuovi</button>
-          `;
-          cartItems.appendChild(div);
-        });
-        cartTotal.textContent = `€${currentCart.price_euros.toFixed(2)}`;
-        checkoutBtn.disabled = false;
-      } else {
-        cartItems.innerHTML = '<p style="text-align: center; color: var(--text-muted);">Il carrello è vuoto</p>';
-        cartTotal.textContent = "€0.00";
-        checkoutBtn.disabled = true;
-      }
-    }
-    
-    async function removeFromCart(photoId) {
-      try {
-        const res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
-          method: "DELETE"
-        });
-        const data = await res.json();
-        if(data.ok) {
-          currentCart = data;
-          updateCart();
-          updateCartModal();
-        }
-      } catch(err) {
-        console.error("Error removing from cart:", err);
-      }
     }
 
     function showOffersPopup(count) {
@@ -943,21 +763,9 @@
       }
     }
 
-    // Lightbox controls
-    document.getElementById('lightboxClose').addEventListener('click', () => {
+    // Chiudi lightbox
+    photoLightbox.querySelector('button').addEventListener('click', () => {
       photoLightbox.classList.remove('active');
-    });
-    
-    document.getElementById('lightboxPrev').addEventListener('click', prevPhoto);
-    document.getElementById('lightboxNext').addEventListener('click', nextPhoto);
-    
-    // Navigazione con tastiera
-    document.addEventListener('keydown', (e) => {
-      if(photoLightbox.classList.contains('active')) {
-        if(e.key === 'ArrowLeft') prevPhoto();
-        if(e.key === 'ArrowRight') nextPhoto();
-        if(e.key === 'Escape') photoLightbox.classList.remove('active');
-      }
     });
 
     photoLightbox.addEventListener('click', (e) => {
@@ -965,51 +773,6 @@
         photoLightbox.classList.remove('active');
       }
     });
-    
-    // Blocca salvataggio foto
-    lightboxImage.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      alert('⚠️ Acquista la foto per scaricarla!');
-    });
-    
-    lightboxImage.addEventListener('dragstart', (e) => {
-      e.preventDefault();
-    });
-    
-    // Popup offerte
-    function showOffersPopup(count) {
-      const offersModal = document.getElementById('offersModal');
-      const offersPhotoCount = document.getElementById('offersPhotoCount');
-      const offersMessage = document.getElementById('offersMessage');
-      const offersPrice = document.getElementById('offersPrice');
-      const offersBuyBtn = document.getElementById('offersBuyBtn');
-      const offersCloseBtn = document.getElementById('offersCloseBtn');
-      
-      const priceCents = calculatePrice(count);
-      const priceEuros = priceCents / 100;
-      
-      let message = "";
-      if(count === 1) message = "Una foto unica del tuo tour!";
-      else if(count <= 3) message = `Acquista tutte le ${count} foto e risparmia!`;
-      else if(count <= 5) message = `Pacchetto completo: ${count} foto del tuo tour!`;
-      else if(count <= 11) message = `Offerta speciale: tutte le ${count} foto in un unico pacchetto!`;
-      else message = `Mega offerta: ${count} foto del tuo tour a prezzo speciale!`;
-      
-      offersPhotoCount.textContent = count;
-      offersMessage.textContent = message;
-      offersPrice.textContent = `€${priceEuros.toFixed(2)}`;
-      
-      offersBuyBtn.onclick = () => {
-        offersModal.classList.remove('active');
-        checkout();
-      };
-      
-      offersCloseBtn.onclick = () => {
-        offersModal.classList.remove('active');
-      };
-      
-      offersModal.classList.add('active');
-    }
 
     // Boot
     window.addEventListener('load', () => {

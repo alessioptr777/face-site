@@ -282,7 +282,7 @@ def _read_image_from_bytes(file_bytes: bytes):
     return img
 
 def _add_watermark(image_path: Path) -> bytes:
-    """Aggiunge watermark all'immagine e ritorna bytes"""
+    """Aggiunge watermark pattern ripetuto su tutta l'immagine"""
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -291,15 +291,16 @@ def _add_watermark(image_path: Path) -> bytes:
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
-        # Crea layer per watermark
-        watermark = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        # Converti in RGBA per watermark
+        img_rgba = img.convert('RGBA')
+        watermark = Image.new('RGBA', img_rgba.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(watermark)
         
         # Testo watermark
         text = "TENERIFEPICTURES"
         
-        # Calcola dimensione font (circa 5% dell'altezza immagine)
-        font_size = max(40, int(img.height * 0.05))
+        # Calcola dimensione font (circa 8% dell'altezza immagine per pattern più visibile)
+        font_size = max(60, int(img.height * 0.08))
         
         try:
             # Prova a usare font di sistema
@@ -311,25 +312,44 @@ def _add_watermark(image_path: Path) -> bytes:
                 # Fallback a font default
                 font = ImageFont.load_default()
         
-        # Calcola posizione (centro)
+        # Calcola dimensioni testo
         bbox = draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
-        x = (img.width - text_width) // 2
-        y = (img.height - text_height) // 2
         
-        # Disegna ombra (per leggibilità)
-        shadow_offset = 2
-        draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=(0, 0, 0, 180))
+        # Spaziatura tra watermark (circa 1.5x la larghezza del testo)
+        spacing_x = int(text_width * 1.5)
+        spacing_y = int(text_height * 1.5)
         
-        # Disegna testo principale (bianco semi-trasparente)
-        draw.text((x, y), text, font=font, fill=(255, 255, 255, 200))
+        # Disegna pattern ripetuto su tutta l'immagine
+        # Angolo di 45 gradi per pattern diagonale
+        angle = 45
+        opacity = 120  # Più trasparente ma più intenso (0-255)
+        
+        # Calcola quante volte ripetere
+        num_repeats_x = int(img.width / spacing_x) + 2
+        num_repeats_y = int(img.height / spacing_y) + 2
+        
+        # Disegna pattern
+        for i in range(-num_repeats_y, num_repeats_y):
+            for j in range(-num_repeats_x, num_repeats_x):
+                x = j * spacing_x
+                y = i * spacing_y
+                
+                # Offset per pattern diagonale
+                offset_x = (i * spacing_x * 0.3)
+                offset_y = (j * spacing_y * 0.3)
+                
+                x_pos = int(x + offset_x)
+                y_pos = int(y + offset_y)
+                
+                # Disegna ombra leggera
+                draw.text((x_pos + 1, y_pos + 1), text, font=font, fill=(0, 0, 0, opacity // 2))
+                # Disegna testo principale (bianco semi-trasparente)
+                draw.text((x_pos, y_pos), text, font=font, fill=(255, 255, 255, opacity))
         
         # Combina watermark con immagine
-        img_with_watermark = Image.alpha_composite(
-            img.convert('RGBA'),
-            watermark
-        ).convert('RGB')
+        img_with_watermark = Image.alpha_composite(img_rgba, watermark).convert('RGB')
         
         # Salva in bytes
         output = io.BytesIO()
@@ -440,6 +460,11 @@ async def general_exception_handler(request: Request, exc: Exception):
 @app.get("/", response_class=HTMLResponse)
 def root():
     return FileResponse(STATIC_DIR / "index.html")
+
+@app.get("/album", response_class=HTMLResponse)
+def album():
+    """Pagina album con i risultati delle foto"""
+    return FileResponse(STATIC_DIR / "album.html")
 
 
 @app.get("/health")
@@ -603,55 +628,14 @@ async def match_selfie(
         assert face_app is not None
         faces = face_app.get(img)
         
-        if not faces:
-            logger.info("No faces detected in selfie")
-            # Anche senza volti, possiamo restituire foto di spalle se tour_date fornita
-            matched_results = []
-        else:
-            # Prendi il volto più grande (presumibilmente il selfie principale)
-            faces_sorted = sorted(
-                faces,
-                key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-                reverse=True
-            )
-            
-            # Estrai embedding e normalizza
-            emb = faces_sorted[0].embedding.astype("float32")
-            emb = _normalize(emb).reshape(1, -1)
-            
-            # Cerca nell'indice FAISS (IndexFlatIP => score ~ cosine similarity se normalizzato)
-            assert faiss_index is not None
-            D, I = faiss_index.search(emb, top_k_faces)
-            
-            # Costruisci i risultati
-            matched_results: List[Dict[str, Any]] = []
-            seen_photos = set()  # Evita duplicati
-            
-            for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                if idx < 0 or idx >= len(meta_rows):
-                    continue
-                if score < float(min_score):
-                    continue
-                
-                row = meta_rows[idx]
-                photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
-                if not photo_id:
-                    continue
-                
-                # Evita duplicati (stessa foto con facce diverse)
-                if photo_id in seen_photos:
-                    continue
-                seen_photos.add(photo_id)
-                
-                matched_results.append({
-                    "photo_id": str(photo_id),
-                    "score": float(score),
-                    "has_face": True,
-                })
-                logger.debug(f"Added result: photo_id={photo_id}, score={score:.4f}")
+        # MODIFICA: Mostriamo SOLO foto di spalle (senza volti), non foto matchate
+        # Questo perché l'utente vuole vedere solo foto di gruppo/di spalle
+        matched_results = []  # Non mostriamo foto matchate con volti
         
-        # Aggiungi foto di spalle se tour_date fornita
+        # Mostriamo SEMPRE foto di spalle (senza volti), anche senza tour_date
         back_results: List[Dict[str, Any]] = []
+        
+        # Se tour_date fornita, filtra per data, altrimenti mostra tutte le foto di spalle
         if tour_date:
             # Normalizza formato data (accetta YYYY-MM-DD o YYYYMMDD)
             normalized_date = tour_date.replace("-", "") if "-" not in tour_date else tour_date
@@ -662,10 +646,6 @@ async def match_selfie(
             for back_photo in back_photos:
                 photo_id = back_photo.get("photo_id")
                 if not photo_id:
-                    continue
-                
-                # Evita duplicati con foto matchate
-                if photo_id in seen_photos:
                     continue
                 
                 if photo_id in seen_back_photos:
@@ -681,6 +661,24 @@ async def match_selfie(
                         "has_face": False,
                         "is_back_photo": True,
                     })
+        else:
+            # Senza tour_date, mostra tutte le foto di spalle
+            seen_back_photos = set()
+            for back_photo in back_photos:
+                photo_id = back_photo.get("photo_id")
+                if not photo_id:
+                    continue
+                
+                if photo_id in seen_back_photos:
+                    continue
+                seen_back_photos.add(photo_id)
+                
+                back_results.append({
+                    "photo_id": str(photo_id),
+                    "score": 0.0,
+                    "has_face": False,
+                    "is_back_photo": True,
+                })
         
         # Combina risultati: prima foto matchate, poi foto di spalle
         all_results = matched_results + back_results
