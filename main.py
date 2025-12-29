@@ -1,4 +1,5 @@
 # File principale dell'API FaceSite
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -103,6 +104,85 @@ logger.info(f"Will serve photos from: {PHOTOS_DIR.resolve()}")
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
 meta_rows: List[Dict[str, Any]] = []
+
+# Funzioni helper
+def _normalize(v: np.ndarray) -> np.ndarray:
+    """Normalizza un vettore"""
+    n = np.linalg.norm(v)
+    if n == 0:
+        return v
+    return v / n
+
+def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
+    """Carica i metadata dal file JSONL"""
+    rows = []
+    if not meta_path.exists():
+        return rows
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+    except Exception as e:
+        logger.error(f"Error loading metadata: {e}")
+    return rows
+
+def _read_image_from_bytes(file_bytes: bytes):
+    """Legge un'immagine da bytes"""
+    nparr = np.frombuffer(file_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image format")
+    return img
+
+def _ensure_ready():
+    """Verifica che face_app e faiss_index siano caricati"""
+    if face_app is None:
+        raise HTTPException(status_code=503, detail="Face recognition not initialized")
+    if faiss_index is None:
+        raise HTTPException(status_code=503, detail="Face index not loaded")
+
+@app.on_event("startup")
+async def startup():
+    """Carica il modello e l'indice all'avvio"""
+    global face_app, faiss_index, meta_rows
+    
+    logger.info("Loading face recognition model...")
+    try:
+        face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        face_app.prepare(ctx_id=0, det_size=(640, 640))
+        logger.info("Face recognition model loaded")
+    except Exception as e:
+        logger.error(f"Error loading face model: {e}")
+        face_app = None
+        return
+    
+    # Carica indice FAISS e metadata
+    if not INDEX_PATH.exists() or not META_PATH.exists():
+        logger.warning(f"Index files not found: {INDEX_PATH} or {META_PATH}")
+        logger.warning("Face matching will not work until index is created")
+        faiss_index = None
+        meta_rows = []
+        return
+    
+    try:
+        logger.info(f"Loading FAISS index from {INDEX_PATH}")
+        faiss_index = faiss.read_index(str(INDEX_PATH))
+        logger.info(f"FAISS index loaded: {faiss_index.ntotal} vectors")
+    except Exception as e:
+        logger.error(f"Error loading FAISS index: {e}")
+        faiss_index = None
+        meta_rows = []
+        return
+    
+    try:
+        logger.info(f"Loading metadata from {META_PATH}")
+        meta_rows = _load_meta_jsonl(META_PATH)
+        logger.info(f"Metadata loaded: {len(meta_rows)} records")
+    except Exception as e:
+        logger.error(f"Error loading metadata: {e}")
+        meta_rows = []
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -251,11 +331,78 @@ async def match_selfie(
     top_k_faces: int = Query(120),
     min_score: float = Query(0.08)
 ):
-    return {
-        "ok": True,
-        "filename": selfie.filename,
-        "top_k_faces": top_k_faces,
-        "min_score": min_score,
-        "count": 0,
-        "matches": []
-    }
+    """Endpoint per il face matching: trova foto simili al selfie"""
+    _ensure_ready()
+    
+    try:
+        # Leggi l'immagine dal selfie
+        file_bytes = await selfie.read()
+        img = _read_image_from_bytes(file_bytes)
+        
+        # Rileva i volti nel selfie
+        assert face_app is not None
+        faces = face_app.get(img)
+        
+        if not faces:
+            logger.info("No faces detected in selfie")
+            return {
+                "ok": True,
+                "count": 0,
+                "matches": [],
+                "results": []
+            }
+        
+        # Prendi il volto più grande (presumibilmente il selfie principale)
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        
+        # Estrai embedding e normalizza
+        emb = faces_sorted[0].embedding.astype("float32")
+        emb = _normalize(emb).reshape(1, -1)
+        
+        # Cerca nell'indice FAISS (IndexFlatIP => score ~ cosine similarity se normalizzato)
+        assert faiss_index is not None
+        D, I = faiss_index.search(emb, top_k_faces)
+        
+        # Costruisci i risultati
+        results: List[Dict[str, Any]] = []
+        seen_photos = set()  # Evita duplicati
+        
+        for score, idx in zip(D[0].tolist(), I[0].tolist()):
+            if idx < 0 or idx >= len(meta_rows):
+                continue
+            if score < float(min_score):
+                continue
+            
+            row = meta_rows[idx]
+            photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
+            if not photo_id:
+                continue
+            
+            # Evita duplicati (stessa foto con facce diverse)
+            if photo_id in seen_photos:
+                continue
+            seen_photos.add(photo_id)
+            
+            results.append({
+                "photo_id": str(photo_id),
+                "score": float(score),
+            })
+        
+        logger.info(f"Match completed: {len(results)} photos found")
+        
+        return {
+            "ok": True,
+            "count": len(results),
+            "matches": results,  # Per compatibilità
+            "results": results    # Per compatibilità con frontend
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error in match_selfie: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
