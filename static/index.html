@@ -49,6 +49,67 @@
       display: flex;
     }
     
+    /* Language Selection Screen */
+    .language-screen{
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .language-title{
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 10px;
+    }
+    
+    .language-subtitle{
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+    
+    .language-grid{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      max-width: 400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    
+    .language-option{
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .language-option:hover{
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--accent);
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+    }
+    
+    .language-flag{
+      font-size: 48px;
+      line-height: 1;
+    }
+    
+    .language-name{
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-light);
+    }
+    
     /* Welcome Screen */
     .welcome-screen{
       align-items: center;
@@ -395,6 +456,8 @@
     /* Album Screen */
     .album-screen{
       padding: 0;
+      overflow-y: auto; /* Permetti scroll verticale */
+      -webkit-overflow-scrolling: touch; /* Smooth scroll su iOS */
     }
     
     .album-header{
@@ -598,6 +661,64 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .album-photo img.loaded{
+      opacity: 1;
+    }
+    
+    .album-photo .photo-skeleton{
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, 
+        rgba(255,255,255,0.05) 0%, 
+        rgba(255,255,255,0.1) 50%, 
+        rgba(255,255,255,0.05) 100%);
+      background-size: 200% 100%;
+      animation: skeleton-loading 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes skeleton-loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    
+    .album-loading-overlay{
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      backdrop-filter: blur(4px);
+    }
+    
+    .album-loading-overlay.active{
+      display: flex;
+    }
+    
+    .album-loading-content{
+      text-align: center;
+      color: white;
+    }
+    
+    .album-loading-spinner{
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top-color: var(--purple);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
     }
     
     .album-photo .add-cart{
@@ -694,6 +815,14 @@
       transform: translateY(100%);
       transition: transform 0.3s ease-out;
       border-top: 1px solid rgba(255, 255, 255, 0.1);
+      /* Assicura che rimanga fisso durante lo scroll con accelerazione hardware */
+      will-change: transform;
+      -webkit-transform: translateZ(0);
+      transform: translateZ(0) translateY(100%);
+    }
+    
+    .sticky-offer-bar.active{
+      transform: translateZ(0) translateY(0);
     }
     
     /* Mostra solo quando lo schermo album è attivo */
@@ -792,8 +921,36 @@
   </style>
 </head>
 <body>
+  <!-- Language Selection Screen -->
+  <div class="screen language-screen active" id="languageScreen">
+    <h1 class="language-title" data-i18n="language.title">Choose your language</h1>
+    <p class="language-subtitle" data-i18n="language.subtitle">Select your preferred language</p>
+    <div class="language-grid">
+      <div class="language-option" data-lang="en">
+        <div class="language-flag">🇬🇧</div>
+        <div class="language-name">English</div>
+      </div>
+      <div class="language-option" data-lang="it">
+        <div class="language-flag">🇮🇹</div>
+        <div class="language-name">Italiano</div>
+      </div>
+      <div class="language-option" data-lang="fr">
+        <div class="language-flag">🇫🇷</div>
+        <div class="language-name">Français</div>
+      </div>
+      <div class="language-option" data-lang="de">
+        <div class="language-flag">🇩🇪</div>
+        <div class="language-name">Deutsch</div>
+      </div>
+      <div class="language-option" data-lang="es">
+        <div class="language-flag">🇪🇸</div>
+        <div class="language-name">Español</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Welcome Screen -->
-  <div class="screen welcome-screen active" id="welcomeScreen">
+  <div class="screen welcome-screen" id="welcomeScreen">
     <div class="welcome-icon">
       <svg viewBox="0 0 100 100">
         <rect x="20" y="25" width="60" height="50" rx="8"/>
@@ -802,28 +959,28 @@
         <circle cx="70" cy="35" r="4"/>
       </svg>
     </div>
-    <h1 class="welcome-title">Trova le tue foto!</h1>
-    <p class="welcome-text">
-      Nel prossimo passaggio ti sarà chiesto di abilitare la fotocamera, per permettere al nostro sistema di consegnare le tue foto dell'evento.
+    <h1 class="welcome-title" data-i18n="welcome.title">Find your photos!</h1>
+    <p class="welcome-text" data-i18n="welcome.text">
+      In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.
     </p>
-    <button class="btn-primary" id="welcomeContinueBtn">Continua</button>
-    <p class="welcome-privacy">
-      Operiamo nel totale rispetto della Privacy ed utilizziamo il tuo viso esclusivamente per trovare le foto che ti ritraggono.
+    <button class="btn-primary" id="welcomeContinueBtn" data-i18n="welcome.continue">Continue</button>
+    <p class="welcome-privacy" data-i18n="welcome.privacy">
+      We operate in full respect of Privacy and use your face exclusively to find photos that feature you.
     </p>
   </div>
 
   <!-- Selfie Screen -->
   <div class="screen selfie-screen" id="selfieScreen">
     <div class="selfie-header">
-      <h2>Scatta il tuo selfie</h2>
+      <h2 data-i18n="selfie.title">Take your selfie</h2>
     </div>
     <div class="selfie-preview">
       <div class="selfie-video">
         <video id="video" autoplay playsinline muted webkit-playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
         <div id="videoPlaceholder" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
-          <p style="font-size: 14px;">La fotocamera non è disponibile</p>
-          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;">Riprova</button>
+          <p style="font-size: 14px;" data-i18n="selfie.error">Camera not available</p>
+          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;" data-i18n="selfie.retry">Retry</button>
         </div>
       </div>
       <div class="selfie-controls">
@@ -850,21 +1007,21 @@
 
   <!-- Confirm Selfie Screen -->
   <div class="screen confirm-screen" id="confirmScreen">
-    <h2 class="confirm-title">Conferma selfie</h2>
+    <h2 class="confirm-title" data-i18n="confirm.title">Confirm selfie</h2>
     <div class="confirm-preview">
       <img id="confirmPreview" alt="Selfie preview">
     </div>
-    <p class="confirm-privacy">
-      Selezionando "Conferma" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da <a href="#">Privacy Policy</a>.
+    <p class="confirm-privacy" data-i18n="confirm.privacy">
+      By selecting "Confirm" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.
     </p>
     <div class="confirm-buttons">
-      <button class="btn-confirm" id="confirmBtn">Conferma</button>
-      <button class="btn-retake" id="retakeBtn">Scatta di nuovo</button>
+      <button class="btn-confirm" id="confirmBtn" data-i18n="confirm.confirm">Confirm</button>
+      <button class="btn-retake" id="retakeBtn" data-i18n="confirm.retake">Take again</button>
     </div>
     <!-- Loading indicator per ricerca foto -->
     <div id="confirmLoadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
       <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-      <p style="color: var(--text-muted); margin-top: 15px;">Ricerca foto in corso...</p>
+      <p style="color: var(--text-muted); margin-top: 15px;" data-i18n="upload.loading">Loading photos...</p>
     </div>
   </div>
 
@@ -907,70 +1064,70 @@
       </div>
     </div>
     <div class="album-tabs">
-      <button class="album-tab active" id="myContentTab">I miei contenuti</button>
-      <button class="album-tab" id="pricesTab">Listino prezzi ↗</button>
+      <button class="album-tab active" id="myContentTab" data-i18n="album.myContent">My content</button>
+      <button class="album-tab" id="pricesTab" data-i18n="album.priceList">Price list ↗</button>
     </div>
     <div class="album-photo-count" id="albumPhotoCount" style="display: none;">
-      Hai trovato <span id="photoCountNumber">0</span> foto
+      <span data-i18n="album.found" data-i18n-params='{"count": 0}'>You found <span id="photoCountNumber">0</span> photos</span>
     </div>
     
     <!-- Listino Prezzi -->
     <div class="prices-list" id="pricesList">
-      <h2 class="prices-title">Listino Prezzi</h2>
-      <p class="prices-subtitle">Scegli l'offerta che preferisci</p>
+      <h2 class="prices-title" data-i18n="prices.title">Price List</h2>
+      <p class="prices-subtitle" data-i18n="prices.subtitle">Choose the offer you prefer</p>
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">1 foto</div>
-          <div class="price-item-desc">Foto singola</div>
+          <div class="price-item-count">1 <span data-i18n="prices.photo">photo</span></div>
+          <div class="price-item-desc" data-i18n="prices.single">Single photo</div>
         </div>
         <div class="price-item-value">€20</div>
       </div>
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">2 foto</div>
-          <div class="price-item-desc">Doppia</div>
+          <div class="price-item-count">2 <span data-i18n="prices.photo">photos</span></div>
+          <div class="price-item-desc" data-i18n="prices.double">Double</div>
         </div>
         <div class="price-item-value">€40</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">3 foto <span class="price-item-badge">Sconto</span></div>
-          <div class="price-item-desc">Offerta speciale</div>
+          <div class="price-item-count">3 <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeDiscount">Discount</span></div>
+          <div class="price-item-desc" data-i18n="prices.special">Special offer</div>
         </div>
         <div class="price-item-value">€35</div>
       </div>
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">4 foto</div>
-          <div class="price-item-desc">Pacchetto</div>
+          <div class="price-item-count">4 <span data-i18n="prices.photo">photos</span></div>
+          <div class="price-item-desc" data-i18n="prices.package">Package</div>
         </div>
         <div class="price-item-value">€40</div>
       </div>
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">5 foto</div>
-          <div class="price-item-desc">Pacchetto</div>
+          <div class="price-item-count">5 <span data-i18n="prices.photo">photos</span></div>
+          <div class="price-item-desc" data-i18n="prices.package">Package</div>
         </div>
         <div class="price-item-value">€45</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">6-11 foto <span class="price-item-badge">Migliore</span></div>
-          <div class="price-item-desc">Pacchetto completo</div>
+          <div class="price-item-count">6-11 <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeBest">Best</span></div>
+          <div class="price-item-desc" data-i18n="prices.complete">Complete package</div>
         </div>
         <div class="price-item-value">€50</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">12+ foto <span class="price-item-badge">Top</span></div>
-          <div class="price-item-desc">Tutte le foto al prezzo migliore</div>
+          <div class="price-item-count">12+ <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeTop">Top</span></div>
+          <div class="price-item-desc" data-i18n="prices.best">All photos at the best price</div>
         </div>
         <div class="price-item-value">€60</div>
       </div>
@@ -979,10 +1136,19 @@
     <div class="album-grid" id="albumGrid">
       <!-- Foto verranno aggiunte qui -->
     </div>
+    
+    <!-- Overlay caricamento album -->
+    <div class="album-loading-overlay" id="albumLoadingOverlay">
+      <div class="album-loading-content">
+        <div class="album-loading-spinner"></div>
+        <p id="albumLoadingText">Loading photos...</p>
+      </div>
+    </div>
+    
     <button class="album-buy-all" id="buyAllBtn">
       <div>
-        <div>Acquista tutte le foto a <span class="price" id="buyAllPrice">€0</span></div>
-        <div class="subtitle">in formato digitale</div>
+        <div><span data-i18n="album.buyAll">Buy all photos at</span> <span class="price" id="buyAllPrice">€0</span></div>
+        <div class="subtitle" data-i18n="album.digital">in digital format</div>
       </div>
       <span>→</span>
     </button>
@@ -996,7 +1162,6 @@
     </div>
     <div class="sticky-offer-actions">
       <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Acquista</button>
-      <button class="sticky-offer-close" id="stickyOfferCloseBtn">✕</button>
     </div>
   </div>
 
@@ -1055,8 +1220,172 @@
   </div>
 
   <script>
+    // ========== SISTEMA TRADUZIONI ==========
+    const translations = {
+      en: {
+        language: { title: "Choose your language", subtitle: "Select your preferred language" },
+        welcome: { title: "Find your photos!", text: "In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.", continue: "Continue", privacy: "We operate in full respect of Privacy and use your face exclusively to find photos that feature you." },
+        selfie: { title: "Take your selfie", error: "Camera not available", retry: "Retry" },
+        confirm: { title: "Confirm selfie", privacy: "By selecting \"Confirm\" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.", confirm: "Confirm", retake: "Take again" },
+        upload: { loading: "Loading photos...", sending: "Sending selfie to server...", analyzing: "Analyzing photos...", found: "Found {count} photos!" },
+        album: { myContent: "My content", priceList: "Price list ↗", found: "You found {count} photos", buyAll: "Buy all photos at", digital: "in digital format" },
+        prices: { title: "Price List", subtitle: "Choose the offer you prefer", photo: "photos", single: "Single photo", double: "Double", special: "Special offer", package: "Package", complete: "Complete package", best: "All photos at the best price", badgeDiscount: "Discount", badgeBest: "Best", badgeTop: "Top" },
+        cart: { title: "Cart", empty: "Cart is empty", total: "Total:", checkout: "Go to Payment", close: "Close" },
+        sticky: { buy1: "Buy your photo", buyFew: "Buy all {count} photos", buyMany: "Buy all {count} photos and save", buyAll: "Buy all {count} photos at the best price", buy: "Buy" },
+        errors: { noPhotos: "No photos found. Try again.", connection: "Connection error. Check your internet connection and try again.", camera: "Camera error", cameraNotReady: "Camera not ready yet. Wait a moment and try again." }
+      },
+      it: {
+        language: { title: "Scegli la tua lingua", subtitle: "Seleziona la lingua preferita" },
+        welcome: { title: "Trova le tue foto!", text: "Nel prossimo passaggio ti sarà chiesto di abilitare la fotocamera, per permettere al nostro sistema di consegnare le tue foto dell'evento.", continue: "Continua", privacy: "Operiamo nel totale rispetto della Privacy ed utilizziamo il tuo viso esclusivamente per trovare le foto che ti ritraggono." },
+        selfie: { title: "Scatta il tuo selfie", error: "La fotocamera non è disponibile", retry: "Riprova" },
+        confirm: { title: "Conferma selfie", privacy: "Selezionando \"Conferma\" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da Privacy Policy.", confirm: "Conferma", retake: "Scatta di nuovo" },
+        upload: { loading: "Caricamento foto in corso...", sending: "Invio selfie al server...", analyzing: "Analisi foto in corso...", found: "Trovate {count} foto!" },
+        album: { myContent: "I miei contenuti", priceList: "Listino prezzi ↗", found: "Hai trovato {count} foto", buyAll: "Acquista tutte le foto a", digital: "in formato digitale" },
+        prices: { title: "Listino Prezzi", subtitle: "Scegli l'offerta che preferisci", photo: "foto", single: "Foto singola", double: "Doppia", special: "Offerta speciale", package: "Pacchetto", complete: "Pacchetto completo", best: "Tutte le foto al prezzo migliore", badgeDiscount: "Sconto", badgeBest: "Migliore", badgeTop: "Top" },
+        cart: { title: "Carrello", empty: "Il carrello è vuoto", total: "Totale:", checkout: "Vai al Pagamento", close: "Chiudi" },
+        sticky: { buy1: "Acquista la tua foto", buyFew: "Acquista tutte le {count} foto", buyMany: "Acquista tutte le {count} foto e risparmia", buyAll: "Acquista tutte le {count} foto al prezzo migliore", buy: "Acquista" },
+        errors: { noPhotos: "Nessuna foto trovata. Riprova.", connection: "Errore di connessione. Controlla la tua connessione internet e riprova.", camera: "Errore accesso camera", cameraNotReady: "La fotocamera non è ancora pronta. Attendi un attimo e riprova." }
+      },
+      fr: {
+        language: { title: "Choisissez votre langue", subtitle: "Sélectionnez votre langue préférée" },
+        welcome: { title: "Trouvez vos photos!", text: "Dans la prochaine étape, il vous sera demandé d'activer la caméra pour permettre à notre système de vous livrer les photos de l'événement.", continue: "Continuer", privacy: "Nous opérons dans le plein respect de la vie privée et utilisons votre visage exclusivement pour trouver les photos qui vous représentent." },
+        selfie: { title: "Prenez votre selfie", error: "Caméra non disponible", retry: "Réessayer" },
+        confirm: { title: "Confirmer le selfie", privacy: "En sélectionnant \"Confirmer\", vous acceptez le traitement des données biométriques aux fins de Détection et Reconnaissance conformément à la Politique de Confidentialité.", confirm: "Confirmer", retake: "Reprendre" },
+        upload: { loading: "Chargement des photos...", sending: "Envoi du selfie au serveur...", analyzing: "Analyse des photos...", found: "{count} photos trouvées!" },
+        album: { myContent: "Mes contenus", priceList: "Liste des prix ↗", found: "Vous avez trouvé {count} photos", buyAll: "Acheter toutes les photos à", digital: "en format numérique" },
+        prices: { title: "Liste des Prix", subtitle: "Choisissez l'offre que vous préférez", photo: "photos", single: "Photo unique", double: "Double", special: "Offre spéciale", package: "Forfait", complete: "Forfait complet", best: "Toutes les photos au meilleur prix", badgeDiscount: "Réduction", badgeBest: "Meilleur", badgeTop: "Top" },
+        cart: { title: "Panier", empty: "Le panier est vide", total: "Total:", checkout: "Aller au Paiement", close: "Fermer" },
+        sticky: { buy1: "Achetez votre photo", buyFew: "Achetez toutes les {count} photos", buyMany: "Achetez toutes les {count} photos et économisez", buyAll: "Achetez toutes les {count} photos au meilleur prix", buy: "Acheter" },
+        errors: { noPhotos: "Aucune photo trouvée. Réessayez.", connection: "Erreur de connexion. Vérifiez votre connexion internet et réessayez.", camera: "Erreur d'accès à la caméra", cameraNotReady: "La caméra n'est pas encore prête. Attendez un instant et réessayez." }
+      },
+      de: {
+        language: { title: "Wählen Sie Ihre Sprache", subtitle: "Wählen Sie Ihre bevorzugte Sprache" },
+        welcome: { title: "Finden Sie Ihre Fotos!", text: "Im nächsten Schritt werden Sie aufgefordert, die Kamera zu aktivieren, damit unser System Ihnen Ihre Event-Fotos liefern kann.", continue: "Weiter", privacy: "Wir arbeiten im vollsten Respekt der Privatsphäre und verwenden Ihr Gesicht ausschließlich, um Fotos zu finden, auf denen Sie abgebildet sind." },
+        selfie: { title: "Machen Sie Ihr Selfie", error: "Kamera nicht verfügbar", retry: "Erneut versuchen" },
+        confirm: { title: "Selfie bestätigen", privacy: "Durch Auswahl von \"Bestätigen\" stimmen Sie der Verarbeitung biometrischer Daten zu den Zwecken der Erkennung und Identifizierung gemäß Datenschutzrichtlinie zu.", confirm: "Bestätigen", retake: "Erneut aufnehmen" },
+        upload: { loading: "Fotos werden geladen...", sending: "Selfie wird an Server gesendet...", analyzing: "Fotos werden analysiert...", found: "{count} Fotos gefunden!" },
+        album: { myContent: "Meine Inhalte", priceList: "Preisliste ↗", found: "Sie haben {count} Fotos gefunden", buyAll: "Alle Fotos kaufen für", digital: "im digitalen Format" },
+        prices: { title: "Preisliste", subtitle: "Wählen Sie das Angebot, das Sie bevorzugen", photo: "Fotos", single: "Einzelfoto", double: "Doppel", special: "Sonderangebot", package: "Paket", complete: "Vollständiges Paket", best: "Alle Fotos zum besten Preis", badgeDiscount: "Rabatt", badgeBest: "Beste", badgeTop: "Top" },
+        cart: { title: "Warenkorb", empty: "Der Warenkorb ist leer", total: "Gesamt:", checkout: "Zur Zahlung", close: "Schließen" },
+        sticky: { buy1: "Kaufen Sie Ihr Foto", buyFew: "Kaufen Sie alle {count} Fotos", buyMany: "Kaufen Sie alle {count} Fotos und sparen", buyAll: "Kaufen Sie alle {count} Fotos zum besten Preis", buy: "Kaufen" },
+        errors: { noPhotos: "Keine Fotos gefunden. Versuchen Sie es erneut.", connection: "Verbindungsfehler. Überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.", camera: "Kamerafehler", cameraNotReady: "Die Kamera ist noch nicht bereit. Warten Sie einen Moment und versuchen Sie es erneut." }
+      },
+      es: {
+        language: { title: "Elige tu idioma", subtitle: "Selecciona tu idioma preferido" },
+        welcome: { title: "¡Encuentra tus fotos!", text: "En el siguiente paso se te pedirá que habilites la cámara, para permitir que nuestro sistema te entregue las fotos del evento.", continue: "Continuar", privacy: "Operamos con total respeto a la Privacidad y utilizamos tu rostro exclusivamente para encontrar fotos en las que apareces." },
+        selfie: { title: "Toma tu selfie", error: "Cámara no disponible", retry: "Reintentar" },
+        confirm: { title: "Confirmar selfie", privacy: "Al seleccionar \"Confirmar\" consientes el tratamiento de datos biométricos para los fines de Detección y Reconocimiento según la Política de Privacidad.", confirm: "Confirmar", retake: "Tomar de nuevo" },
+        upload: { loading: "Cargando fotos...", sending: "Enviando selfie al servidor...", analyzing: "Analizando fotos...", found: "¡{count} fotos encontradas!" },
+        album: { myContent: "Mis contenidos", priceList: "Lista de precios ↗", found: "Has encontrado {count} fotos", buyAll: "Comprar todas las fotos por", digital: "en formato digital" },
+        prices: { title: "Lista de Precios", subtitle: "Elige la oferta que prefieras", photo: "fotos", single: "Foto única", double: "Doble", special: "Oferta especial", package: "Paquete", complete: "Paquete completo", best: "Todas las fotos al mejor precio", badgeDiscount: "Descuento", badgeBest: "Mejor", badgeTop: "Top" },
+        cart: { title: "Carrito", empty: "El carrito está vacío", total: "Total:", checkout: "Ir al Pago", close: "Cerrar" },
+        sticky: { buy1: "Compra tu foto", buyFew: "Compra todas las {count} fotos", buyMany: "Compra todas las {count} fotos y ahorra", buyAll: "Compra todas las {count} fotos al mejor precio", buy: "Comprar" },
+        errors: { noPhotos: "No se encontraron fotos. Inténtalo de nuevo.", connection: "Error de conexión. Verifica tu conexión a internet e inténtalo de nuevo.", camera: "Error de acceso a la cámara", cameraNotReady: "La cámara aún no está lista. Espera un momento e inténtalo de nuevo." }
+      }
+    };
+
+    // Lingua corrente (default: inglese)
+    let currentLang = localStorage.getItem('selectedLanguage') || 'en';
+
+    // Funzione per ottenere traduzione
+    function t(key, params = {}) {
+      const keys = key.split('.');
+      let value = translations[currentLang];
+      for(const k of keys) {
+        value = value?.[k];
+      }
+      if(!value) {
+        // Fallback a inglese
+        value = translations.en;
+        for(const k of keys) {
+          value = value?.[k];
+        }
+      }
+      // Sostituisci parametri {count}, etc.
+      if(typeof value === 'string' && params) {
+        return value.replace(/\{(\w+)\}/g, (match, key) => params[key] || match);
+      }
+      return value || key;
+    }
+
+    // Applica traduzioni a tutti gli elementi con data-i18n
+    function applyTranslations() {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        const text = t(key);
+        if(text) {
+          el.textContent = text;
+        }
+      });
+      
+      // Traduzioni dinamiche per elementi senza data-i18n
+      updateDynamicTexts();
+    }
+
+    // Aggiorna testi dinamici
+    function updateDynamicTexts() {
+      // Welcome screen
+      const welcomeTitle = document.querySelector('.welcome-title');
+      const welcomeText = document.querySelector('.welcome-text');
+      const welcomePrivacy = document.querySelector('.welcome-privacy');
+      const welcomeBtn = document.getElementById('welcomeContinueBtn');
+      if(welcomeTitle) welcomeTitle.textContent = t('welcome.title');
+      if(welcomeText) welcomeText.textContent = t('welcome.text');
+      if(welcomePrivacy) welcomePrivacy.textContent = t('welcome.privacy');
+      if(welcomeBtn) welcomeBtn.textContent = t('welcome.continue');
+      
+      // Selfie screen
+      const selfieHeader = document.querySelector('.selfie-header h2');
+      if(selfieHeader) selfieHeader.textContent = t('selfie.title');
+      
+      // Confirm screen
+      const confirmTitle = document.querySelector('.confirm-title');
+      const confirmPrivacy = document.querySelector('.confirm-privacy');
+      const confirmBtn = document.getElementById('confirmBtn');
+      const retakeBtn = document.getElementById('retakeBtn');
+      if(confirmTitle) confirmTitle.textContent = t('confirm.title');
+      if(confirmPrivacy) confirmPrivacy.textContent = t('confirm.privacy');
+      if(confirmBtn) confirmBtn.textContent = t('confirm.confirm');
+      if(retakeBtn) retakeBtn.textContent = t('confirm.retake');
+      
+      // Album tabs
+      const myContentTab = document.getElementById('myContentTab');
+      const pricesTab = document.getElementById('pricesTab');
+      if(myContentTab) myContentTab.textContent = t('album.myContent');
+      if(pricesTab) pricesTab.textContent = t('album.priceList');
+      
+      // Buy all button
+      if(buyAllBtn) {
+        const buyAllDiv = buyAllBtn.querySelector('div > div');
+        if(buyAllDiv) {
+          buyAllDiv.innerHTML = `${t('album.buyAll')} <span class="price" id="buyAllPrice">€0</span>`;
+        }
+        const subtitle = buyAllBtn.querySelector('.subtitle');
+        if(subtitle) subtitle.textContent = t('album.digital');
+      }
+      
+      // Cart modal
+      const cartTitle = document.querySelector('#cartModal h3');
+      const cartEmpty = document.querySelector('#cartItems p');
+      const cartTotal = document.querySelector('#cartModal [data-i18n="cart.total"]');
+      const checkoutBtn = document.getElementById('checkoutBtn');
+      const closeCartBtn = document.getElementById('closeCartBtn');
+      if(cartTitle) cartTitle.innerHTML = `🛒 ${t('cart.title')}`;
+      if(cartEmpty) cartEmpty.textContent = t('cart.empty');
+      if(cartTotal) cartTotal.textContent = t('cart.total');
+      if(checkoutBtn) checkoutBtn.textContent = `💳 ${t('cart.checkout')}`;
+      if(closeCartBtn) closeCartBtn.textContent = t('cart.close');
+      
+      // Upload status text
+      const uploadStatusText = document.getElementById('uploadStatusText');
+      if(uploadStatusText && !uploadStatusText.dataset.i18nApplied) {
+        uploadStatusText.textContent = t('upload.loading');
+        uploadStatusText.dataset.i18nApplied = 'true';
+      }
+    }
+
     // Variabili globali
-    let currentScreen = 'welcome';
+    let currentScreen = 'language';
     let stream = null;
     let useFront = true;
     let capturedBlob = null;
@@ -1092,6 +1421,29 @@
       const screen = document.getElementById(screenName + 'Screen');
       if(screen) screen.classList.add('active');
       currentScreen = screenName;
+    }
+
+    // Event listeners per selezione lingua
+    document.querySelectorAll('.language-option').forEach(option => {
+      option.addEventListener('click', () => {
+        const lang = option.getAttribute('data-lang');
+        currentLang = lang;
+        localStorage.setItem('selectedLanguage', lang);
+        applyTranslations();
+        showScreen('welcome');
+      });
+    });
+
+    // Controlla se la lingua è già stata selezionata
+    if(localStorage.getItem('selectedLanguage')) {
+      currentLang = localStorage.getItem('selectedLanguage');
+      showScreen('welcome');
+      // Applica traduzioni dopo che il DOM è pronto
+      setTimeout(() => applyTranslations(), 100);
+    } else {
+      showScreen('language');
+      // Applica traduzioni anche per la schermata language
+      setTimeout(() => applyTranslations(), 100);
     }
 
     // Event listeners
@@ -1137,7 +1489,14 @@
         matchPhotos();
       }
     });
-    document.getElementById("buyAllBtn").addEventListener("click", checkout);
+    document.getElementById("buyAllBtn").addEventListener("click", () => {
+      // Previeni il click se le foto stanno ancora caricando
+      const loadingOverlay = document.getElementById('albumLoadingOverlay');
+      if(loadingOverlay && loadingOverlay.classList.contains('active')) {
+        return; // Non fare nulla se sta caricando
+      }
+      checkout();
+    });
     document.getElementById("albumBackBtn").addEventListener("click", () => {
       showScreen('welcome');
     });
@@ -1185,7 +1544,7 @@
       try {
         // Verifica supporto camera
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          alert("Questo browser non supporta l'accesso alla fotocamera. Prova con Chrome o Safari.");
+          alert(t('errors.camera'));
           return;
         }
 
@@ -1439,7 +1798,7 @@
       
       // Mostra upload status e disabilita pulsante
       if(uploadStatus) uploadStatus.classList.add('active');
-      if(uploadStatusText) uploadStatusText.textContent = 'Caricamento selfie...';
+      if(uploadStatusText) uploadStatusText.textContent = t('upload.loading');
       if(uploadProgressBar) uploadProgressBar.style.width = '10%';
       if(uploadPercentage) uploadPercentage.textContent = '10%';
       if(captureBtn) {
@@ -1453,7 +1812,7 @@
         // Aggiorna progress
         if(uploadProgressBar) uploadProgressBar.style.width = '30%';
         if(uploadPercentage) uploadPercentage.textContent = '30%';
-        if(uploadStatusText) uploadStatusText.textContent = 'Invio selfie al server...';
+        if(uploadStatusText) uploadStatusText.textContent = t('upload.sending');
         
         const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
@@ -1489,7 +1848,7 @@
         // Aggiorna progress
         if(uploadProgressBar) uploadProgressBar.style.width = '80%';
         if(uploadPercentage) uploadPercentage.textContent = '80%';
-        if(uploadStatusText) uploadStatusText.textContent = 'Analisi foto in corso...';
+        if(uploadStatusText) uploadStatusText.textContent = t('upload.analyzing');
         
         await uploadPromise;
         
@@ -1544,9 +1903,10 @@
         
         if(data.ok && photos.length > 0) {
           console.log(`Trovate ${photos.length} foto`);
-          if(uploadStatusText) uploadStatusText.textContent = `Trovate ${photos.length} foto!`;
+          if(uploadStatusText) uploadStatusText.textContent = t('upload.found', { count: photos.length });
           
           allPhotos = photos;
+          photosLoadedCount = 0; // Reset counter
           
           // NON aggiungere automaticamente al carrello - l'utente decide cosa aggiungere
           
@@ -1561,9 +1921,15 @@
             }
           }, 500);
           
-          displayPhotos();
-          updateCart(); // Aggiorna carrello (sarà vuoto)
+          // Cambia schermo PRIMA di caricare le foto (così l'utente vede subito la griglia)
           showScreen('album');
+          
+          // Aggiorna carrello
+          updateCart();
+          
+          // Carica le foto (con lazy loading)
+          displayPhotos();
+          
           // Mostra banner dopo che lo schermo è visibile
           setTimeout(() => {
             showStickyOfferBar(photos.length);
@@ -1577,9 +1943,16 @@
             captureBtn.style.opacity = '1';
           }
           
-          alert("Nessuna foto trovata. Riprova.");
-          showScreen('selfie');
-          startCamera();
+          // NON tornare alla welcome se siamo già nell'album
+          // Solo se siamo ancora nella schermata selfie/confirm
+          if(currentScreen !== 'album') {
+            alert(t('errors.noPhotos'));
+            showScreen('selfie');
+            startCamera();
+          } else {
+            // Se siamo già nell'album, mostra solo un messaggio
+            alert(t('errors.noPhotos'));
+          }
         }
       } catch(err) {
         console.error("Errore nel caricamento foto:", err);
@@ -1592,24 +1965,243 @@
           captureBtn.style.opacity = '1';
         }
         
-        alert("Errore di connessione. Controlla la tua connessione internet e riprova.");
-        showScreen('selfie');
-        startCamera();
+        // NON tornare alla welcome se siamo già nell'album
+        // Solo se siamo ancora nella schermata selfie/confirm
+        if(currentScreen !== 'album') {
+          alert(t('errors.connection'));
+          showScreen('selfie');
+          startCamera();
+        } else {
+          // Se siamo già nell'album, mostra solo un messaggio e riabilita interazioni
+          alert(t('errors.connection'));
+          enableAlbumInteractions();
+          const loadingOverlay = document.getElementById('albumLoadingOverlay');
+          if(loadingOverlay) loadingOverlay.classList.remove('active');
+        }
       }
     }
 
+    // Intersection Observer per lazy loading
+    let imageObserver = null;
+    
+    function initImageObserver() {
+      if(imageObserver) {
+        imageObserver.disconnect();
+      }
+      
+      imageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if(entry.isIntersecting) {
+            const img = entry.target;
+            const photoId = img.dataset.photoId;
+            const index = parseInt(img.dataset.index);
+            
+            // Carica l'immagine solo quando entra nel viewport
+            if(!img.dataset.loaded) {
+              img.dataset.loaded = 'true';
+              const imgElement = new Image();
+              
+              imgElement.onload = () => {
+                img.src = imgElement.src;
+                img.classList.add('loaded');
+                // Rimuovi skeleton
+                const skeleton = img.parentElement.querySelector('.photo-skeleton');
+                if(skeleton) skeleton.remove();
+              };
+              
+              imgElement.onerror = () => {
+                console.error('Errore caricamento foto:', photoId);
+                img.style.display = 'none';
+                const skeleton = img.parentElement.querySelector('.photo-skeleton');
+                if(skeleton) {
+                  skeleton.style.background = 'rgba(255,0,0,0.1)';
+                  skeleton.innerHTML = '<div style="padding: 10px; text-align: center; color: #ff4444; font-size: 12px;">Error</div>';
+                }
+              };
+              
+              imgElement.src = `/photo/${encodeURIComponent(photoId)}?paid=false`;
+            }
+            
+            imageObserver.unobserve(img);
+          }
+        });
+      }, {
+        rootMargin: '50px' // Inizia a caricare 50px prima che entri nel viewport
+      });
+    }
+    
+    function checkAllPhotosLoaded() {
+      photosLoadedCount++;
+      // Quando tutte le prime immagini sono caricate, nascondi overlay
+      const preloadCount = Math.min(9, allPhotos.length);
+      if(photosLoadedCount >= preloadCount) {
+        const loadingOverlay = document.getElementById('albumLoadingOverlay');
+        if(loadingOverlay) {
+          loadingOverlay.classList.remove('active');
+        }
+        enableAlbumInteractions();
+      }
+    }
+    
+    function disableAlbumInteractions() {
+      // Disabilita SOLO i pulsanti, NON lo scroll
+      // NON bloccare pointer-events sull'albumScreen per permettere lo scroll
+      
+      // Disabilita pulsanti specifici
+      const buyAllBtn = document.getElementById('buyAllBtn');
+      const albumCartBtn = document.getElementById('albumCartBtn');
+      const albumBackBtn = document.getElementById('albumBackBtn');
+      const myContentTab = document.getElementById('myContentTab');
+      const pricesTab = document.getElementById('pricesTab');
+      
+      if(buyAllBtn) {
+        buyAllBtn.disabled = true;
+        buyAllBtn.style.opacity = '0.5';
+        buyAllBtn.style.pointerEvents = 'none';
+      }
+      if(albumCartBtn) {
+        albumCartBtn.style.pointerEvents = 'none';
+        albumCartBtn.style.opacity = '0.5';
+      }
+      if(albumBackBtn) {
+        albumBackBtn.style.pointerEvents = 'none';
+        albumBackBtn.style.opacity = '0.5';
+      }
+      if(myContentTab) {
+        myContentTab.style.pointerEvents = 'none';
+        myContentTab.style.opacity = '0.5';
+      }
+      if(pricesTab) {
+        pricesTab.style.pointerEvents = 'none';
+        pricesTab.style.opacity = '0.5';
+      }
+      
+      // Disabilita click sulle foto durante il caricamento
+      const photos = albumGrid.querySelectorAll('.album-photo');
+      photos.forEach(photo => {
+        photo.style.pointerEvents = 'none';
+      });
+    }
+    
+    function enableAlbumInteractions() {
+      // Riabilita pulsanti
+      const buyAllBtn = document.getElementById('buyAllBtn');
+      const albumCartBtn = document.getElementById('albumCartBtn');
+      const albumBackBtn = document.getElementById('albumBackBtn');
+      const myContentTab = document.getElementById('myContentTab');
+      const pricesTab = document.getElementById('pricesTab');
+      
+      if(buyAllBtn) {
+        buyAllBtn.disabled = false;
+        buyAllBtn.style.opacity = '1';
+        buyAllBtn.style.pointerEvents = 'auto';
+      }
+      if(albumCartBtn) {
+        albumCartBtn.style.pointerEvents = 'auto';
+        albumCartBtn.style.opacity = '1';
+      }
+      if(albumBackBtn) {
+        albumBackBtn.style.pointerEvents = 'auto';
+        albumBackBtn.style.opacity = '1';
+      }
+      if(myContentTab) {
+        myContentTab.style.pointerEvents = 'auto';
+        myContentTab.style.opacity = '1';
+      }
+      if(pricesTab) {
+        pricesTab.style.pointerEvents = 'auto';
+        pricesTab.style.opacity = '1';
+      }
+      
+      // Riabilita click sulle foto
+      const photos = albumGrid.querySelectorAll('.album-photo');
+      photos.forEach(photo => {
+        photo.style.pointerEvents = 'auto';
+      });
+    }
+    
     function displayPhotos() {
+      const loadingOverlay = document.getElementById('albumLoadingOverlay');
+      const loadingText = document.getElementById('albumLoadingText');
+      
+      // Reset counter
+      photosLoadedCount = 0;
+      
+      // Mostra overlay di caricamento
+      if(loadingOverlay) {
+        loadingOverlay.classList.add('active');
+        if(loadingText) loadingText.textContent = t('upload.loading');
+      }
+      
+      // Disabilita interazioni
+      disableAlbumInteractions();
+      
       albumGrid.innerHTML = '';
+      
+      // Preload delle prime 6-9 immagini (quelle visibili subito)
+      const preloadCount = Math.min(9, allPhotos.length);
+      
       allPhotos.forEach((photo, index) => {
         const div = document.createElement('div');
         div.className = 'album-photo';
-        div.innerHTML = `
-          <img src="/photo/${encodeURIComponent(photo.photo_id)}?paid=false" alt="${photo.photo_id}">
-          <button class="add-cart" onclick="addToCart('${photo.photo_id}')">+</button>
-        `;
-        div.querySelector('img').addEventListener('click', () => openLightbox(index));
+        
+        const img = document.createElement('img');
+        img.dataset.photoId = photo.photo_id;
+        img.dataset.index = index;
+        img.alt = photo.photo_id;
+        
+        // Skeleton loader
+        const skeleton = document.createElement('div');
+        skeleton.className = 'photo-skeleton';
+        
+        // Per le prime immagini, carica subito
+        if(index < preloadCount) {
+          img.dataset.loaded = 'true';
+          const imgElement = new Image();
+          imgElement.onload = () => {
+            img.src = imgElement.src;
+            img.classList.add('loaded');
+            skeleton.remove();
+            checkAllPhotosLoaded();
+          };
+          imgElement.onerror = () => {
+            console.error('Errore caricamento foto:', photo.photo_id);
+            skeleton.style.background = 'rgba(255,0,0,0.1)';
+            skeleton.innerHTML = '<div style="padding: 10px; text-align: center; color: #ff4444; font-size: 12px;">Error</div>';
+            checkAllPhotosLoaded();
+          };
+          imgElement.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
+        }
+        
+        const addCartBtn = document.createElement('button');
+        addCartBtn.className = 'add-cart';
+        addCartBtn.textContent = '+';
+        addCartBtn.onclick = () => addToCart(photo.photo_id);
+        
+        div.appendChild(skeleton);
+        div.appendChild(img);
+        div.appendChild(addCartBtn);
+        
+        img.addEventListener('click', () => openLightbox(index));
         albumGrid.appendChild(div);
       });
+      
+      // Inizializza observer dopo che tutti gli elementi sono nel DOM
+      setTimeout(() => {
+        initImageObserver();
+        // Osserva tutte le immagini non ancora caricate
+        albumGrid.querySelectorAll('img:not([data-loaded="true"])').forEach(img => {
+          imageObserver.observe(img);
+        });
+      }, 100);
+      
+      // Nascondi overlay dopo un breve delay (le prime immagini si caricheranno velocemente)
+      setTimeout(() => {
+        if(loadingOverlay) {
+          loadingOverlay.classList.remove('active');
+        }
+        enableAlbumInteractions();
+      }, 500);
     }
 
     function showStickyOfferBar(photoCount) {
@@ -1617,7 +2209,6 @@
       const stickyText = document.getElementById('stickyOfferText');
       const stickyPrice = document.getElementById('stickyOfferPrice');
       const stickyBuyBtn = document.getElementById('stickyOfferBuyBtn');
-      const stickyCloseBtn = document.getElementById('stickyOfferCloseBtn');
       const photoCountBanner = document.getElementById('albumPhotoCount');
       const photoCountNumber = document.getElementById('photoCountNumber');
       const albumScreen = document.getElementById('albumScreen');
@@ -1637,6 +2228,8 @@
       // Mostra banner conteggio foto sopra la griglia
       if(photoCountBanner && photoCountNumber) {
         photoCountNumber.textContent = photoCount;
+        const foundText = t('album.found', { count: photoCount });
+        photoCountBanner.innerHTML = foundText.replace('{count}', photoCount);
         photoCountBanner.style.display = 'block';
       }
       
@@ -1644,16 +2237,16 @@
       const priceCents = calculatePrice(photoCount);
       const priceEuros = (priceCents / 100).toFixed(2);
       
-      // Messaggio personalizzato in base al numero di foto
+      // Messaggio personalizzato in base al numero di foto (tradotto)
       let message = "";
       if(photoCount === 1) {
-        message = "Acquista la tua foto";
+        message = t('sticky.buy1');
       } else if(photoCount <= 5) {
-        message = `Acquista tutte le ${photoCount} foto`;
+        message = t('sticky.buyFew', { count: photoCount });
       } else if(photoCount <= 11) {
-        message = `Acquista tutte le ${photoCount} foto e risparmia`;
+        message = t('sticky.buyMany', { count: photoCount });
       } else {
-        message = `Acquista tutte le ${photoCount} foto al prezzo migliore`;
+        message = t('sticky.buyAll', { count: photoCount });
       }
       
       if(stickyText) {
@@ -1664,6 +2257,10 @@
         stickyPrice.textContent = `€${priceEuros}`;
       }
       
+      if(stickyBuyBtn) {
+        stickyBuyBtn.textContent = t('sticky.buy');
+      }
+      
       // Event listener per pulsante acquista (se non già presente)
       if(stickyBuyBtn && !stickyBuyBtn.dataset.listenerAdded) {
         stickyBuyBtn.addEventListener('click', () => {
@@ -1672,13 +2269,7 @@
         stickyBuyBtn.dataset.listenerAdded = 'true';
       }
       
-      // Event listener per pulsante chiudi (se non già presente)
-      if(stickyCloseBtn && !stickyCloseBtn.dataset.listenerAdded) {
-        stickyCloseBtn.addEventListener('click', () => {
-          stickyBar.classList.remove('active');
-        });
-        stickyCloseBtn.dataset.listenerAdded = 'true';
-      }
+      // Pulsante chiudi rimosso - il banner rimane sempre visibile
       
       // Mostra banner con animazione
       stickyBar.style.display = 'flex';
@@ -1686,11 +2277,26 @@
     }
 
     function openLightbox(index) {
+      // Previeni l'apertura se le foto stanno ancora caricando
+      const loadingOverlay = document.getElementById('albumLoadingOverlay');
+      if(loadingOverlay && loadingOverlay.classList.contains('active')) {
+        return; // Non fare nulla se sta caricando
+      }
+      
       currentPhotoIndex = index;
       const photo = allPhotos[index];
-      lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
-      updateLightboxCounter();
-      photoLightbox.classList.add('active');
+      
+      // Preload dell'immagine prima di mostrarla
+      const img = new Image();
+      img.onload = () => {
+        lightboxImage.src = img.src;
+        updateLightboxCounter();
+        photoLightbox.classList.add('active');
+      };
+      img.onerror = () => {
+        alert(t('errors.connection'));
+      };
+      img.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
       
       // Mostra/nascondi frecce
       const prevBtn = document.getElementById('lightboxPrev');
