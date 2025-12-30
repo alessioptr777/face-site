@@ -1145,13 +1145,6 @@
       </div>
     </div>
     
-    <button class="album-buy-all" id="buyAllBtn">
-      <div>
-        <div><span data-i18n="album.buyAll">Buy all photos at</span> <span class="price" id="buyAllPrice">€0</span></div>
-        <div class="subtitle" data-i18n="album.digital">in digital format</div>
-      </div>
-      <span>→</span>
-    </button>
   </div>
   
   <!-- Sticky Offer Bar -->
@@ -1354,15 +1347,7 @@
       if(myContentTab) myContentTab.textContent = t('album.myContent');
       if(pricesTab) pricesTab.textContent = t('album.priceList');
       
-      // Buy all button
-      if(buyAllBtn) {
-        const buyAllDiv = buyAllBtn.querySelector('div > div');
-        if(buyAllDiv) {
-          buyAllDiv.innerHTML = `${t('album.buyAll')} <span class="price" id="buyAllPrice">€0</span>`;
-        }
-        const subtitle = buyAllBtn.querySelector('.subtitle');
-        if(subtitle) subtitle.textContent = t('album.digital');
-      }
+      // Buy all button rimosso - ora si usa solo il banner sticky
       
       // Cart modal
       const cartTitle = document.querySelector('#cartModal h3');
@@ -1409,8 +1394,8 @@
     const albumCartBtn = document.getElementById("albumCartBtn");
     const albumCartCount = document.getElementById("albumCartCount");
     const albumCartPrice = document.getElementById("albumCartPrice");
-    const buyAllBtn = document.getElementById("buyAllBtn");
-    const buyAllPrice = document.getElementById("buyAllPrice");
+    // buyAllBtn rimosso - ora si usa solo il banner sticky
+    const buyAllPrice = document.getElementById("buyAllPrice"); // Mantenuto per compatibilità se usato altrove
     const photoLightbox = document.getElementById("photoLightbox");
     const lightboxImage = document.getElementById("photoLightbox").querySelector("img");
     const photoCounter = document.getElementById("photoCounter");
@@ -1489,14 +1474,7 @@
         matchPhotos();
       }
     });
-    document.getElementById("buyAllBtn").addEventListener("click", () => {
-      // Previeni il click se le foto stanno ancora caricando
-      const loadingOverlay = document.getElementById('albumLoadingOverlay');
-      if(loadingOverlay && loadingOverlay.classList.contains('active')) {
-        return; // Non fare nulla se sta caricando
-      }
-      checkout();
-    });
+    // Pulsante buyAllBtn rimosso - ora si usa solo il banner sticky
     document.getElementById("albumBackBtn").addEventListener("click", () => {
       showScreen('welcome');
     });
@@ -1511,7 +1489,6 @@
       document.getElementById("pricesTab").classList.remove('active');
       document.getElementById("albumGrid").style.display = 'grid';
       document.getElementById("pricesList").classList.remove('active');
-      document.getElementById("buyAllBtn").style.display = 'flex';
     });
     
     document.getElementById("pricesTab").addEventListener("click", () => {
@@ -1519,7 +1496,6 @@
       document.getElementById("myContentTab").classList.remove('active');
       document.getElementById("albumGrid").style.display = 'none';
       document.getElementById("pricesList").classList.add('active');
-      document.getElementById("buyAllBtn").style.display = 'none';
     });
     document.getElementById("closeCartBtn").addEventListener("click", () => {
       document.getElementById('cartModal').classList.remove('active');
@@ -2048,17 +2024,10 @@
       // NON bloccare pointer-events sull'albumScreen per permettere lo scroll
       
       // Disabilita pulsanti specifici
-      const buyAllBtn = document.getElementById('buyAllBtn');
       const albumCartBtn = document.getElementById('albumCartBtn');
       const albumBackBtn = document.getElementById('albumBackBtn');
       const myContentTab = document.getElementById('myContentTab');
       const pricesTab = document.getElementById('pricesTab');
-      
-      if(buyAllBtn) {
-        buyAllBtn.disabled = true;
-        buyAllBtn.style.opacity = '0.5';
-        buyAllBtn.style.pointerEvents = 'none';
-      }
       if(albumCartBtn) {
         albumCartBtn.style.pointerEvents = 'none';
         albumCartBtn.style.opacity = '0.5';
@@ -2085,17 +2054,10 @@
     
     function enableAlbumInteractions() {
       // Riabilita pulsanti
-      const buyAllBtn = document.getElementById('buyAllBtn');
       const albumCartBtn = document.getElementById('albumCartBtn');
       const albumBackBtn = document.getElementById('albumBackBtn');
       const myContentTab = document.getElementById('myContentTab');
       const pricesTab = document.getElementById('pricesTab');
-      
-      if(buyAllBtn) {
-        buyAllBtn.disabled = false;
-        buyAllBtn.style.opacity = '1';
-        buyAllBtn.style.pointerEvents = 'auto';
-      }
       if(albumCartBtn) {
         albumCartBtn.style.pointerEvents = 'auto';
         albumCartBtn.style.opacity = '1';
@@ -2264,7 +2226,7 @@
       // Event listener per pulsante acquista (se non già presente)
       if(stickyBuyBtn && !stickyBuyBtn.dataset.listenerAdded) {
         stickyBuyBtn.addEventListener('click', () => {
-          checkout();
+          checkoutAllPhotos(); // Usa funzione separata per acquistare TUTTE le foto
         });
         stickyBuyBtn.dataset.listenerAdded = 'true';
       }
@@ -2403,6 +2365,7 @@
     }
 
     async function checkout() {
+      // Checkout normale: usa il carrello corrente
       if(!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
         alert("Aggiungi foto al carrello!");
         return;
@@ -2415,6 +2378,50 @@
       const data = await res.json();
       if(data.checkout_url) {
         window.location.href = data.checkout_url;
+      }
+    }
+    
+    async function checkoutAllPhotos() {
+      // Checkout per TUTTE le foto: ignora il carrello e usa tutte le foto trovate
+      if(!allPhotos || allPhotos.length === 0) {
+        alert("Nessuna foto disponibile!");
+        return;
+      }
+      
+      // Crea un carrello temporaneo con TUTTE le foto
+      const allPhotoIds = allPhotos.map(photo => photo.photo_id);
+      const totalCount = allPhotoIds.length;
+      const totalPriceCents = calculatePrice(totalCount);
+      const totalPriceEuros = (totalPriceCents / 100).toFixed(2);
+      
+      // Aggiungi tutte le foto al carrello temporaneamente per il checkout
+      // Usiamo una sessione separata o aggiungiamo direttamente tutte le foto
+      try {
+        // Prima, aggiungi tutte le foto al carrello (sovrascrive il carrello corrente)
+        // Oppure crea una nuova sessione per questo checkout
+        const checkoutSessionId = "checkout_all_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+        
+        // Aggiungi tutte le foto una per una al carrello di checkout
+        for(const photoId of allPhotoIds) {
+          await fetch(`/cart/add?session_id=${encodeURIComponent(checkoutSessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+            method: "POST"
+          });
+        }
+        
+        // Ora fai il checkout con questa sessione che contiene tutte le foto
+        const res = await fetch(`/checkout?session_id=${encodeURIComponent(checkoutSessionId)}`, {
+          method: "POST"
+        });
+        
+        const data = await res.json();
+        if(data.checkout_url) {
+          window.location.href = data.checkout_url;
+        } else {
+          alert("Errore durante il checkout. Riprova.");
+        }
+      } catch(err) {
+        console.error("Errore checkout tutte le foto:", err);
+        alert("Errore durante il checkout. Riprova.");
       }
     }
 
