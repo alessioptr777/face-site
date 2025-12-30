@@ -282,7 +282,7 @@ def _read_image_from_bytes(file_bytes: bytes):
     return img
 
 def _add_watermark(image_path: Path) -> bytes:
-    """Aggiunge watermark pattern a griglia come getpica.com con 'Tenerife Pictures'"""
+    """Aggiunge watermark pattern a griglia come getpica.com con 'tenerifepictures'"""
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -296,8 +296,8 @@ def _add_watermark(image_path: Path) -> bytes:
         watermark = Image.new('RGBA', img_rgba.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(watermark)
         
-        # Testo watermark
-        text = "Tenerife Pictures"
+        # Testo watermark (minuscolo senza spazio)
+        text = "tenerifepictures"
         
         # Calcola dimensione font basata sull'altezza immagine (circa 2-3% per pattern a griglia)
         font_size = max(16, int(img.height * 0.025))
