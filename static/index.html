@@ -487,6 +487,7 @@
     
     .album-grid{
       padding: 20px;
+      padding-bottom: 100px; /* Spazio per il banner sticky */
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 15px;
@@ -583,6 +584,115 @@
     
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+    
+    /* Sticky Offer Bar */
+    .sticky-offer-bar{
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
+      padding: 12px 16px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom)); /* Safe area iPhone */
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+      z-index: 999;
+      display: none;
+      transform: translateY(100%);
+      transition: transform 0.3s ease-out;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .sticky-offer-bar.active{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      animation: slideUp 0.4s ease-out forwards;
+    }
+    
+    @keyframes slideUp {
+      from {
+        transform: translateY(100%);
+      }
+      to {
+        transform: translateY(0);
+      }
+    }
+    
+    .sticky-offer-content{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    
+    .sticky-offer-text{
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+      line-height: 1.3;
+    }
+    
+    .sticky-offer-price{
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+    }
+    
+    .sticky-offer-actions{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .sticky-offer-btn{
+      background: white;
+      color: var(--purple);
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+    
+    .sticky-offer-btn:active{
+      transform: scale(0.95);
+      opacity: 0.8;
+    }
+    
+    .sticky-offer-close{
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    
+    .sticky-offer-close:active{
+      background: rgba(255, 255, 255, 0.3);
+    }
+    
+    /* Album photo count banner sopra la griglia */
+    .album-photo-count{
+      padding: 12px 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-light);
     }
   </style>
 </head>
@@ -705,6 +815,9 @@
       <button class="album-tab active" id="myContentTab">I miei contenuti</button>
       <button class="album-tab" id="pricesTab">Listino prezzi ↗</button>
     </div>
+    <div class="album-photo-count" id="albumPhotoCount" style="display: none;">
+      Hai trovato <span id="photoCountNumber">0</span> foto
+    </div>
     <div class="album-grid" id="albumGrid">
       <!-- Foto verranno aggiunte qui -->
     </div>
@@ -715,6 +828,18 @@
       </div>
       <span>→</span>
     </button>
+  </div>
+  
+  <!-- Sticky Offer Bar -->
+  <div class="sticky-offer-bar" id="stickyOfferBar">
+    <div class="sticky-offer-content">
+      <div class="sticky-offer-text" id="stickyOfferText">Acquista tutte le foto</div>
+      <div class="sticky-offer-price" id="stickyOfferPrice">€0</div>
+    </div>
+    <div class="sticky-offer-actions">
+      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Acquista</button>
+      <button class="sticky-offer-close" id="stickyOfferCloseBtn">✕</button>
+    </div>
   </div>
 
   <!-- Lightbox per foto -->
@@ -1267,7 +1392,7 @@
           
           displayPhotos();
           updateCart();
-          showOffersPopup(photos.length);
+          showStickyOfferBar(photos.length);
           showScreen('album');
         } else {
           console.warn("Nessuna foto trovata o risposta non valida:", data);
@@ -1313,67 +1438,70 @@
       });
     }
 
-    function showOffersPopup(photoCount) {
-      const offersModal = document.getElementById('offersModal');
-      const offersPhotoCount = document.getElementById('offersPhotoCount');
-      const offersMessage = document.getElementById('offersMessage');
-      const offersPrice = document.getElementById('offersPrice');
-      const offersBuyBtn = document.getElementById('offersBuyBtn');
-      const offersCloseBtn = document.getElementById('offersCloseBtn');
+    function showStickyOfferBar(photoCount) {
+      const stickyBar = document.getElementById('stickyOfferBar');
+      const stickyText = document.getElementById('stickyOfferText');
+      const stickyPrice = document.getElementById('stickyOfferPrice');
+      const stickyBuyBtn = document.getElementById('stickyOfferBuyBtn');
+      const stickyCloseBtn = document.getElementById('stickyOfferCloseBtn');
+      const photoCountBanner = document.getElementById('albumPhotoCount');
+      const photoCountNumber = document.getElementById('photoCountNumber');
       
-      if(!offersModal) {
-        console.warn("Modal offerte non trovato");
+      if(!stickyBar) {
+        console.warn("Sticky offer bar non trovato");
         return;
       }
       
-      // Aggiorna conteggio foto
-      if(offersPhotoCount) {
-        offersPhotoCount.textContent = photoCount;
+      // Mostra banner conteggio foto sopra la griglia
+      if(photoCountBanner && photoCountNumber) {
+        photoCountNumber.textContent = photoCount;
+        photoCountBanner.style.display = 'block';
       }
       
       // Calcola prezzo
       const priceCents = calculatePrice(photoCount);
       const priceEuros = (priceCents / 100).toFixed(2);
       
-      if(offersPrice) {
-        offersPrice.textContent = `€${priceEuros}`;
-      }
-      
       // Messaggio personalizzato in base al numero di foto
       let message = "";
       if(photoCount === 1) {
-        message = "Acquista la tua foto preferita!";
+        message = "Acquista la tua foto";
       } else if(photoCount <= 5) {
-        message = `Acquista tutte le ${photoCount} foto con uno sconto speciale!`;
+        message = `Acquista tutte le ${photoCount} foto`;
       } else if(photoCount <= 11) {
-        message = `Ottimo! Hai ${photoCount} foto. Acquista tutte insieme e risparmia!`;
+        message = `Acquista tutte le ${photoCount} foto e risparmia`;
       } else {
-        message = `Fantastico! Hai ${photoCount} foto. Acquista tutte insieme al prezzo migliore!`;
+        message = `Acquista tutte le ${photoCount} foto al prezzo migliore`;
       }
       
-      if(offersMessage) {
-        offersMessage.textContent = message;
+      if(stickyText) {
+        stickyText.textContent = message;
+      }
+      
+      if(stickyPrice) {
+        stickyPrice.textContent = `€${priceEuros}`;
       }
       
       // Event listener per pulsante acquista (se non già presente)
-      if(offersBuyBtn && !offersBuyBtn.dataset.listenerAdded) {
-        offersBuyBtn.addEventListener('click', () => {
+      if(stickyBuyBtn && !stickyBuyBtn.dataset.listenerAdded) {
+        stickyBuyBtn.addEventListener('click', () => {
           checkout();
-          offersModal.classList.remove('active');
         });
-        offersBuyBtn.dataset.listenerAdded = 'true';
+        stickyBuyBtn.dataset.listenerAdded = 'true';
       }
       
       // Event listener per pulsante chiudi (se non già presente)
-      if(offersCloseBtn && !offersCloseBtn.dataset.listenerAdded) {
-        offersCloseBtn.addEventListener('click', () => {
-          offersModal.classList.remove('active');
+      if(stickyCloseBtn && !stickyCloseBtn.dataset.listenerAdded) {
+        stickyCloseBtn.addEventListener('click', () => {
+          stickyBar.classList.remove('active');
         });
-        offersCloseBtn.dataset.listenerAdded = 'true';
+        stickyCloseBtn.dataset.listenerAdded = 'true';
       }
       
-      // Mostra modal
-      offersModal.classList.add('active');
+      // Mostra banner con animazione
+      setTimeout(() => {
+        stickyBar.classList.add('active');
+      }, 300); // Piccolo delay per far vedere prima le foto
     }
 
     function openLightbox(index) {
