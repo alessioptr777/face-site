@@ -1810,12 +1810,37 @@
             if(xhr.status >= 200 && xhr.status < 300) {
               resolve(xhr);
             } else {
-              reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+              // Crea un errore con più informazioni
+              const error = new Error(`HTTP ${xhr.status}: ${xhr.statusText}`);
+              error.status = xhr.status;
+              error.statusText = xhr.statusText;
+              error.responseText = xhr.responseText;
+              reject(error);
             }
           });
           
-          xhr.addEventListener('error', () => reject(new Error('Network error')));
-          xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+          xhr.addEventListener('error', (e) => {
+            console.error("XMLHttpRequest error event:", e);
+            const error = new Error('Network error');
+            error.type = 'network';
+            reject(error);
+          });
+          
+          xhr.addEventListener('timeout', () => {
+            console.error("XMLHttpRequest timeout");
+            const error = new Error('Request timeout');
+            error.type = 'timeout';
+            reject(error);
+          });
+          
+          xhr.addEventListener('abort', () => {
+            const error = new Error('Upload aborted');
+            error.type = 'abort';
+            reject(error);
+          });
+          
+          // Imposta timeout di 120 secondi (Render può essere lento al risveglio)
+          xhr.timeout = 120000;
           
           xhr.open('POST', '/match_selfie?top_k_faces=120&min_score=0.08');
           xhr.send(fd);
@@ -1829,10 +1854,21 @@
         await uploadPromise;
         
         const res = xhr;
-        console.log("Risposta ricevuta, status:", res.status, res.status >= 200 && res.status < 300);
+        console.log("✅ Risposta ricevuta, status:", res.status, "OK:", res.status >= 200 && res.status < 300);
+        console.log("Response text length:", res.responseText ? res.responseText.length : 0);
+        console.log("Response type:", res.responseType);
+        console.log("Response headers:", res.getAllResponseHeaders());
+        
+        // Log primi caratteri della risposta per debug
+        if(res.responseText && res.responseText.length > 0) {
+          console.log("Response preview (primi 200 char):", res.responseText.substring(0, 200));
+        }
         
         // Controlla se la risposta è OK
         if(res.status < 200 || res.status >= 300) {
+          console.error("❌ Errore HTTP:", res.status, res.statusText);
+          console.error("Response text completo:", res.responseText);
+          
           let errorMsg = "Errore durante l'elaborazione. Riprova tra qualche istante.";
           
           // Traduci messaggio in base alla lingua
@@ -1847,17 +1883,23 @@
           }
           
           try {
-            const errorData = JSON.parse(res.responseText);
-            console.error("Errore dal server:", errorData);
-            
-            // Se il server fornisce un messaggio specifico, usalo
-            if(errorData.detail) {
-              errorMsg = errorData.detail;
-            } else if(errorData.error && errorData.error.message) {
-              errorMsg = errorData.error.message;
+            if(res.responseText && res.responseText.trim()) {
+              const errorData = JSON.parse(res.responseText);
+              console.error("Errore dal server (JSON):", errorData);
+              
+              // Se il server fornisce un messaggio specifico, usalo
+              if(errorData.detail) {
+                errorMsg = errorData.detail;
+              } else if(errorData.error && errorData.error.message) {
+                errorMsg = errorData.error.message;
+              } else if(errorData.message) {
+                errorMsg = errorData.message;
+              }
             }
           } catch(e) {
             console.error("Errore nel parsing JSON di errore:", e);
+            console.error("Response text non-JSON:", res.responseText);
+            
             // Messaggi specifici per diversi status code
             if(res.status === 500) {
               errorMsg = "Errore del server. Riprova tra qualche istante.";
@@ -1875,10 +1917,14 @@
               // Status 0 o vuoto spesso indica un problema di rete
               errorMsg = t('errors.connection');
             } else {
-              errorMsg = `Errore ${res.status}: ${res.statusText}`;
+              errorMsg = `Errore ${res.status}: ${res.statusText || 'Errore sconosciuto'}`;
             }
           }
-          console.error("Errore risposta server:", res.status, errorMsg);
+          console.error("💥 Errore finale mostrato all'utente:", errorMsg);
+          
+          // Aggiungi dettagli tecnici al messaggio per debug
+          const debugInfo = `\n\n[Dettagli tecnici: Status ${res.status}, ${res.statusText || 'N/A'}]`;
+          const fullErrorMsg = errorMsg + debugInfo;
           
           // Nascondi upload status
           if(uploadStatus) uploadStatus.classList.remove('active');
@@ -1887,7 +1933,7 @@
             captureBtn.style.opacity = '1';
           }
           
-          alert(errorMsg);
+          alert(fullErrorMsg);
           showScreen('selfie');
           startCamera();
           return;
@@ -1898,13 +1944,26 @@
         if(uploadPercentage) uploadPercentage.textContent = '100%';
         if(uploadStatusText) uploadStatusText.textContent = 'Completato!';
         
-        const data = JSON.parse(res.responseText);
-        console.log("Dati ricevuti:", { 
-          ok: data.ok, 
-          count: data.count, 
-          resultsLength: data.results ? data.results.length : 0,
-          matchesLength: data.matches ? data.matches.length : 0
-        });
+        // Verifica che la risposta non sia vuota
+        if(!res.responseText || res.responseText.trim() === '') {
+          console.error("Risposta vuota dal server");
+          throw new Error('Empty response from server');
+        }
+        
+        let data;
+        try {
+          data = JSON.parse(res.responseText);
+          console.log("Dati ricevuti:", { 
+            ok: data.ok, 
+            count: data.count, 
+            resultsLength: data.results ? data.results.length : 0,
+            matchesLength: data.matches ? data.matches.length : 0
+          });
+        } catch(parseError) {
+          console.error("Errore parsing JSON:", parseError);
+          console.error("Response text (primi 500 caratteri):", res.responseText.substring(0, 500));
+          throw new Error(`Invalid JSON response: ${parseError.message}`);
+        }
         
         // Usa results o matches (per compatibilità)
         const photos = data.results || data.matches || [];
@@ -1966,6 +2025,7 @@
         console.error("Errore nel caricamento foto:", err);
         console.error("Stack trace:", err.stack);
         console.error("Tipo errore:", err.name, "Messaggio:", err.message);
+        console.error("Error type:", err.type, "Status:", err.status);
         
         // Nascondi upload status
         if(uploadStatus) uploadStatus.classList.remove('active');
@@ -1977,16 +2037,50 @@
         // Determina il tipo di errore e mostra messaggio appropriato
         let errorMessage = t('errors.connection'); // Default
         
-        // Controlla se è un errore di rete reale
-        if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
-          // Errore di rete reale
+        // Controlla il tipo di errore specifico
+        if(err.type === 'network') {
+          // Errore di rete reale (XMLHttpRequest error event)
           errorMessage = t('errors.connection');
-        } else if(err.name === 'NetworkError' || err.message.includes('network')) {
-          // Errore di rete
+        } else if(err.type === 'timeout') {
+          // Timeout della richiesta
+          errorMessage = "La richiesta ha impiegato troppo tempo. Riprova.";
+          if(currentLang === 'en') errorMessage = "Request took too long. Please try again.";
+          else if(currentLang === 'fr') errorMessage = "La requête a pris trop de temps. Veuillez réessayer.";
+          else if(currentLang === 'de') errorMessage = "Die Anfrage hat zu lange gedauert. Bitte versuchen Sie es erneut.";
+          else if(currentLang === 'es') errorMessage = "La solicitud tardó demasiado. Por favor, inténtelo de nuevo.";
+        } else if(err.type === 'abort') {
+          // Upload annullato
+          errorMessage = "Upload annullato. Riprova.";
+          if(currentLang === 'en') errorMessage = "Upload cancelled. Please try again.";
+          else if(currentLang === 'fr') errorMessage = "Téléchargement annulé. Veuillez réessayer.";
+          else if(currentLang === 'de') errorMessage = "Upload abgebrochen. Bitte versuchen Sie es erneut.";
+          else if(currentLang === 'es') errorMessage = "Carga cancelada. Por favor, inténtelo de nuevo.";
+        } else if(err.status) {
+          // Errore HTTP con status code
+          if(err.status === 500) {
+            errorMessage = "Errore del server. Riprova tra qualche istante.";
+            if(currentLang === 'en') errorMessage = "Server error. Please try again in a moment.";
+            else if(currentLang === 'fr') errorMessage = "Erreur serveur. Veuillez réessayer dans un instant.";
+            else if(currentLang === 'de') errorMessage = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
+            else if(currentLang === 'es') errorMessage = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
+          } else if(err.status === 503) {
+            errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
+            if(currentLang === 'en') errorMessage = "Service temporarily unavailable. Please try again in a moment.";
+            else if(currentLang === 'fr') errorMessage = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
+            else if(currentLang === 'de') errorMessage = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
+            else if(currentLang === 'es') errorMessage = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
+          } else {
+            errorMessage = `Errore ${err.status}: ${err.statusText || 'Errore del server'}`;
+          }
+        } else if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
+          // Errore di rete (fetch API)
+          errorMessage = t('errors.connection');
+        } else if(err.message && err.message.includes('Network error')) {
+          // Errore di rete esplicito
           errorMessage = t('errors.connection');
         } else {
-          // Altro tipo di errore (server, parsing, timeout, ecc.)
-          errorMessage = `Errore durante l'elaborazione. Riprova tra qualche istante.`;
+          // Altro tipo di errore (parsing, ecc.)
+          errorMessage = "Errore durante l'elaborazione. Riprova tra qualche istante.";
           if(currentLang === 'en') {
             errorMessage = "Error during processing. Please try again in a moment.";
           } else if(currentLang === 'fr') {
@@ -2370,7 +2464,10 @@
     function updateCart() {
       albumCartCount.textContent = currentCart.count || 0;
       albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
-      buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      // buyAllPrice rimosso insieme al pulsante buyAllBtn
+      if(buyAllPrice) {
+        buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      }
     }
     
     function updateCartModal() {
