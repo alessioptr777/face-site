@@ -19,21 +19,31 @@
       --shadow: 0 8px 32px rgba(0,0,0,0.3);
     }
     *{box-sizing:border-box; margin:0; padding:0}
-    body{
+    html, body{
       margin:0;
+      padding:0;
+      height: 100%;
+      overflow: hidden;
+    }
+    body{
       font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;
       color:var(--text-light);
-      min-height:100vh;
+      height: 100dvh;
+      height: 100vh; /* Fallback per browser che non supportano dvh */
       background: var(--bg-gradient);
-      padding:0;
-      overflow-x: hidden;
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
     }
     
     /* Utility */
     .screen{
-      min-height: 100vh;
+      height: 100dvh;
+      height: 100vh; /* Fallback */
       display: none;
       flex-direction: column;
+      overflow: hidden;
+      position: relative;
     }
     .screen.active{
       display: flex;
@@ -105,7 +115,21 @@
     
     /* Selfie Screen */
     .selfie-screen{
-      padding: 20px;
+      padding: 10px;
+      overflow: hidden;
+    }
+    
+    .selfie-header{
+      flex-shrink: 0;
+      padding: 10px 0;
+      text-align: center;
+    }
+    
+    .selfie-header h2{
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-light);
+      margin: 0;
     }
     
     .selfie-preview{
@@ -115,28 +139,96 @@
       align-items: center;
       justify-content: center;
       position: relative;
+      min-height: 0; /* Importante per flex */
+      overflow: hidden;
     }
     
     .selfie-video{
       width: 100%;
-      max-width: 500px;
-      border-radius: 20px;
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 16px;
       overflow: hidden;
       background: #000;
+      flex-shrink: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     
     .selfie-video video{
       width: 100%;
       height: auto;
+      max-height: 50vh;
+      max-height: 50dvh;
+      object-fit: contain;
       display: block;
     }
     
     .selfie-controls{
-      margin-top: 40px;
+      flex-shrink: 0;
+      margin-top: 15px;
+      margin-bottom: 10px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 20px;
+      gap: 15px;
+    }
+    
+    /* Upload Status Area - sempre visibile */
+    .upload-status{
+      flex-shrink: 0;
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.3);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .upload-status.active{
+      display: flex;
+    }
+    
+    .upload-status-text{
+      font-size: 14px;
+      color: var(--text-light);
+      text-align: center;
+      font-weight: 500;
+    }
+    
+    .upload-progress-container{
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    
+    .upload-progress-bar{
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--purple));
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 3px;
+    }
+    
+    .upload-percentage{
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    
+    .upload-spinner{
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
     }
     
     .camera-btn{
@@ -161,9 +253,10 @@
     
     /* Confirm Selfie Screen */
     .confirm-screen{
-      padding: 20px;
+      padding: 10px 20px;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
     }
     
     .confirm-title{
@@ -176,14 +269,19 @@
     .confirm-preview{
       width: 100%;
       max-width: 300px;
+      max-height: 40vh;
+      max-height: 40dvh;
       border-radius: 20px;
       overflow: hidden;
-      margin-bottom: 30px;
+      margin-bottom: 15px;
       box-shadow: var(--shadow);
+      flex-shrink: 1;
     }
     
     .confirm-preview img{
       width: 100%;
+      height: 100%;
+      object-fit: contain;
       height: auto;
       display: block;
     }
@@ -511,13 +609,16 @@
 
   <!-- Selfie Screen -->
   <div class="screen selfie-screen" id="selfieScreen">
+    <div class="selfie-header">
+      <h2>Scatta il tuo selfie</h2>
+    </div>
     <div class="selfie-preview">
       <div class="selfie-video">
         <video id="video" autoplay playsinline muted webkit-playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
-        <div id="videoPlaceholder" style="display: none; text-align: center; padding: 40px; color: var(--text-muted);">
-          <p>La fotocamera non è disponibile</p>
-          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 20px;">Riprova</button>
+        <div id="videoPlaceholder" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
+          <p style="font-size: 14px;">La fotocamera non è disponibile</p>
+          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;">Riprova</button>
         </div>
       </div>
       <div class="selfie-controls">
@@ -528,6 +629,17 @@
         </button>
         <button class="btn-retake" id="switchCameraBtn" style="display:none;">Cambia camera</button>
       </div>
+    </div>
+    <!-- Upload Status Area - sempre visibile quando attiva -->
+    <div class="upload-status" id="uploadStatus">
+      <div class="upload-status-text">
+        <span class="upload-spinner"></span>
+        <span id="uploadStatusText">Caricamento in corso...</span>
+      </div>
+      <div class="upload-progress-container">
+        <div class="upload-progress-bar" id="uploadProgressBar"></div>
+      </div>
+      <div class="upload-percentage" id="uploadPercentage">0%</div>
     </div>
   </div>
 
@@ -979,32 +1091,78 @@
         return;
       }
       
-      // Mostra indicatore di caricamento nello schermo di conferma
-      const confirmLoadingIndicator = document.getElementById('confirmLoadingIndicator');
-      const confirmBtn = document.getElementById('confirmBtn');
-      const retakeBtn = document.getElementById('retakeBtn');
+      // Mostra area upload status (torna allo schermo selfie se siamo in confirm)
+      showScreen('selfie');
+      const uploadStatus = document.getElementById('uploadStatus');
+      const uploadStatusText = document.getElementById('uploadStatusText');
+      const uploadProgressBar = document.getElementById('uploadProgressBar');
+      const uploadPercentage = document.getElementById('uploadPercentage');
+      const captureBtn = document.getElementById('captureBtn');
       
-      if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'block';
-      if(confirmBtn) confirmBtn.disabled = true;
-      if(retakeBtn) retakeBtn.disabled = true;
+      // Mostra upload status e disabilita pulsante
+      if(uploadStatus) uploadStatus.classList.add('active');
+      if(uploadStatusText) uploadStatusText.textContent = 'Caricamento selfie...';
+      if(uploadProgressBar) uploadProgressBar.style.width = '10%';
+      if(uploadPercentage) uploadPercentage.textContent = '10%';
+      if(captureBtn) {
+        captureBtn.disabled = true;
+        captureBtn.style.opacity = '0.5';
+      }
       
       try {
         console.log("Inizio matchPhotos: invio selfie al server...");
+        
+        // Aggiorna progress
+        if(uploadProgressBar) uploadProgressBar.style.width = '30%';
+        if(uploadPercentage) uploadPercentage.textContent = '30%';
+        if(uploadStatusText) uploadStatusText.textContent = 'Invio selfie al server...';
+        
         const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
         
-        const res = await fetch("/match_selfie?top_k_faces=120&min_score=0.08", {
-          method: "POST",
-          body: fd
+        // Simula progress durante upload (XMLHttpRequest per avere progress reale)
+        const xhr = new XMLHttpRequest();
+        
+        // Promise per gestire la risposta
+        const uploadPromise = new Promise((resolve, reject) => {
+          xhr.upload.addEventListener('progress', (e) => {
+            if(e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 50) + 30; // 30-80%
+              if(uploadProgressBar) uploadProgressBar.style.width = percent + '%';
+              if(uploadPercentage) uploadPercentage.textContent = percent + '%';
+            }
+          });
+          
+          xhr.addEventListener('load', () => {
+            if(xhr.status >= 200 && xhr.status < 300) {
+              resolve(xhr);
+            } else {
+              reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+            }
+          });
+          
+          xhr.addEventListener('error', () => reject(new Error('Network error')));
+          xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+          
+          xhr.open('POST', '/match_selfie?top_k_faces=120&min_score=0.08');
+          xhr.send(fd);
         });
         
-        console.log("Risposta ricevuta, status:", res.status, res.ok);
+        // Aggiorna progress
+        if(uploadProgressBar) uploadProgressBar.style.width = '80%';
+        if(uploadPercentage) uploadPercentage.textContent = '80%';
+        if(uploadStatusText) uploadStatusText.textContent = 'Analisi foto in corso...';
+        
+        await uploadPromise;
+        
+        const res = xhr;
+        console.log("Risposta ricevuta, status:", res.status, res.status >= 200 && res.status < 300);
         
         // Controlla se la risposta è OK
-        if(!res.ok) {
+        if(res.status < 200 || res.status >= 300) {
           let errorMsg = "Errore server. Riprova tra poco.";
           try {
-            const errorData = await res.json();
+            const errorData = JSON.parse(res.responseText);
             console.error("Errore dal server:", errorData);
             if(errorData.detail) {
               errorMsg = `Errore: ${errorData.detail}`;
@@ -1017,10 +1175,12 @@
           }
           console.error("Errore risposta server:", res.status, errorMsg);
           
-          // Nascondi loading
-          if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'none';
-          if(confirmBtn) confirmBtn.disabled = false;
-          if(retakeBtn) retakeBtn.disabled = false;
+          // Nascondi upload status
+          if(uploadStatus) uploadStatus.classList.remove('active');
+          if(captureBtn) {
+            captureBtn.disabled = false;
+            captureBtn.style.opacity = '1';
+          }
           
           alert(errorMsg);
           showScreen('selfie');
@@ -1028,7 +1188,12 @@
           return;
         }
         
-        const data = await res.json();
+        // Aggiorna progress finale
+        if(uploadProgressBar) uploadProgressBar.style.width = '100%';
+        if(uploadPercentage) uploadPercentage.textContent = '100%';
+        if(uploadStatusText) uploadStatusText.textContent = 'Completato!';
+        
+        const data = JSON.parse(res.responseText);
         console.log("Dati ricevuti:", { 
           ok: data.ok, 
           count: data.count, 
@@ -1041,6 +1206,8 @@
         
         if(data.ok && photos.length > 0) {
           console.log(`Trovate ${photos.length} foto, aggiungo al carrello...`);
+          if(uploadStatusText) uploadStatusText.textContent = `Trovate ${photos.length} foto, aggiungo al carrello...`;
+          
           allPhotos = photos;
           
           // Aggiungi automaticamente tutte le foto al carrello
@@ -1054,16 +1221,28 @@
           }
           
           console.log("Foto aggiunte al carrello, mostro album...");
+          
+          // Nascondi upload status prima di cambiare schermo
+          setTimeout(() => {
+            if(uploadStatus) uploadStatus.classList.remove('active');
+            if(captureBtn) {
+              captureBtn.disabled = false;
+              captureBtn.style.opacity = '1';
+            }
+          }, 500);
+          
           displayPhotos();
           updateCart();
           showOffersPopup(photos.length);
           showScreen('album');
         } else {
           console.warn("Nessuna foto trovata o risposta non valida:", data);
-          // Nascondi loading
-          if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'none';
-          if(confirmBtn) confirmBtn.disabled = false;
-          if(retakeBtn) retakeBtn.disabled = false;
+          // Nascondi upload status
+          if(uploadStatus) uploadStatus.classList.remove('active');
+          if(captureBtn) {
+            captureBtn.disabled = false;
+            captureBtn.style.opacity = '1';
+          }
           
           alert("Nessuna foto trovata. Riprova.");
           showScreen('selfie');
@@ -1073,10 +1252,12 @@
         console.error("Errore nel caricamento foto:", err);
         console.error("Stack trace:", err.stack);
         
-        // Nascondi loading
-        if(confirmLoadingIndicator) confirmLoadingIndicator.style.display = 'none';
-        if(confirmBtn) confirmBtn.disabled = false;
-        if(retakeBtn) retakeBtn.disabled = false;
+        // Nascondi upload status
+        if(uploadStatus) uploadStatus.classList.remove('active');
+        if(captureBtn) {
+          captureBtn.disabled = false;
+          captureBtn.style.opacity = '1';
+        }
         
         alert("Errore di connessione. Controlla la tua connessione internet e riprova.");
         showScreen('selfie');
