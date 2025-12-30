@@ -461,12 +461,17 @@
     }
     
     .album-header{
+      position: sticky;
+      top: 0;
       background: var(--bg-dark2);
       padding: 16px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid rgba(255,255,255,0.1);
+      z-index: 999; /* Sotto il banner sticky ma sopra il contenuto */
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
     
     .album-back{
@@ -556,9 +561,12 @@
     /* Listino prezzi */
     .prices-list{
       display: none;
-      padding: 20px;
+      padding: 15px 20px;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); /* Spazio per banner sticky */
       max-width: 600px;
       margin: 0 auto;
+      max-height: calc(100vh - 200px); /* Altezza massima per evitare overflow */
+      overflow-y: auto;
     }
     
     .prices-list.active{
@@ -566,28 +574,28 @@
     }
     
     .prices-title{
-      font-size: 24px;
+      font-size: 20px;
       font-weight: 700;
       color: var(--text-light);
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       text-align: center;
     }
     
     .prices-subtitle{
-      font-size: 14px;
+      font-size: 12px;
       color: var(--text-muted);
       text-align: center;
-      margin-bottom: 30px;
+      margin-bottom: 12px;
     }
     
     .price-item{
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px 20px;
-      margin-bottom: 12px;
+      padding: 10px 16px;
+      margin-bottom: 8px;
       background: rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
+      border-radius: 10px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       transition: background 0.2s, transform 0.2s;
     }
@@ -607,19 +615,19 @@
     }
     
     .price-item-count{
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 600;
       color: var(--text-light);
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     
     .price-item-desc{
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
     }
     
     .price-item-value{
-      font-size: 24px;
+      font-size: 20px;
       font-weight: 700;
       color: var(--accent-light);
     }
@@ -729,13 +737,34 @@
       height: 36px;
       border-radius: 50%;
       background: rgba(0,0,0,0.6);
-      border: none;
+      border: 2px solid rgba(255,255,255,0.3);
       color: white;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 18px;
+      font-size: 0;
+      transition: all 0.3s ease;
+    }
+    
+    .album-photo .add-cart::before{
+      content: '';
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid white;
+      background: transparent;
+      transition: all 0.3s ease;
+    }
+    
+    .album-photo .add-cart.in-cart{
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    
+    .album-photo .add-cart.in-cart::before{
+      background: white;
+      border-color: white;
     }
     
     .album-buy-all{
@@ -807,8 +836,8 @@
       left: 0;
       right: 0;
       background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
-      padding: 12px 16px;
-      padding-bottom: calc(12px + env(safe-area-inset-bottom)); /* Safe area iPhone */
+      padding: 8px 12px;
+      padding-bottom: calc(8px + env(safe-area-inset-bottom)); /* Safe area iPhone */
       box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
       z-index: 1000; /* Z-index più alto per essere sopra tutto */
       display: none;
@@ -819,6 +848,7 @@
       will-change: transform;
       -webkit-transform: translateZ(0);
       transform: translateZ(0) translateY(100%);
+      min-height: 60px; /* Altezza minima ridotta */
     }
     
     .sticky-offer-bar.active{
@@ -852,14 +882,14 @@
     }
     
     .sticky-offer-text{
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
       color: white;
-      line-height: 1.3;
+      line-height: 1.2;
     }
     
     .sticky-offer-price{
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: white;
     }
@@ -874,9 +904,9 @@
       background: white;
       color: var(--purple);
       border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-size: 14px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
@@ -2294,8 +2324,12 @@
         
         const addCartBtn = document.createElement('button');
         addCartBtn.className = 'add-cart';
-        addCartBtn.textContent = '+';
-        addCartBtn.onclick = () => addToCart(photo.photo_id);
+        addCartBtn.dataset.photoId = photo.photo_id;
+        // Verifica se la foto è già nel carrello
+        if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
+          addCartBtn.classList.add('in-cart');
+        }
+        addCartBtn.onclick = () => toggleCart(photo.photo_id, addCartBtn);
         
         div.appendChild(skeleton);
         div.appendChild(img);
@@ -2446,19 +2480,58 @@
       }
     }
 
-    async function addToCart(photoId) {
+    async function toggleCart(photoId, buttonElement) {
       try {
-        const res = await fetch(`/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
-          method: "POST"
-        });
+        // Verifica se la foto è già nel carrello
+        const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
+        
+        let res;
+        if(isInCart) {
+          // Rimuovi dal carrello
+          res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+            method: "DELETE"
+          });
+        } else {
+          // Aggiungi al carrello
+          res = await fetch(`/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+            method: "POST"
+          });
+        }
+        
         const data = await res.json();
         if(data.ok) {
           currentCart = data;
           updateCart();
+          updateCartModal();
+          
+          // Aggiorna lo stato visivo del pulsante
+          if(buttonElement) {
+            if(isInCart) {
+              buttonElement.classList.remove('in-cart');
+            } else {
+              buttonElement.classList.add('in-cart');
+            }
+          } else {
+            // Se non abbiamo il riferimento diretto, cerca il pulsante
+            const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
+            if(btn) {
+              if(isInCart) {
+                btn.classList.remove('in-cart');
+              } else {
+                btn.classList.add('in-cart');
+              }
+            }
+          }
         }
       } catch(err) {
-        console.error("Error adding to cart:", err);
+        console.error("Error toggling cart:", err);
       }
+    }
+    
+    async function addToCart(photoId) {
+      // Manteniamo questa funzione per compatibilità, ma usa toggleCart
+      const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
+      await toggleCart(photoId, btn);
     }
 
     function updateCart() {
@@ -2508,6 +2581,12 @@
           currentCart = data;
           updateCart();
           updateCartModal();
+          
+          // Aggiorna lo stato visivo del pulsante nella griglia
+          const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
+          if(btn) {
+            btn.classList.remove('in-cart');
+          }
         }
       } catch(err) {
         console.error("Error removing from cart:", err);
