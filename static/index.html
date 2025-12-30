@@ -1179,12 +1179,16 @@
           canvasWidth = Math.round(canvasHeight * targetAspectRatio);
           sourceX = Math.round((video.videoWidth - canvasWidth) / 2);
           sourceY = 0;
+          sourceWidth = canvasWidth;  // Usa la larghezza del crop, non quella del video
+          sourceHeight = canvasHeight; // Usa l'altezza del crop
         } else {
           // Video più alto: crop sopra/sotto, mantieni larghezza
           canvasWidth = video.videoWidth;
           canvasHeight = Math.round(canvasWidth / targetAspectRatio);
           sourceX = 0;
           sourceY = Math.round((video.videoHeight - canvasHeight) / 2);
+          sourceWidth = canvasWidth;  // Usa la larghezza del crop
+          sourceHeight = canvasHeight; // Usa l'altezza del crop
         }
         
         // Imposta dimensioni canvas
@@ -1197,7 +1201,7 @@
         // Usa la stessa area che viene mostrata nel video (object-fit: cover)
         ctx.drawImage(
           video,
-          sourceX, sourceY, sourceWidth, sourceHeight,  // Area sorgente (crop)
+          sourceX, sourceY, sourceWidth, sourceHeight,  // Area sorgente (crop) - CORRETTO
           0, 0, canvasWidth, canvasHeight                // Area destinazione (canvas)
         );
         
