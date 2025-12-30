@@ -282,7 +282,7 @@ def _read_image_from_bytes(file_bytes: bytes):
     return img
 
 def _add_watermark(image_path: Path) -> bytes:
-    """Aggiunge watermark pattern testuale continuo che copre tutta l'immagine"""
+    """Aggiunge watermark pattern a griglia come getpica.com con 'Tenerife Pictures'"""
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -296,11 +296,11 @@ def _add_watermark(image_path: Path) -> bytes:
         watermark = Image.new('RGBA', img_rgba.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(watermark)
         
-        # Testo watermark (con spazio dopo per separazione)
-        text = "Tenerife Pictures "
+        # Testo watermark
+        text = "Tenerife Pictures"
         
-        # Calcola dimensione font basata sull'altezza immagine (circa 5-6%)
-        font_size = max(40, int(img.height * 0.06))
+        # Calcola dimensione font basata sull'altezza immagine (circa 2-3% per pattern a griglia)
+        font_size = max(16, int(img.height * 0.025))
         
         try:
             # Prova a usare font di sistema
@@ -312,41 +312,41 @@ def _add_watermark(image_path: Path) -> bytes:
                 # Fallback a font default
                 font = ImageFont.load_default()
         
-        # Calcola dimensioni testo con spazio
+        # Calcola dimensioni testo
         bbox = draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        # Colore giallo ambra/arancione trasparente (RGBA)
-        # Giallo ambra: RGB(255, 193, 7) o arancione: RGB(255, 165, 0)
-        # Usiamo un giallo-arancione: RGB(255, 180, 30) con trasparenza
-        watermark_color = (255, 180, 30, 140)  # Opacità 140/255 (~55% visibile)
+        # Colore bianco semi-trasparente come getpica.com (RGBA)
+        # Opacità ~40-50% per essere visibile ma non invasivo
+        watermark_color = (255, 255, 255, 120)  # Opacità 120/255 (~47% visibile)
         
-        # Calcola quante ripetizioni servono per coprire tutta la larghezza
-        # Aggiungiamo un margine per essere sicuri di coprire tutto
-        repeats_per_line = int((img.width / text_width) + 2)
+        # Calcola dimensione celle griglia
+        # Ogni cella deve contenere il testo con un po' di padding
+        cell_padding = text_width * 0.3  # 30% di padding intorno al testo
+        cell_width = text_width + cell_padding
+        cell_height = text_height + cell_padding
         
-        # Crea una riga completa di testo ripetuto
-        full_line_text = text * repeats_per_line
+        # Calcola quante celle servono per coprire tutta l'immagine
+        num_cols = int((img.width / cell_width) + 2)  # +2 per margine
+        num_rows = int((img.height / cell_height) + 2)  # +2 per margine
         
-        # Calcola quante righe servono per coprire tutta l'altezza
-        # Usiamo text_height come spaziatura verticale (nessuno spazio tra righe)
-        num_lines = int((img.height / text_height) + 2)
-        
-        # Disegna pattern riga per riga, allineato orizzontalmente
-        for line_num in range(num_lines):
-            y_pos = line_num * text_height
-            
-            # Disegna la riga completa di testo ripetuto
-            # Partiamo da x=0 e andiamo fino alla fine, il testo si ripeterà naturalmente
-            x_pos = 0
-            
-            # Disegna la riga completa
-            # Usiamo un loop per disegnare il testo ripetuto fino a coprire tutta la larghezza
-            current_x = 0
-            while current_x < img.width + text_width:  # Aggiungiamo text_width per margine
-                draw.text((current_x, y_pos), text, font=font, fill=watermark_color)
-                current_x += text_width
+        # Disegna pattern a griglia
+        # Ogni cella contiene il testo centrato
+        for row in range(num_rows):
+            for col in range(num_cols):
+                # Calcola posizione centro cella
+                cell_x = col * cell_width
+                cell_y = row * cell_height
+                
+                # Centra il testo nella cella
+                text_x = cell_x + (cell_width - text_width) / 2
+                text_y = cell_y + (cell_height - text_height) / 2
+                
+                # Disegna solo se la cella è visibile nell'immagine
+                if text_x + text_width > -50 and text_x < img.width + 50 and \
+                   text_y + text_height > -50 and text_y < img.height + 50:
+                    draw.text((text_x, text_y), text, font=font, fill=watermark_color)
         
         # Combina watermark con immagine
         img_with_watermark = Image.alpha_composite(img_rgba, watermark).convert('RGB')
