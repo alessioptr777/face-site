@@ -1056,7 +1056,7 @@
     </div>
     <div class="album-profile">
       <div class="profile-avatar">
-        <img src="/static/logo.png" alt="Tenerife Stars Pictures" onerror="this.style.display='none'">
+        <!-- Logo rimosso per evitare 404 - usa solo testo -->
       </div>
       <div class="profile-info">
         <h3>Tenerife Stars Pictures</h3>
@@ -1833,18 +1833,50 @@
         
         // Controlla se la risposta è OK
         if(res.status < 200 || res.status >= 300) {
-          let errorMsg = "Errore server. Riprova tra poco.";
+          let errorMsg = "Errore durante l'elaborazione. Riprova tra qualche istante.";
+          
+          // Traduci messaggio in base alla lingua
+          if(currentLang === 'en') {
+            errorMsg = "Error during processing. Please try again in a moment.";
+          } else if(currentLang === 'fr') {
+            errorMsg = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
+          } else if(currentLang === 'de') {
+            errorMsg = "Fehler bei der Verarbeitung. Bitte versuchen Sie es in einem Moment erneut.";
+          } else if(currentLang === 'es') {
+            errorMsg = "Error durante el procesamiento. Por favor, inténtelo de nuevo en un momento.";
+          }
+          
           try {
             const errorData = JSON.parse(res.responseText);
             console.error("Errore dal server:", errorData);
+            
+            // Se il server fornisce un messaggio specifico, usalo
             if(errorData.detail) {
-              errorMsg = `Errore: ${errorData.detail}`;
+              errorMsg = errorData.detail;
             } else if(errorData.error && errorData.error.message) {
-              errorMsg = `Errore: ${errorData.error.message}`;
+              errorMsg = errorData.error.message;
             }
           } catch(e) {
             console.error("Errore nel parsing JSON di errore:", e);
-            errorMsg = `Errore ${res.status}: ${res.statusText}`;
+            // Messaggi specifici per diversi status code
+            if(res.status === 500) {
+              errorMsg = "Errore del server. Riprova tra qualche istante.";
+              if(currentLang === 'en') errorMsg = "Server error. Please try again in a moment.";
+              else if(currentLang === 'fr') errorMsg = "Erreur serveur. Veuillez réessayer dans un instant.";
+              else if(currentLang === 'de') errorMsg = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
+              else if(currentLang === 'es') errorMsg = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
+            } else if(res.status === 503) {
+              errorMsg = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
+              if(currentLang === 'en') errorMsg = "Service temporarily unavailable. Please try again in a moment.";
+              else if(currentLang === 'fr') errorMsg = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
+              else if(currentLang === 'de') errorMsg = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
+              else if(currentLang === 'es') errorMsg = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
+            } else if(res.status === 0 || res.statusText === '') {
+              // Status 0 o vuoto spesso indica un problema di rete
+              errorMsg = t('errors.connection');
+            } else {
+              errorMsg = `Errore ${res.status}: ${res.statusText}`;
+            }
           }
           console.error("Errore risposta server:", res.status, errorMsg);
           
@@ -1933,6 +1965,7 @@
       } catch(err) {
         console.error("Errore nel caricamento foto:", err);
         console.error("Stack trace:", err.stack);
+        console.error("Tipo errore:", err.name, "Messaggio:", err.message);
         
         // Nascondi upload status
         if(uploadStatus) uploadStatus.classList.remove('active');
@@ -1941,19 +1974,39 @@
           captureBtn.style.opacity = '1';
         }
         
-        // NON tornare alla welcome se siamo già nell'album
-        // Solo se siamo ancora nella schermata selfie/confirm
-        if(currentScreen !== 'album') {
-          alert(t('errors.connection'));
-          showScreen('selfie');
-          startCamera();
+        // Determina il tipo di errore e mostra messaggio appropriato
+        let errorMessage = t('errors.connection'); // Default
+        
+        // Controlla se è un errore di rete reale
+        if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
+          // Errore di rete reale
+          errorMessage = t('errors.connection');
+        } else if(err.name === 'NetworkError' || err.message.includes('network')) {
+          // Errore di rete
+          errorMessage = t('errors.connection');
         } else {
-          // Se siamo già nell'album, mostra solo un messaggio e riabilita interazioni
-          alert(t('errors.connection'));
-          enableAlbumInteractions();
-          const loadingOverlay = document.getElementById('albumLoadingOverlay');
-          if(loadingOverlay) loadingOverlay.classList.remove('active');
+          // Altro tipo di errore (server, parsing, timeout, ecc.)
+          errorMessage = `Errore durante l'elaborazione. Riprova tra qualche istante.`;
+          if(currentLang === 'en') {
+            errorMessage = "Error during processing. Please try again in a moment.";
+          } else if(currentLang === 'fr') {
+            errorMessage = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
+          } else if(currentLang === 'de') {
+            errorMessage = "Fehler bei der Verarbeitung. Bitte versuchen Sie es in einem Moment erneut.";
+          } else if(currentLang === 'es') {
+            errorMessage = "Error durante el procesamiento. Por favor, inténtelo de nuevo en un momento.";
+          }
         }
+        
+        // In caso di errore, torna sempre alla schermata selfie per riprovare
+        // NON mostrare l'album vuoto
+        alert(errorMessage);
+        showScreen('selfie');
+        startCamera();
+        
+        // Reset delle variabili per evitare stati inconsistenti
+        allPhotos = [];
+        photosLoadedCount = 0;
       }
     }
 
@@ -2083,6 +2136,16 @@
     }
     
     function displayPhotos() {
+      // Verifica che ci siano foto da mostrare
+      if(!allPhotos || allPhotos.length === 0) {
+        console.warn("displayPhotos chiamato ma non ci sono foto!");
+        // Torna al selfie se non ci sono foto
+        alert(t('errors.noPhotos'));
+        showScreen('selfie');
+        startCamera();
+        return;
+      }
+      
       const loadingOverlay = document.getElementById('albumLoadingOverlay');
       const loadingText = document.getElementById('albumLoadingText');
       
