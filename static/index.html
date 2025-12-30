@@ -478,6 +478,99 @@
       font-size: 16px;
       cursor: pointer;
       border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    
+    .album-tab.active{
+      color: var(--accent-light);
+      border-bottom-color: var(--accent-light);
+    }
+    
+    .album-tab:hover{
+      color: var(--text-light);
+    }
+    
+    /* Listino prezzi */
+    .prices-list{
+      display: none;
+      padding: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .prices-list.active{
+      display: block;
+    }
+    
+    .prices-title{
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    
+    .prices-subtitle{
+      font-size: 14px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .price-item{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      margin-bottom: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: background 0.2s, transform 0.2s;
+    }
+    
+    .price-item:hover{
+      background: rgba(255, 255, 255, 0.08);
+      transform: translateX(4px);
+    }
+    
+    .price-item.highlight{
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%);
+      border-color: var(--purple);
+    }
+    
+    .price-item-info{
+      flex: 1;
+    }
+    
+    .price-item-count{
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-light);
+      margin-bottom: 4px;
+    }
+    
+    .price-item-desc{
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    
+    .price-item-value{
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-light);
+    }
+    
+    .price-item-badge{
+      display: inline-block;
+      background: var(--purple);
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+      text-transform: uppercase;
     }
     
     .album-tab.active{
@@ -820,6 +913,69 @@
     <div class="album-photo-count" id="albumPhotoCount" style="display: none;">
       Hai trovato <span id="photoCountNumber">0</span> foto
     </div>
+    
+    <!-- Listino Prezzi -->
+    <div class="prices-list" id="pricesList">
+      <h2 class="prices-title">Listino Prezzi</h2>
+      <p class="prices-subtitle">Scegli l'offerta che preferisci</p>
+      
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">1 foto</div>
+          <div class="price-item-desc">Foto singola</div>
+        </div>
+        <div class="price-item-value">€20</div>
+      </div>
+      
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">2 foto</div>
+          <div class="price-item-desc">Doppia</div>
+        </div>
+        <div class="price-item-value">€40</div>
+      </div>
+      
+      <div class="price-item highlight">
+        <div class="price-item-info">
+          <div class="price-item-count">3 foto <span class="price-item-badge">Sconto</span></div>
+          <div class="price-item-desc">Offerta speciale</div>
+        </div>
+        <div class="price-item-value">€35</div>
+      </div>
+      
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">4 foto</div>
+          <div class="price-item-desc">Pacchetto</div>
+        </div>
+        <div class="price-item-value">€40</div>
+      </div>
+      
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">5 foto</div>
+          <div class="price-item-desc">Pacchetto</div>
+        </div>
+        <div class="price-item-value">€45</div>
+      </div>
+      
+      <div class="price-item highlight">
+        <div class="price-item-info">
+          <div class="price-item-count">6-11 foto <span class="price-item-badge">Migliore</span></div>
+          <div class="price-item-desc">Pacchetto completo</div>
+        </div>
+        <div class="price-item-value">€50</div>
+      </div>
+      
+      <div class="price-item highlight">
+        <div class="price-item-info">
+          <div class="price-item-count">12+ foto <span class="price-item-badge">Top</span></div>
+          <div class="price-item-desc">Tutte le foto al prezzo migliore</div>
+        </div>
+        <div class="price-item-value">€60</div>
+      </div>
+    </div>
+    
     <div class="album-grid" id="albumGrid">
       <!-- Foto verranno aggiunte qui -->
     </div>
@@ -988,6 +1144,23 @@
     document.getElementById("albumCartBtn").addEventListener("click", () => {
       document.getElementById('cartModal').classList.add('active');
       updateCartModal();
+    });
+    
+    // Gestione tab album
+    document.getElementById("myContentTab").addEventListener("click", () => {
+      document.getElementById("myContentTab").classList.add('active');
+      document.getElementById("pricesTab").classList.remove('active');
+      document.getElementById("albumGrid").style.display = 'grid';
+      document.getElementById("pricesList").classList.remove('active');
+      document.getElementById("buyAllBtn").style.display = 'flex';
+    });
+    
+    document.getElementById("pricesTab").addEventListener("click", () => {
+      document.getElementById("pricesTab").classList.add('active');
+      document.getElementById("myContentTab").classList.remove('active');
+      document.getElementById("albumGrid").style.display = 'none';
+      document.getElementById("pricesList").classList.add('active');
+      document.getElementById("buyAllBtn").style.display = 'none';
     });
     document.getElementById("closeCartBtn").addEventListener("click", () => {
       document.getElementById('cartModal').classList.remove('active');
