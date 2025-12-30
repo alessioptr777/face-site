@@ -651,7 +651,7 @@
     
     .album-grid{
       padding: 20px;
-      padding-bottom: 100px; /* Spazio per il banner sticky */
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); /* Spazio per il banner sticky + safe area iPhone */
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 15px;
