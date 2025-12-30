@@ -146,7 +146,7 @@
     .selfie-video{
       width: 100%;
       max-width: 100%;
-      max-height: 100%;
+      aspect-ratio: 3 / 4; /* Aspect ratio fisso 3:4 verticale */
       border-radius: 16px;
       overflow: hidden;
       background: #000;
@@ -154,15 +154,15 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
     }
     
     .selfie-video video{
       width: 100%;
-      height: auto;
-      max-height: 50vh;
-      max-height: 50dvh;
-      object-fit: contain;
+      height: 100%;
+      object-fit: cover; /* Copre tutto il contenitore senza bande nere */
       display: block;
+      object-position: center center; /* Centra verticalmente sul volto */
     }
     
     .selfie-controls{
@@ -269,20 +269,20 @@
     .confirm-preview{
       width: 100%;
       max-width: 300px;
-      max-height: 40vh;
-      max-height: 40dvh;
+      aspect-ratio: 3 / 4; /* Stesso aspect ratio del selfie catturato */
       border-radius: 20px;
       overflow: hidden;
       margin-bottom: 15px;
       box-shadow: var(--shadow);
       flex-shrink: 1;
+      background: #000;
     }
     
     .confirm-preview img{
       width: 100%;
       height: 100%;
-      object-fit: contain;
-      height: auto;
+      object-fit: cover; /* Stesso comportamento del video */
+      object-position: center center;
       display: block;
     }
     
@@ -1036,14 +1036,48 @@
 
         console.log("Cattura selfie, dimensioni video:", video.videoWidth, "x", video.videoHeight);
         
-        const ctx = canvas.getContext('2d');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        // Aspect ratio fisso 3:4 (verticale) - stesso del contenitore video
+        const targetAspectRatio = 3 / 4;
+        const videoAspectRatio = video.videoWidth / video.videoHeight;
         
-        // Disegna il frame corrente del video sul canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        let sourceX = 0;
+        let sourceY = 0;
+        let sourceWidth = video.videoWidth;
+        let sourceHeight = video.videoHeight;
+        
+        // Calcola dimensioni canvas con aspect ratio 3:4
+        let canvasWidth, canvasHeight;
+        
+        if(videoAspectRatio > targetAspectRatio) {
+          // Video più largo: crop ai lati, mantieni altezza
+          canvasHeight = video.videoHeight;
+          canvasWidth = Math.round(canvasHeight * targetAspectRatio);
+          sourceX = Math.round((video.videoWidth - canvasWidth) / 2);
+          sourceY = 0;
+        } else {
+          // Video più alto: crop sopra/sotto, mantieni larghezza
+          canvasWidth = video.videoWidth;
+          canvasHeight = Math.round(canvasWidth / targetAspectRatio);
+          sourceX = 0;
+          sourceY = Math.round((video.videoHeight - canvasHeight) / 2);
+        }
+        
+        // Imposta dimensioni canvas
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Disegna il frame corrente del video sul canvas con crop centrato
+        // Usa la stessa area che viene mostrata nel video (object-fit: cover)
+        ctx.drawImage(
+          video,
+          sourceX, sourceY, sourceWidth, sourceHeight,  // Area sorgente (crop)
+          0, 0, canvasWidth, canvasHeight                // Area destinazione (canvas)
+        );
         
         console.log("Canvas creato, dimensioni:", canvas.width, "x", canvas.height);
+        console.log("Crop applicato:", { sourceX, sourceY, sourceWidth, sourceHeight });
         
         // Converti canvas in blob
         canvas.toBlob((blob) => {
