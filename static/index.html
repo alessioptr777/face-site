@@ -596,14 +596,16 @@
       padding: 12px 16px;
       padding-bottom: calc(12px + env(safe-area-inset-bottom)); /* Safe area iPhone */
       box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
-      z-index: 999;
+      z-index: 1000; /* Z-index più alto per essere sopra tutto */
       display: none;
       transform: translateY(100%);
       transition: transform 0.3s ease-out;
       border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    .sticky-offer-bar.active{
+    /* Mostra solo quando lo schermo album è attivo */
+    .album-screen.active ~ .sticky-offer-bar.active,
+    body:has(.album-screen.active) .sticky-offer-bar.active{
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1368,22 +1370,14 @@
         const photos = data.results || data.matches || [];
         
         if(data.ok && photos.length > 0) {
-          console.log(`Trovate ${photos.length} foto, aggiungo al carrello...`);
-          if(uploadStatusText) uploadStatusText.textContent = `Trovate ${photos.length} foto, aggiungo al carrello...`;
+          console.log(`Trovate ${photos.length} foto`);
+          if(uploadStatusText) uploadStatusText.textContent = `Trovate ${photos.length} foto!`;
           
           allPhotos = photos;
           
-          // Aggiungi automaticamente tutte le foto al carrello
-          for(const photo of allPhotos) {
-            try {
-              await addToCart(photo.photo_id);
-            } catch(cartErr) {
-              console.error("Errore aggiungendo foto al carrello:", photo.photo_id, cartErr);
-              // Continua anche se una foto fallisce
-            }
-          }
+          // NON aggiungere automaticamente al carrello - l'utente decide cosa aggiungere
           
-          console.log("Foto aggiunte al carrello, mostro album...");
+          console.log("Mostro album...");
           
           // Nascondi upload status prima di cambiare schermo
           setTimeout(() => {
@@ -1395,9 +1389,12 @@
           }, 500);
           
           displayPhotos();
-          updateCart();
-          showStickyOfferBar(photos.length);
+          updateCart(); // Aggiorna carrello (sarà vuoto)
           showScreen('album');
+          // Mostra banner dopo che lo schermo è visibile
+          setTimeout(() => {
+            showStickyOfferBar(photos.length);
+          }, 100);
         } else {
           console.warn("Nessuna foto trovata o risposta non valida:", data);
           // Nascondi upload status
@@ -1450,9 +1447,17 @@
       const stickyCloseBtn = document.getElementById('stickyOfferCloseBtn');
       const photoCountBanner = document.getElementById('albumPhotoCount');
       const photoCountNumber = document.getElementById('photoCountNumber');
+      const albumScreen = document.getElementById('albumScreen');
       
       if(!stickyBar) {
         console.warn("Sticky offer bar non trovato");
+        return;
+      }
+      
+      // Verifica che lo schermo album sia attivo
+      if(!albumScreen || !albumScreen.classList.contains('active')) {
+        console.warn("Schermo album non attivo, aspetto...");
+        setTimeout(() => showStickyOfferBar(photoCount), 200);
         return;
       }
       
@@ -1503,9 +1508,8 @@
       }
       
       // Mostra banner con animazione
-      setTimeout(() => {
-        stickyBar.classList.add('active');
-      }, 300); // Piccolo delay per far vedere prima le foto
+      stickyBar.style.display = 'flex';
+      stickyBar.classList.add('active');
     }
 
     function openLightbox(index) {
