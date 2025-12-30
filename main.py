@@ -282,7 +282,7 @@ def _read_image_from_bytes(file_bytes: bytes):
     return img
 
 def _add_watermark(image_path: Path) -> bytes:
-    """Aggiunge watermark pattern ripetuto su tutta l'immagine"""
+    """Aggiunge watermark pattern testuale continuo che copre tutta l'immagine"""
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -296,11 +296,11 @@ def _add_watermark(image_path: Path) -> bytes:
         watermark = Image.new('RGBA', img_rgba.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(watermark)
         
-        # Testo watermark
-        text = "TENERIFEPICTURES"
+        # Testo watermark (con spazio dopo per separazione)
+        text = "Tenerife Pictures "
         
-        # Calcola dimensione font (circa 8% dell'altezza immagine per pattern più visibile)
-        font_size = max(60, int(img.height * 0.08))
+        # Calcola dimensione font basata sull'altezza immagine (circa 5-6%)
+        font_size = max(40, int(img.height * 0.06))
         
         try:
             # Prova a usare font di sistema
@@ -312,41 +312,41 @@ def _add_watermark(image_path: Path) -> bytes:
                 # Fallback a font default
                 font = ImageFont.load_default()
         
-        # Calcola dimensioni testo
+        # Calcola dimensioni testo con spazio
         bbox = draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        # Spaziatura tra watermark (circa 1.5x la larghezza del testo)
-        spacing_x = int(text_width * 1.5)
-        spacing_y = int(text_height * 1.5)
+        # Colore giallo ambra/arancione trasparente (RGBA)
+        # Giallo ambra: RGB(255, 193, 7) o arancione: RGB(255, 165, 0)
+        # Usiamo un giallo-arancione: RGB(255, 180, 30) con trasparenza
+        watermark_color = (255, 180, 30, 140)  # Opacità 140/255 (~55% visibile)
         
-        # Disegna pattern ripetuto su tutta l'immagine
-        # Angolo di 45 gradi per pattern diagonale
-        angle = 45
-        opacity = 120  # Più trasparente ma più intenso (0-255)
+        # Calcola quante ripetizioni servono per coprire tutta la larghezza
+        # Aggiungiamo un margine per essere sicuri di coprire tutto
+        repeats_per_line = int((img.width / text_width) + 2)
         
-        # Calcola quante volte ripetere
-        num_repeats_x = int(img.width / spacing_x) + 2
-        num_repeats_y = int(img.height / spacing_y) + 2
+        # Crea una riga completa di testo ripetuto
+        full_line_text = text * repeats_per_line
         
-        # Disegna pattern
-        for i in range(-num_repeats_y, num_repeats_y):
-            for j in range(-num_repeats_x, num_repeats_x):
-                x = j * spacing_x
-                y = i * spacing_y
-                
-                # Offset per pattern diagonale
-                offset_x = (i * spacing_x * 0.3)
-                offset_y = (j * spacing_y * 0.3)
-                
-                x_pos = int(x + offset_x)
-                y_pos = int(y + offset_y)
-                
-                # Disegna ombra leggera
-                draw.text((x_pos + 1, y_pos + 1), text, font=font, fill=(0, 0, 0, opacity // 2))
-                # Disegna testo principale (bianco semi-trasparente)
-                draw.text((x_pos, y_pos), text, font=font, fill=(255, 255, 255, opacity))
+        # Calcola quante righe servono per coprire tutta l'altezza
+        # Usiamo text_height come spaziatura verticale (nessuno spazio tra righe)
+        num_lines = int((img.height / text_height) + 2)
+        
+        # Disegna pattern riga per riga, allineato orizzontalmente
+        for line_num in range(num_lines):
+            y_pos = line_num * text_height
+            
+            # Disegna la riga completa di testo ripetuto
+            # Partiamo da x=0 e andiamo fino alla fine, il testo si ripeterà naturalmente
+            x_pos = 0
+            
+            # Disegna la riga completa
+            # Usiamo un loop per disegnare il testo ripetuto fino a coprire tutta la larghezza
+            current_x = 0
+            while current_x < img.width + text_width:  # Aggiungiamo text_width per margine
+                draw.text((current_x, y_pos), text, font=font, fill=watermark_color)
+                current_x += text_width
         
         # Combina watermark con immagine
         img_with_watermark = Image.alpha_composite(img_rgba, watermark).convert('RGB')
@@ -459,7 +459,12 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/", response_class=HTMLResponse)
 def root():
-    return FileResponse(STATIC_DIR / "index.html")
+    index_path = STATIC_DIR / "index.html"
+    if not index_path.exists():
+        logger.error(f"index.html not found at: {index_path.resolve()}")
+        raise HTTPException(status_code=500, detail=f"index.html not found: {index_path}")
+    logger.info(f"Serving index.html from: {index_path.resolve()}")
+    return FileResponse(index_path)
 
 @app.get("/album", response_class=HTMLResponse)
 def album():
@@ -502,6 +507,16 @@ def debug_paths():
         except Exception as e:
             photos_files = [f"Error listing: {str(e)}"]
     
+    static_files = []
+    if STATIC_DIR.exists():
+        try:
+            static_files = [p.name for p in STATIC_DIR.iterdir() if p.is_file()]
+        except Exception as e:
+            static_files = [f"Error listing: {str(e)}"]
+    
+    index_exists = (STATIC_DIR / "index.html").exists()
+    index_path = str((STATIC_DIR / "index.html").resolve()) if index_exists else "NOT FOUND"
+    
     return {
         "base_dir": str(BASE_DIR.resolve()),
         "photos_dir": str(PHOTOS_DIR),
@@ -512,6 +527,9 @@ def debug_paths():
         "photos_files": photos_files,
         "static_dir": str(STATIC_DIR.resolve()),
         "static_exists": STATIC_DIR.exists(),
+        "static_files": static_files,
+        "index_html_exists": index_exists,
+        "index_html_path": index_path,
     }
 
 @app.get("/photo/{filename:path}")
