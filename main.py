@@ -1103,7 +1103,6 @@ async def startup():
     # Avvia task in background
     asyncio.create_task(periodic_tasks())
     logger.info("Periodic tasks started (cleanup every 6 hours)")
-        return
     
     try:
         logger.info(f"Loading FAISS index from {INDEX_PATH}")
