@@ -1063,6 +1063,9 @@ async def startup():
     """Carica il modello e l'indice all'avvio"""
     global face_app, faiss_index, meta_rows, back_photos
     
+    # Inizializza database SQLite all'avvio
+    _init_database()
+    
     logger.info("Loading face recognition model...")
     try:
         face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
