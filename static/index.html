@@ -1623,15 +1623,22 @@
     // Controlla se la lingua è già stata selezionata
     if(localStorage.getItem('selectedLanguage')) {
       currentLang = localStorage.getItem('selectedLanguage');
-      // Se email già salvata, vai direttamente a welcome (a meno che non siamo già nell'album)
-      if(localStorage.getItem('userEmail') && !refreshParam) {
-        userEmail = localStorage.getItem('userEmail');
-        showScreen('welcome');
-      } else if(!refreshParam) {
-        showScreen('email');
+      // Se refresh=paid, non cambiare schermata (l'album viene mostrato dal codice sopra)
+      if(refreshParam === 'paid') {
+        // L'album viene già mostrato dal codice sopra, non fare nulla
+        // Applica traduzioni dopo che il DOM è pronto
+        setTimeout(() => applyTranslations(), 100);
+      } else {
+        // Se email già salvata, vai direttamente a welcome (a meno che non siamo già nell'album)
+        if(localStorage.getItem('userEmail') && !refreshParam) {
+          userEmail = localStorage.getItem('userEmail');
+          showScreen('welcome');
+        } else if(!refreshParam) {
+          showScreen('email');
+        }
+        // Applica traduzioni dopo che il DOM è pronto
+        setTimeout(() => applyTranslations(), 100);
       }
-      // Applica traduzioni dopo che il DOM è pronto
-      setTimeout(() => applyTranslations(), 100);
     } else {
       showScreen('language');
       // Applica traduzioni anche per la schermata language
@@ -2853,7 +2860,9 @@
     
     async function downloadPhoto(photoId) {
       try {
-        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true`;
+        // Passa email se disponibile per verifica pagamento
+        const emailParam = userEmail ? `&email=${encodeURIComponent(userEmail)}` : '';
+        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true${emailParam}`;
         
         // Rileva se siamo su mobile
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);

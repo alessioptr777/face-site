@@ -668,10 +668,12 @@ async def _cleanup_expired_photos():
 async def _send_email(to_email: str, subject: str, html_content: str, plain_content: str = None) -> bool:
     """Invia email tramite SendGrid"""
     if not USE_SENDGRID or not sg_client:
-        logger.warning("SendGrid not available - email not sent")
+        logger.warning(f"SendGrid not available - email not sent to {to_email}")
+        logger.warning(f"USE_SENDGRID={USE_SENDGRID}, sg_client={sg_client is not None}")
         return False
     
     try:
+        logger.info(f"Sending email to {to_email} with subject: {subject}")
         message = Mail(
             from_email=Email(SENDGRID_FROM_EMAIL, "Tenerife Stars Pictures"),
             to_emails=To(to_email),
@@ -683,14 +685,16 @@ async def _send_email(to_email: str, subject: str, html_content: str, plain_cont
             message.plain_text_content = Content("text/plain", plain_content)
         
         response = sg_client.send(message)
+        logger.info(f"SendGrid response: status_code={response.status_code}, headers={dict(response.headers)}")
+        
         if response.status_code in [200, 201, 202]:
             logger.info(f"Email sent successfully to {to_email}")
             return True
         else:
-            logger.error(f"SendGrid error: {response.status_code} - {response.body}")
+            logger.error(f"SendGrid error: status_code={response.status_code}, body={response.body}")
             return False
     except Exception as e:
-        logger.error(f"Error sending email: {e}")
+        logger.error(f"Error sending email to {to_email}: {e}", exc_info=True)
         return False
 
 async def _send_payment_confirmation_email(email: str, photo_ids: List[str], download_token: str, base_url: str):
@@ -765,7 +769,12 @@ Assicurati di scaricarle prima della scadenza!
 Salva questo link per recuperare le tue foto in futuro.
     """
     
-    return await _send_email(email, subject, html_content, plain_content)
+    result = await _send_email(email, subject, html_content, plain_content)
+    if result:
+        logger.info(f"Payment confirmation email sent to {email} with {len(photo_ids)} photos")
+    else:
+        logger.error(f"Failed to send payment confirmation email to {email}")
+    return result
 
 async def _send_followup_email(email: str, photo_ids: List[str], followup_type: str, base_url: str):
     """Invia email follow-up per foto non pagate"""
@@ -1242,13 +1251,33 @@ def debug_paths():
 async def serve_photo(
     filename: str, 
     request: Request,
-    paid: bool = Query(False, description="Se true, serve foto senza watermark (solo se pagata)")
+    paid: bool = Query(False, description="Se true, serve foto senza watermark (solo se pagata)"),
+    token: Optional[str] = Query(None, description="Download token per verificare pagamento"),
+    email: Optional[str] = Query(None, description="Email utente per verificare pagamento")
 ):
     """Endpoint per servire le foto - con watermark se non pagata"""
     logger.info(f"=== PHOTO REQUEST ===")
     logger.info(f"Request path: {request.url.path}")
     logger.info(f"Filename parameter: {filename}")
-    logger.info(f"Paid: {paid}")
+    logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {email is not None}")
+    
+    # Verifica se la foto è pagata usando token o email
+    is_paid = paid
+    if not is_paid and token:
+        # Verifica token
+        order = await _get_order_by_token(token)
+        if order and filename in order.get('photo_ids', []):
+            is_paid = True
+            logger.info(f"Photo verified as paid via token: {filename}")
+    elif not is_paid and email and SQLITE_AVAILABLE:
+        # Verifica nel database se la foto è pagata per questo utente
+        try:
+            paid_photos = await _get_user_paid_photos(email)
+            if filename in paid_photos:
+                is_paid = True
+                logger.info(f"Photo verified as paid via email: {filename}")
+        except Exception as e:
+            logger.error(f"Error checking paid photos: {e}")
     
     # Decodifica il filename (potrebbe essere URL encoded)
     try:
@@ -1276,8 +1305,25 @@ async def serve_photo(
             try:
                 cloudinary.api.resource(filename_no_ext)
                 logger.info(f"Photo found on Cloudinary: {filename_no_ext}")
-                # Redirect al CDN di Cloudinary
-                return RedirectResponse(url=url, status_code=302)
+                
+                # Se la foto è pagata, scarica da Cloudinary e serviamo dal server
+                # (così possiamo controllare watermark e tracciare download)
+                if is_paid:
+                    logger.info(f"Photo is paid, downloading from Cloudinary to serve without watermark")
+                    import requests
+                    response = requests.get(url, timeout=30)
+                    if response.status_code == 200:
+                        # Servi la foto scaricata da Cloudinary (senza watermark)
+                        logger.info(f"Serving paid photo from Cloudinary (no watermark)")
+                        _track_download(filename)
+                        return Response(content=response.content, media_type="image/jpeg")
+                    else:
+                        logger.warning(f"Failed to download from Cloudinary: {response.status_code}")
+                        # Fallback a locale
+                else:
+                    # Se non pagata, redirect a Cloudinary (più veloce)
+                    logger.info(f"Photo not paid, redirecting to Cloudinary")
+                    return RedirectResponse(url=url, status_code=302)
             except cloudinary.api.NotFound:
                 logger.warning(f"Photo not found on Cloudinary: {filename_no_ext}, falling back to local")
                 # Fallback a file locale
@@ -1322,7 +1368,7 @@ async def serve_photo(
         raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
     
     # Se non pagata, aggiungi watermark
-    if not paid:
+    if not is_paid:
         logger.info(f"Serving photo with watermark: {filename}")
         watermarked_bytes = _add_watermark(photo_path)
         return Response(content=watermarked_bytes, media_type="image/jpeg")
@@ -1523,11 +1569,11 @@ async def my_photos_page(
         # Genera HTML per pagina download
         photos_html = ""
         for photo_id in photo_ids:
-            photo_url = f"/photo/{photo_id}?paid=true"
+            photo_url = f"/photo/{photo_id}?token={token}"
             photos_html += f"""
             <div class="photo-item">
                 <img src="{photo_url}" alt="{photo_id}" loading="lazy">
-                <button onclick="downloadPhoto('{photo_id}')" class="download-btn">Scarica</button>
+                <button onclick="downloadPhoto('{photo_id}', '{token}')" class="download-btn">Scarica</button>
             </div>
             """
         
@@ -1573,8 +1619,8 @@ async def my_photos_page(
             <a href="#" onclick="downloadAll(); return false;" class="download-all">Scarica tutte le foto</a>
             
             <script>
-                function downloadPhoto(photoId) {{
-                    const url = `/photo/${{photoId}}?paid=true`;
+                function downloadPhoto(photoId, token) {{
+                    const url = token ? `/photo/${{photoId}}?token=${{token}}` : `/photo/${{photoId}}`;
                     const link = document.createElement('a');
                     link.href = url;
                     link.download = photoId;
@@ -1583,10 +1629,11 @@ async def my_photos_page(
                 
                 async function downloadAll() {{
                     const photoIds = {json.dumps(photo_ids)};
+                    const token = '{token}';
                     for (const photoId of photoIds) {{
                         await new Promise(resolve => {{
                             setTimeout(() => {{
-                                downloadPhoto(photoId);
+                                downloadPhoto(photoId, token);
                                 resolve();
                             }}, 500);
                         }});
@@ -1904,17 +1951,21 @@ async def checkout_success(
     session_id: str = Query(..., description="Stripe session ID"),
     cart_session: str = Query(..., description="Cart session ID")
 ):
-    """Pagina di successo dopo pagamento"""
+    """Pagina di successo dopo pagamento - mostra foto direttamente"""
     try:
         # Recupera ordine da file JSON (il webhook lo salva)
         order_file = ORDERS_DIR / f"{session_id}.json"
         download_token = None
         order_data = {}
+        photo_ids = []
+        email = None
         
         if order_file.exists():
             with open(order_file, 'r', encoding='utf-8') as f:
                 order_data = json.load(f)
                 download_token = order_data.get('download_token')
+                photo_ids = order_data.get('photo_ids', [])
+                email = order_data.get('email')
         
         # Se non trovato, prova a recuperare dal database
         if not download_token and SQLITE_AVAILABLE:
@@ -1922,23 +1973,36 @@ async def checkout_success(
                 async with aiosqlite.connect(DB_PATH) as conn:
                     conn.row_factory = aiosqlite.Row
                     cursor = await conn.execute(
-                        "SELECT download_token FROM orders WHERE stripe_session_id = ?",
+                        "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
                         (session_id,)
                     )
                     row = await cursor.fetchone()
                     if row:
                         download_token = row['download_token']
+                        photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                        email = row['email']
             except Exception as e:
                 logger.error(f"Error getting order from database: {e}")
         
         base_url = str(request.base_url).rstrip('/')
         download_url = f"{base_url}/my-photos/{download_token}" if download_token else None
         
-        # Prepara le parti HTML condizionali (evita backslash in f-string)
-        email_message = "<p>Controlla la tua email per il link di download.</p>" if not download_url else ""
-        download_button = f'<a href="{download_url}" class="button">Scarica le tue foto</a>' if download_url else ""
-        link_box = f'<div class="link-box">Link permanente:<br>{download_url}</div>' if download_url else ""
-        album_link = f'<a href="/?email={order_data.get("email", "")}&refresh=paid" class="button">Vai all\'album</a>' if order_data.get('email') else ""
+        # Genera HTML per le foto (mostra direttamente)
+        photos_html = ""
+        if photo_ids:
+            for photo_id in photo_ids:
+                # Usa il token per verificare che sia pagata
+                photo_url = f"/photo/{photo_id}?token={download_token}" if download_token else f"/photo/{photo_id}"
+                photos_html += f"""
+                <div class="photo-item">
+                    <img src="{photo_url}" alt="{photo_id}" loading="lazy">
+                    <button onclick="downloadPhoto('{photo_id}', '{download_token}')" class="download-btn">Scarica</button>
+                </div>
+                """
+        
+        # Prepara le parti HTML condizionali
+        email_message = "<p>Controlla la tua email per il link permanente di download.</p>" if download_url else ""
+        album_link = f'<a href="/?email={email}&refresh=paid" class="button">Vai all album</a>' if email else ""
         
         html_content = f"""
         <!DOCTYPE html>
@@ -1948,42 +2012,68 @@ async def checkout_success(
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                 body {{
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 100vh;
-                    margin: 0;
                     background: linear-gradient(135deg, #7b74ff, #5f58ff);
                     color: #fff;
+                    padding: 20px;
+                    min-height: 100vh;
                 }}
                 .container {{
+                    max-width: 1200px;
+                    margin: 0 auto;
                     text-align: center;
-                    padding: 40px;
-                    background: rgba(255,255,255,0.1);
-                    border-radius: 20px;
-                    backdrop-filter: blur(10px);
-                    max-width: 600px;
                 }}
-                h1 {{ font-size: 32px; margin: 0 0 20px; }}
+                .header {{
+                    margin-bottom: 30px;
+                }}
+                h1 {{ font-size: 32px; margin: 0 0 10px; }}
                 p {{ font-size: 18px; margin: 10px 0; }}
                 .warning {{
-                    background: rgba(255, 243, 205, 0.2);
+                    background: rgba(255, 243, 205, 0.3);
                     border-left: 4px solid #ffc107;
                     padding: 15px;
                     margin: 20px 0;
                     text-align: left;
                     border-radius: 8px;
+                    max-width: 600px;
+                    margin-left: auto;
+                    margin-right: auto;
                 }}
-                .link-box {{
+                .photos-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin: 30px 0;
+                }}
+                .photo-item {{
+                    position: relative;
+                    border-radius: 12px;
+                    overflow: hidden;
                     background: rgba(255,255,255,0.1);
-                    padding: 15px;
+                    backdrop-filter: blur(10px);
+                }}
+                .photo-item img {{
+                    width: 100%;
+                    height: auto;
+                    display: block;
+                }}
+                .download-btn {{
+                    position: absolute;
+                    bottom: 10px;
+                    right: 10px;
+                    background: #fff;
+                    color: #5f58ff;
+                    border: none;
+                    padding: 10px 20px;
                     border-radius: 8px;
-                    margin: 20px 0;
-                    word-break: break-all;
-                    font-family: monospace;
+                    cursor: pointer;
+                    font-weight: 600;
                     font-size: 14px;
+                }}
+                .download-btn:hover {{
+                    background: #f0f0f0;
                 }}
                 .button {{
                     display: inline-block;
@@ -2000,12 +2090,24 @@ async def checkout_success(
                     background: rgba(255,255,255,0.2);
                     color: #fff;
                 }}
+                .link-box {{
+                    background: rgba(255,255,255,0.1);
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin: 20px auto;
+                    max-width: 600px;
+                    word-break: break-all;
+                    font-family: monospace;
+                    font-size: 12px;
+                }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>✅ Pagamento completato!</h1>
-                <p>Le tue foto sono state sbloccate.</p>
+                <div class="header">
+                    <h1>✅ Pagamento completato!</h1>
+                    <p>Le tue foto sono state sbloccate.</p>
+                </div>
                 
                 <div class="warning">
                     <strong>⚠️ IMPORTANTE:</strong><br>
@@ -2015,14 +2117,24 @@ async def checkout_success(
                 
                 {email_message}
                 
-                {download_button}
-                
-                {link_box}
+                {f'<div class="photos-grid">{photos_html}</div>' if photos_html else '<p>Caricamento foto...</p>'}
                 
                 {album_link}
                 
-                <a href="/" class="button button-secondary">Torna alla home</a>
+                {f'<a href="{download_url}" class="button">Link permanente per download</a>' if download_url else ''}
+                
+                {f'<a href="/?email={email}&refresh=paid" class="button button-secondary">Torna all album</a>' if email else '<a href="/" class="button button-secondary">Torna alla home</a>'}
             </div>
+            
+            <script>
+                function downloadPhoto(photoId, token) {{
+                    const url = token ? `/photo/${{photoId}}?token=${{token}}` : `/photo/${{photoId}}`;
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = photoId;
+                    link.click();
+                }}
+            </script>
         </body>
         </html>
         """
@@ -2136,9 +2248,14 @@ async def stripe_webhook(request: Request):
             if download_token:
                 # Invia email di conferma pagamento
                 try:
-                    await _send_payment_confirmation_email(email, photo_ids, download_token, base_url)
+                    logger.info(f"Attempting to send payment confirmation email to {email} for {len(photo_ids)} photos")
+                    email_sent = await _send_payment_confirmation_email(email, photo_ids, download_token, base_url)
+                    if email_sent:
+                        logger.info(f"Payment confirmation email sent successfully to {email}")
+                    else:
+                        logger.warning(f"Payment confirmation email failed to send to {email}")
                 except Exception as e:
-                    logger.error(f"Error sending payment confirmation email: {e}")
+                    logger.error(f"Error sending payment confirmation email: {e}", exc_info=True)
             
             # Salva anche in file JSON per compatibilità
             order_data = {
