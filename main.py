@@ -1734,6 +1734,14 @@ async def match_selfie(
                     "is_back_photo": True,
                 })
         
+        # Se email fornita, salva foto trovate nel database
+        if email:
+            for result in matched_results:
+                await _add_user_photo(email, result["photo_id"], "found")
+            for result in back_results:
+                await _add_user_photo(email, result["photo_id"], "found")
+            logger.info(f"Saved {len(matched_results) + len(back_results)} photos for user {email}")
+        
         # Combina risultati: prima foto matchate, poi foto di spalle
         all_results = matched_results + back_results
         
