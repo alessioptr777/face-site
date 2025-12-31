@@ -161,9 +161,6 @@ else:
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Inizializza database SQLite
-_init_database()
-
 # Log diagnostico all'avvio
 logger.info("=" * 60)
 logger.info("STARTUP DIAGNOSTICS")
