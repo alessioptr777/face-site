@@ -110,6 +110,65 @@
       color: var(--text-light);
     }
     
+    /* Email Screen */
+    .email-screen{
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .email-title{
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 10px;
+    }
+    
+    .email-subtitle{
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 30px;
+    }
+    
+    .email-input-container{
+      max-width: 400px;
+      width: 100%;
+      margin: 0 auto 30px;
+    }
+    
+    .email-input{
+      width: 100%;
+      padding: 16px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      color: var(--text-light);
+      font-size: 16px;
+      transition: all 0.3s ease;
+    }
+    
+    .email-input:focus{
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.08);
+    }
+    
+    .email-input::placeholder{
+      color: var(--text-muted);
+    }
+    
+    .email-error{
+      color: #ff4444;
+      font-size: 14px;
+      margin-top: 10px;
+      display: none;
+    }
+    
+    .email-error.show{
+      display: block;
+    }
+    
     /* Welcome Screen */
     .welcome-screen{
       align-items: center;
@@ -983,6 +1042,17 @@
     </div>
   </div>
 
+  <!-- Email Screen -->
+  <div class="screen email-screen" id="emailScreen">
+    <h1 class="email-title" data-i18n="email.title">Inserisci la tua email</h1>
+    <p class="email-subtitle" data-i18n="email.subtitle">La tua email è obbligatoria per salvare e recuperare le tue foto</p>
+    <div class="email-input-container">
+      <input type="email" class="email-input" id="emailInput" placeholder="tua@email.com" data-i18n-placeholder="email.placeholder">
+      <p class="email-error" id="emailError" data-i18n="email.error">Email non valida</p>
+    </div>
+    <button class="btn-primary" id="emailContinueBtn" data-i18n="email.continue">Continua</button>
+  </div>
+
   <!-- Welcome Screen -->
   <div class="screen welcome-screen" id="welcomeScreen">
     <div class="welcome-icon">
@@ -1199,6 +1269,7 @@
       <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px;" id="photoCounter">1/1</div>
       <button id="lightboxPrev" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">←</button>
       <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
+      <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;">📥 Scarica</button>
       <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none;" alt="Foto">
     </div>
   </div>
@@ -1251,6 +1322,7 @@
     const translations = {
       en: {
         language: { title: "Choose your language", subtitle: "Select your preferred language" },
+        email: { title: "Enter your email", subtitle: "Your email is required to save and recover your photos", placeholder: "your@email.com", continue: "Continue", error: "Invalid email address", required: "Email is required for checkout" },
         welcome: { title: "Find your photos!", text: "In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.", continue: "Continue", privacy: "We operate in full respect of Privacy and use your face exclusively to find photos that feature you." },
         selfie: { title: "Take your selfie", error: "Camera not available", retry: "Retry" },
         confirm: { title: "Confirm selfie", privacy: "By selecting \"Confirm\" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.", confirm: "Confirm", retake: "Take again" },
@@ -1263,6 +1335,7 @@
       },
       it: {
         language: { title: "Scegli la tua lingua", subtitle: "Seleziona la lingua preferita" },
+        email: { title: "Inserisci la tua email", subtitle: "La tua email è obbligatoria per salvare e recuperare le tue foto", placeholder: "tua@email.com", continue: "Continua", error: "Email non valida", required: "L'email è obbligatoria per il checkout" },
         welcome: { title: "Trova le tue foto!", text: "Nel prossimo passaggio ti sarà chiesto di abilitare la fotocamera, per permettere al nostro sistema di consegnare le tue foto dell'evento.", continue: "Continua", privacy: "Operiamo nel totale rispetto della Privacy ed utilizziamo il tuo viso esclusivamente per trovare le foto che ti ritraggono." },
         selfie: { title: "Scatta il tuo selfie", error: "La fotocamera non è disponibile", retry: "Riprova" },
         confirm: { title: "Conferma selfie", privacy: "Selezionando \"Conferma\" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da Privacy Policy.", confirm: "Conferma", retake: "Scatta di nuovo" },
@@ -1275,6 +1348,7 @@
       },
       fr: {
         language: { title: "Choisissez votre langue", subtitle: "Sélectionnez votre langue préférée" },
+        email: { title: "Entrez votre email", subtitle: "Votre email est requis pour enregistrer et récupérer vos photos", placeholder: "votre@email.com", continue: "Continuer", error: "Adresse email invalide", required: "L'email est requise pour le paiement" },
         welcome: { title: "Trouvez vos photos!", text: "Dans la prochaine étape, il vous sera demandé d'activer la caméra pour permettre à notre système de vous livrer les photos de l'événement.", continue: "Continuer", privacy: "Nous opérons dans le plein respect de la vie privée et utilisons votre visage exclusivement pour trouver les photos qui vous représentent." },
         selfie: { title: "Prenez votre selfie", error: "Caméra non disponible", retry: "Réessayer" },
         confirm: { title: "Confirmer le selfie", privacy: "En sélectionnant \"Confirmer\", vous acceptez le traitement des données biométriques aux fins de Détection et Reconnaissance conformément à la Politique de Confidentialité.", confirm: "Confirmer", retake: "Reprendre" },
@@ -1287,6 +1361,7 @@
       },
       de: {
         language: { title: "Wählen Sie Ihre Sprache", subtitle: "Wählen Sie Ihre bevorzugte Sprache" },
+        email: { title: "Geben Sie Ihre E-Mail ein", subtitle: "Ihre E-Mail ist erforderlich, um Ihre Fotos zu speichern und wiederherzustellen", placeholder: "ihre@email.com", continue: "Weiter", error: "Ungültige E-Mail-Adresse", required: "E-Mail ist für den Checkout erforderlich" },
         welcome: { title: "Finden Sie Ihre Fotos!", text: "Im nächsten Schritt werden Sie aufgefordert, die Kamera zu aktivieren, damit unser System Ihnen Ihre Event-Fotos liefern kann.", continue: "Weiter", privacy: "Wir arbeiten im vollsten Respekt der Privatsphäre und verwenden Ihr Gesicht ausschließlich, um Fotos zu finden, auf denen Sie abgebildet sind." },
         selfie: { title: "Machen Sie Ihr Selfie", error: "Kamera nicht verfügbar", retry: "Erneut versuchen" },
         confirm: { title: "Selfie bestätigen", privacy: "Durch Auswahl von \"Bestätigen\" stimmen Sie der Verarbeitung biometrischer Daten zu den Zwecken der Erkennung und Identifizierung gemäß Datenschutzrichtlinie zu.", confirm: "Bestätigen", retake: "Erneut aufnehmen" },
@@ -1299,6 +1374,7 @@
       },
       es: {
         language: { title: "Elige tu idioma", subtitle: "Selecciona tu idioma preferido" },
+        email: { title: "Ingresa tu email", subtitle: "Tu email es obligatorio para guardar y recuperar tus fotos", placeholder: "tu@email.com", continue: "Continuar", error: "Email inválido", required: "El email es obligatorio para el checkout" },
         welcome: { title: "¡Encuentra tus fotos!", text: "En el siguiente paso se te pedirá que habilites la cámara, para permitir que nuestro sistema te entregue las fotos del evento.", continue: "Continuar", privacy: "Operamos con total respeto a la Privacidad y utilizamos tu rostro exclusivamente para encontrar fotos en las que apareces." },
         selfie: { title: "Toma tu selfie", error: "Cámara no disponible", retry: "Reintentar" },
         confirm: { title: "Confirmar selfie", privacy: "Al seleccionar \"Confirmar\" consientes el tratamiento de datos biométricos para los fines de Detección y Reconocimiento según la Política de Privacidad.", confirm: "Confirmar", retake: "Tomar de nuevo" },
@@ -1413,6 +1489,7 @@
     let currentCart = { photo_ids: [], count: 0, price_euros: 0 };
     let allPhotos = [];
     let currentPhotoIndex = 0;
+    let paidPhotos = []; // Array di photo_id pagate
 
     // Elementi DOM
     const welcomeScreen = document.getElementById("welcomeScreen");
@@ -1442,6 +1519,9 @@
       currentScreen = screenName;
     }
 
+    // Variabile globale per email utente
+    let userEmail = null;
+    
     // Event listeners per selezione lingua
     document.querySelectorAll('.language-option').forEach(option => {
       option.addEventListener('click', () => {
@@ -1449,14 +1529,20 @@
         currentLang = lang;
         localStorage.setItem('selectedLanguage', lang);
         applyTranslations();
-        showScreen('welcome');
+        showScreen('email');
       });
     });
 
     // Controlla se la lingua è già stata selezionata
     if(localStorage.getItem('selectedLanguage')) {
       currentLang = localStorage.getItem('selectedLanguage');
-      showScreen('welcome');
+      // Se email già salvata, vai direttamente a welcome
+      if(localStorage.getItem('userEmail')) {
+        userEmail = localStorage.getItem('userEmail');
+        showScreen('welcome');
+      } else {
+        showScreen('email');
+      }
       // Applica traduzioni dopo che il DOM è pronto
       setTimeout(() => applyTranslations(), 100);
     } else {
@@ -1464,9 +1550,88 @@
       // Applica traduzioni anche per la schermata language
       setTimeout(() => applyTranslations(), 100);
     }
+    
+    // Event listener per email screen
+    const emailInput = document.getElementById('emailInput');
+    const emailError = document.getElementById('emailError');
+    const emailContinueBtn = document.getElementById('emailContinueBtn');
+    
+    emailContinueBtn.addEventListener('click', () => {
+      const email = emailInput.value.trim();
+      
+      // Validazione email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if(!email || !emailRegex.test(email)) {
+        emailError.classList.add('show');
+        emailInput.style.borderColor = '#ff4444';
+        return;
+      }
+      
+      // Salva email
+      userEmail = email;
+      localStorage.setItem('userEmail', email);
+      emailError.classList.remove('show');
+      emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+      
+      // Vai a welcome screen
+      showScreen('welcome');
+    });
+    
+    // Enter key su input email
+    emailInput.addEventListener('keypress', (e) => {
+      if(e.key === 'Enter') {
+        emailContinueBtn.click();
+      }
+    });
 
     // Event listeners
     document.getElementById("welcomeContinueBtn").addEventListener("click", async () => {
+      // Prima verifica se utente esiste
+      if(userEmail && capturedBlob) {
+        try {
+          const fd = new FormData();
+          fd.append("selfie", capturedBlob, "selfie.jpg");
+          
+          const checkResponse = await fetch(`/check_user?email=${encodeURIComponent(userEmail)}`, {
+            method: 'POST',
+            body: fd
+          });
+          
+          const checkData = await checkResponse.json();
+          
+          if(checkData.ok && checkData.exists && checkData.match) {
+            // Utente esistente con selfie matchato - carica foto esistenti
+            if(checkData.found_photos && checkData.found_photos.length > 0) {
+              allPhotos = checkData.found_photos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: p.status === 'paid'
+              }));
+              
+              // Salva foto pagate
+              if(checkData.paid_photos && checkData.paid_photos.length > 0) {
+                paidPhotos = checkData.paid_photos;
+              } else {
+                // Estrai da found_photos quelle con status='paid'
+                paidPhotos = checkData.found_photos
+                  .filter(p => p.status === 'paid')
+                  .map(p => p.photo_id);
+              }
+              
+              photosLoadedCount = 0;
+              displayPhotos();
+              showStickyOfferBar();
+              showScreen('album');
+              return;
+            }
+          }
+        } catch(e) {
+          console.error("Error checking user:", e);
+          // Continua con il flusso normale
+        }
+      }
+      
       showScreen('selfie');
       // Aspetta un attimo che lo schermo sia visibile, poi avvia la camera
       setTimeout(async () => {
@@ -1783,7 +1948,25 @@
       }
     }
 
-    function confirmSelfie() {
+    async function confirmSelfie() {
+      // Se abbiamo email e selfie, registra/aggiorna utente
+      if(userEmail && capturedBlob) {
+        try {
+          const fd = new FormData();
+          fd.append("selfie", capturedBlob, "selfie.jpg");
+          
+          await fetch(`/register_user?email=${encodeURIComponent(userEmail)}`, {
+            method: 'POST',
+            body: fd
+          });
+          
+          console.log("User registered/updated successfully");
+        } catch(e) {
+          console.error("Error registering user:", e);
+          // Continua comunque con il matching
+        }
+      }
+      
       // Dopo la conferma del selfie, cerca direttamente le foto
       matchPhotos();
     }
@@ -1876,7 +2059,13 @@
           // Imposta timeout di 120 secondi (Render può essere lento al risveglio)
           xhr.timeout = 120000;
           
-          xhr.open('POST', '/match_selfie?top_k_faces=120&min_score=0.25');
+          // Aggiungi email se disponibile
+          let url = '/match_selfie?top_k_faces=120&min_score=0.25';
+          if(userEmail) {
+            url += `&email=${encodeURIComponent(userEmail)}`;
+          }
+          
+          xhr.open('POST', url);
           xhr.send(fd);
         });
         
@@ -2176,7 +2365,9 @@
                 }
               };
               
-              imgElement.src = `/photo/${encodeURIComponent(photoId)}?paid=false`;
+              // Usa paid=true se la foto è pagata
+              const isPaid = paidPhotos.includes(photoId);
+              imgElement.src = `/photo/${encodeURIComponent(photoId)}?paid=${isPaid}`;
             }
             
             imageObserver.unobserve(img);
@@ -2323,17 +2514,32 @@
             skeleton.innerHTML = '<div style="padding: 10px; text-align: center; color: #ff4444; font-size: 12px;">Error</div>';
             checkAllPhotosLoaded();
           };
-          imgElement.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
+          // Usa paid=true se la foto è pagata
+          const isPaid = paidPhotos.includes(photo.photo_id);
+          imgElement.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
         }
         
         const addCartBtn = document.createElement('button');
         addCartBtn.className = 'add-cart';
         addCartBtn.dataset.photoId = photo.photo_id;
-        // Verifica se la foto è già nel carrello
-        if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
-          addCartBtn.classList.add('in-cart');
+        
+        // Se la foto è pagata, non mostrare il pulsante carrello
+        const isPaid = paidPhotos.includes(photo.photo_id);
+        if(isPaid) {
+          addCartBtn.style.display = 'none';
+          // Aggiungi badge "Pagata"
+          const paidBadge = document.createElement('div');
+          paidBadge.className = 'photo-paid-badge';
+          paidBadge.textContent = '✓ Pagata';
+          paidBadge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(34, 197, 94, 0.9); color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; z-index: 5;';
+          div.appendChild(paidBadge);
+        } else {
+          // Verifica se la foto è già nel carrello
+          if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
+            addCartBtn.classList.add('in-cart');
+          }
+          addCartBtn.onclick = () => toggleCart(photo.photo_id, addCartBtn);
         }
-        addCartBtn.onclick = () => toggleCart(photo.photo_id, addCartBtn);
         
         div.appendChild(skeleton);
         div.appendChild(img);
@@ -2453,13 +2659,25 @@
       img.onerror = () => {
         alert(t('errors.connection'));
       };
-      img.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
+      
+      // Usa paid=true se la foto è pagata
+      const isPaid = paidPhotos.includes(photo.photo_id);
+      img.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
       
       // Mostra/nascondi frecce
       const prevBtn = document.getElementById('lightboxPrev');
       const nextBtn = document.getElementById('lightboxNext');
+      const downloadBtn = document.getElementById('lightboxDownload');
       prevBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
       nextBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
+      
+      // Mostra pulsante download solo se foto è pagata
+      if(isPaid) {
+        downloadBtn.style.display = 'block';
+        downloadBtn.onclick = () => downloadPhoto(photo.photo_id);
+      } else {
+        downloadBtn.style.display = 'none';
+      }
     }
     
     function updateLightboxCounter() {
@@ -2470,8 +2688,10 @@
       if(currentPhotoIndex < allPhotos.length - 1) {
         currentPhotoIndex++;
         const photo = allPhotos[currentPhotoIndex];
-        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
+        const isPaid = paidPhotos.includes(photo.photo_id);
+        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
         updateLightboxCounter();
+        updateDownloadButton(photo.photo_id);
       }
     }
     
@@ -2479,8 +2699,61 @@
       if(currentPhotoIndex > 0) {
         currentPhotoIndex--;
         const photo = allPhotos[currentPhotoIndex];
-        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
+        const isPaid = paidPhotos.includes(photo.photo_id);
+        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
         updateLightboxCounter();
+        updateDownloadButton(photo.photo_id);
+      }
+    }
+    
+    function updateDownloadButton(photoId) {
+      const downloadBtn = document.getElementById('lightboxDownload');
+      if(paidPhotos.includes(photoId)) {
+        downloadBtn.style.display = 'block';
+        downloadBtn.onclick = () => downloadPhoto(photoId);
+      } else {
+        downloadBtn.style.display = 'none';
+      }
+    }
+    
+    async function downloadPhoto(photoId) {
+      try {
+        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true`;
+        
+        // Rileva se siamo su mobile
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        if(isMobile && navigator.share) {
+          // Web Share API per mobile
+          try {
+            const response = await fetch(photoUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `${photoId}.jpg`, { type: 'image/jpeg' });
+            
+            if(navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: 'Tenerife Stars Pictures',
+                text: 'La mia foto da Tenerife Stars Pictures'
+              });
+              return;
+            }
+          } catch(e) {
+            console.log("Web Share API non disponibile, uso download diretto");
+          }
+        }
+        
+        // Download diretto per desktop o fallback mobile
+        const link = document.createElement('a');
+        link.href = photoUrl;
+        link.download = `${photoId}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch(e) {
+        console.error("Error downloading photo:", e);
+        alert(t('errors.download') || "Error downloading photo");
       }
     }
 
@@ -2610,11 +2883,17 @@
     async function checkout() {
       // Checkout normale: usa il carrello corrente
       if(!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
-        alert("Aggiungi foto al carrello!");
+        alert(t('cart.empty'));
         return;
       }
       
-      const res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}`, {
+      if(!userEmail) {
+        alert(t('email.required') || "Email is required");
+        showScreen('email');
+        return;
+      }
+      
+      const res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}&email=${encodeURIComponent(userEmail)}`, {
         method: "POST"
       });
       
@@ -2651,8 +2930,15 @@
           });
         }
         
+        // Verifica email
+        if(!userEmail) {
+          alert(t('email.required') || "Email is required");
+          showScreen('email');
+          return;
+        }
+        
         // Ora fai il checkout con questa sessione che contiene tutte le foto
-        const res = await fetch(`/checkout?session_id=${encodeURIComponent(checkoutSessionId)}`, {
+        const res = await fetch(`/checkout?session_id=${encodeURIComponent(checkoutSessionId)}&email=${encodeURIComponent(userEmail)}`, {
           method: "POST"
         });
         
