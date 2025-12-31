@@ -1112,9 +1112,7 @@ async def startup():
     except Exception as e:
         logger.error(f"Error loading FAISS index: {e}")
         faiss_index = None
-        meta_rows = []
-        back_photos = []
-        return
+        # Non fare return qui - continua a caricare metadata e back_photos
     
     try:
         logger.info(f"Loading metadata from {META_PATH}")
@@ -1677,14 +1675,6 @@ async def match_selfie(
         if len(matched_results) > 50:
             logger.info(f"Limiting results from {len(matched_results)} to 50 best matches")
             matched_results = matched_results[:50]
-        
-        # Se email fornita, salva foto trovate nel database
-        if email:
-            for result in matched_results:
-                await _add_user_photo(email, result["photo_id"], "found")
-            for result in back_results:
-                await _add_user_photo(email, result["photo_id"], "found")
-            logger.info(f"Saved {len(matched_results) + len(back_results)} photos for user {email}")
         
         # Aggiungi foto di spalle/ombra/silhouette (senza volti visibili)
         back_results: List[Dict[str, Any]] = []
