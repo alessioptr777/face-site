@@ -1955,6 +1955,12 @@ async def checkout_success(
         base_url = str(request.base_url).rstrip('/')
         download_url = f"{base_url}/my-photos/{download_token}" if download_token else None
         
+        # Prepara le parti HTML condizionali (evita backslash in f-string)
+        email_message = "<p>Controlla la tua email per il link di download.</p>" if not download_url else ""
+        download_button = f'<a href="{download_url}" class="button">Scarica le tue foto</a>' if download_url else ""
+        link_box = f'<div class="link-box">Link permanente:<br>{download_url}</div>' if download_url else ""
+        album_link = f'<a href="/?email={order_data.get("email", "")}&refresh=paid" class="button">Vai all\'album</a>' if order_data.get('email') else ""
+        
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -2028,13 +2034,13 @@ async def checkout_success(
                     Assicurati di averle scaricate nella tua galleria prima della scadenza.
                 </div>
                 
-                {"<p>Controlla la tua email per il link di download.</p>" if not download_url else ""}
+                {email_message}
                 
-                {"<a href=\"" + download_url + "\" class=\"button\">Scarica le tue foto</a>" if download_url else ""}
+                {download_button}
                 
-                {"<div class=\"link-box\">Link permanente:<br>" + download_url + "</div>" if download_url else ""}
+                {link_box}
                 
-                {"<a href=\"/?email=" + order_data.get('email', '') + "&refresh=paid\" class=\"button\">Vai all'album</a>" if order_data.get('email') else ""}
+                {album_link}
                 
                 <a href="/" class="button button-secondary">Torna alla home</a>
             </div>
