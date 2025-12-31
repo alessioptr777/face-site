@@ -4,6 +4,7 @@ import logging
 import os
 import hashlib
 import secrets
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -1136,26 +1137,6 @@ async def startup():
         logger.error(f"Error loading back photos: {e}")
         back_photos = []
     
-    # Esegui cleanup all'avvio
-    logger.info("Running initial cleanup...")
-    _cleanup_downloaded_photos()
-    await _cleanup_expired_photos()
-    
-    # Avvia task periodico per cleanup e follow-up (ogni 6 ore)
-    import asyncio
-    async def periodic_tasks():
-        while True:
-            try:
-                await asyncio.sleep(6 * 60 * 60)  # 6 ore
-                logger.info("Running periodic cleanup and follow-up...")
-                await _cleanup_expired_photos()
-                await _send_followup_emails()
-            except Exception as e:
-                logger.error(f"Error in periodic tasks: {e}")
-    
-    # Avvia task in background
-    asyncio.create_task(periodic_tasks())
-    logger.info("Periodic tasks started (cleanup and follow-up every 6 hours)")
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
