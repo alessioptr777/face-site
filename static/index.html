@@ -498,21 +498,22 @@
     }
     
     .album-profile{
-      padding: 20px;
+      padding: 12px 20px;
       display: flex;
       align-items: center;
-      gap: 15px;
+      gap: 10px;
     }
     
     .profile-avatar{
-      width: 60px;
-      height: 60px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: var(--bg-dark2);
       overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
     }
     
     .profile-avatar img{
@@ -522,14 +523,17 @@
     }
     
     .profile-info h3{
-      font-size: 18px;
+      font-size: 14px;
       font-weight: 700;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
+      line-height: 1.2;
     }
     
     .profile-info p{
-      font-size: 14px;
+      font-size: 11px;
       color: var(--text-muted);
+      line-height: 1.3;
+      margin: 0;
     }
     
     .album-tabs{
@@ -1090,7 +1094,7 @@
       </div>
       <div class="profile-info">
         <h3>Tenerife Stars Pictures</h3>
-        <p>Tu sesión de fotos fue realizada por Metaproos</p>
+        <p data-i18n="album.sessionBy">Your photo session was taken by Metaproos</p>
       </div>
     </div>
     <div class="album-tabs">
@@ -1251,7 +1255,7 @@
         selfie: { title: "Take your selfie", error: "Camera not available", retry: "Retry" },
         confirm: { title: "Confirm selfie", privacy: "By selecting \"Confirm\" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.", confirm: "Confirm", retake: "Take again" },
         upload: { loading: "Loading photos...", sending: "Sending selfie to server...", analyzing: "Analyzing photos...", found: "Found {count} photos!" },
-        album: { myContent: "My content", priceList: "Price list ↗", found: "You found {count} photos", buyAll: "Buy all photos at", digital: "in digital format" },
+        album: { myContent: "My content", priceList: "Price list ↗", found: "You found {count} photos", buyAll: "Buy all photos at", digital: "in digital format", sessionBy: "Your photo session was taken by Metaproos" },
         prices: { title: "Price List", subtitle: "Choose the offer you prefer", photo: "photos", single: "Single photo", double: "Double", special: "Special offer", package: "Package", complete: "Complete package", best: "All photos at the best price", badgeDiscount: "Discount", badgeBest: "Best", badgeTop: "Top" },
         cart: { title: "Cart", empty: "Cart is empty", total: "Total:", checkout: "Go to Payment", close: "Close" },
         sticky: { buy1: "Buy your photo", buyFew: "Buy all {count} photos", buyMany: "Buy all {count} photos and save", buyAll: "Buy all {count} photos at the best price", buy: "Buy" },
@@ -1263,7 +1267,7 @@
         selfie: { title: "Scatta il tuo selfie", error: "La fotocamera non è disponibile", retry: "Riprova" },
         confirm: { title: "Conferma selfie", privacy: "Selezionando \"Conferma\" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da Privacy Policy.", confirm: "Conferma", retake: "Scatta di nuovo" },
         upload: { loading: "Caricamento foto in corso...", sending: "Invio selfie al server...", analyzing: "Analisi foto in corso...", found: "Trovate {count} foto!" },
-        album: { myContent: "I miei contenuti", priceList: "Listino prezzi ↗", found: "Hai trovato {count} foto", buyAll: "Acquista tutte le foto a", digital: "in formato digitale" },
+        album: { myContent: "I miei contenuti", priceList: "Listino prezzi ↗", found: "Hai trovato {count} foto", buyAll: "Acquista tutte le foto a", digital: "in formato digitale", sessionBy: "La tua sessione fotografica è stata realizzata da Metaproos" },
         prices: { title: "Listino Prezzi", subtitle: "Scegli l'offerta che preferisci", photo: "foto", single: "Foto singola", double: "Doppia", special: "Offerta speciale", package: "Pacchetto", complete: "Pacchetto completo", best: "Tutte le foto al prezzo migliore", badgeDiscount: "Sconto", badgeBest: "Migliore", badgeTop: "Top" },
         cart: { title: "Carrello", empty: "Il carrello è vuoto", total: "Totale:", checkout: "Vai al Pagamento", close: "Chiudi" },
         sticky: { buy1: "Acquista la tua foto", buyFew: "Acquista tutte le {count} foto", buyMany: "Acquista tutte le {count} foto e risparmia", buyAll: "Acquista tutte le {count} foto al prezzo migliore", buy: "Acquista" },
@@ -1275,7 +1279,7 @@
         selfie: { title: "Prenez votre selfie", error: "Caméra non disponible", retry: "Réessayer" },
         confirm: { title: "Confirmer le selfie", privacy: "En sélectionnant \"Confirmer\", vous acceptez le traitement des données biométriques aux fins de Détection et Reconnaissance conformément à la Politique de Confidentialité.", confirm: "Confirmer", retake: "Reprendre" },
         upload: { loading: "Chargement des photos...", sending: "Envoi du selfie au serveur...", analyzing: "Analyse des photos...", found: "{count} photos trouvées!" },
-        album: { myContent: "Mes contenus", priceList: "Liste des prix ↗", found: "Vous avez trouvé {count} photos", buyAll: "Acheter toutes les photos à", digital: "en format numérique" },
+        album: { myContent: "Mes contenus", priceList: "Liste des prix ↗", found: "Vous avez trouvé {count} photos", buyAll: "Acheter toutes les photos à", digital: "en format numérique", sessionBy: "Votre séance photo a été réalisée par Metaproos" },
         prices: { title: "Liste des Prix", subtitle: "Choisissez l'offre que vous préférez", photo: "photos", single: "Photo unique", double: "Double", special: "Offre spéciale", package: "Forfait", complete: "Forfait complet", best: "Toutes les photos au meilleur prix", badgeDiscount: "Réduction", badgeBest: "Meilleur", badgeTop: "Top" },
         cart: { title: "Panier", empty: "Le panier est vide", total: "Total:", checkout: "Aller au Paiement", close: "Fermer" },
         sticky: { buy1: "Achetez votre photo", buyFew: "Achetez toutes les {count} photos", buyMany: "Achetez toutes les {count} photos et économisez", buyAll: "Achetez toutes les {count} photos au meilleur prix", buy: "Acheter" },
@@ -1287,7 +1291,7 @@
         selfie: { title: "Machen Sie Ihr Selfie", error: "Kamera nicht verfügbar", retry: "Erneut versuchen" },
         confirm: { title: "Selfie bestätigen", privacy: "Durch Auswahl von \"Bestätigen\" stimmen Sie der Verarbeitung biometrischer Daten zu den Zwecken der Erkennung und Identifizierung gemäß Datenschutzrichtlinie zu.", confirm: "Bestätigen", retake: "Erneut aufnehmen" },
         upload: { loading: "Fotos werden geladen...", sending: "Selfie wird an Server gesendet...", analyzing: "Fotos werden analysiert...", found: "{count} Fotos gefunden!" },
-        album: { myContent: "Meine Inhalte", priceList: "Preisliste ↗", found: "Sie haben {count} Fotos gefunden", buyAll: "Alle Fotos kaufen für", digital: "im digitalen Format" },
+        album: { myContent: "Meine Inhalte", priceList: "Preisliste ↗", found: "Sie haben {count} Fotos gefunden", buyAll: "Alle Fotos kaufen für", digital: "im digitalen Format", sessionBy: "Ihre Fotosession wurde von Metaproos durchgeführt" },
         prices: { title: "Preisliste", subtitle: "Wählen Sie das Angebot, das Sie bevorzugen", photo: "Fotos", single: "Einzelfoto", double: "Doppel", special: "Sonderangebot", package: "Paket", complete: "Vollständiges Paket", best: "Alle Fotos zum besten Preis", badgeDiscount: "Rabatt", badgeBest: "Beste", badgeTop: "Top" },
         cart: { title: "Warenkorb", empty: "Der Warenkorb ist leer", total: "Gesamt:", checkout: "Zur Zahlung", close: "Schließen" },
         sticky: { buy1: "Kaufen Sie Ihr Foto", buyFew: "Kaufen Sie alle {count} Fotos", buyMany: "Kaufen Sie alle {count} Fotos und sparen", buyAll: "Kaufen Sie alle {count} Fotos zum besten Preis", buy: "Kaufen" },
@@ -1299,7 +1303,7 @@
         selfie: { title: "Toma tu selfie", error: "Cámara no disponible", retry: "Reintentar" },
         confirm: { title: "Confirmar selfie", privacy: "Al seleccionar \"Confirmar\" consientes el tratamiento de datos biométricos para los fines de Detección y Reconocimiento según la Política de Privacidad.", confirm: "Confirmar", retake: "Tomar de nuevo" },
         upload: { loading: "Cargando fotos...", sending: "Enviando selfie al servidor...", analyzing: "Analizando fotos...", found: "¡{count} fotos encontradas!" },
-        album: { myContent: "Mis contenidos", priceList: "Lista de precios ↗", found: "Has encontrado {count} fotos", buyAll: "Comprar todas las fotos por", digital: "en formato digital" },
+        album: { myContent: "Mis contenidos", priceList: "Lista de precios ↗", found: "Has encontrado {count} fotos", buyAll: "Comprar todas las fotos por", digital: "en formato digital", sessionBy: "Tu sesión de fotos fue realizada por Metaproos" },
         prices: { title: "Lista de Precios", subtitle: "Elige la oferta que prefieras", photo: "fotos", single: "Foto única", double: "Doble", special: "Oferta especial", package: "Paquete", complete: "Paquete completo", best: "Todas las fotos al mejor precio", badgeDiscount: "Descuento", badgeBest: "Mejor", badgeTop: "Top" },
         cart: { title: "Carrito", empty: "El carrito está vacío", total: "Total:", checkout: "Ir al Pago", close: "Cerrar" },
         sticky: { buy1: "Compra tu foto", buyFew: "Compra todas las {count} fotos", buyMany: "Compra todas las {count} fotos y ahorra", buyAll: "Compra todas las {count} fotos al mejor precio", buy: "Comprar" },
@@ -1872,7 +1876,7 @@
           // Imposta timeout di 120 secondi (Render può essere lento al risveglio)
           xhr.timeout = 120000;
           
-          xhr.open('POST', '/match_selfie?top_k_faces=120&min_score=0.08');
+          xhr.open('POST', '/match_selfie?top_k_faces=120&min_score=0.25');
           xhr.send(fd);
         });
         
