@@ -1931,6 +1931,7 @@ async def checkout_success(
         # Recupera ordine da file JSON (il webhook lo salva)
         order_file = ORDERS_DIR / f"{session_id}.json"
         download_token = None
+        order_data = {}
         
         if order_file.exists():
             with open(order_file, 'r', encoding='utf-8') as f:
@@ -2033,6 +2034,8 @@ async def checkout_success(
                 {"<a href=\"" + download_url + "\" class=\"button\">Scarica le tue foto</a>" if download_url else ""}
                 
                 {"<div class=\"link-box\">Link permanente:<br>" + download_url + "</div>" if download_url else ""}
+                
+                {"<a href=\"/?email=" + order_data.get('email', '') + "&refresh=paid\" class=\"button\">Vai all'album</a>" if order_data.get('email') else ""}
                 
                 <a href="/" class="button button-secondary">Torna alla home</a>
             </div>

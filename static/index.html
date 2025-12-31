@@ -1001,6 +1001,49 @@
       background: rgba(255, 255, 255, 0.3);
     }
     
+    /* Paid Photos Countdown Banner */
+    .paid-countdown-banner{
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      padding: 12px 20px;
+      z-index: 90;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      transform: translateY(-100%);
+      transition: transform 0.3s ease;
+    }
+    
+    .paid-countdown-banner.show{
+      transform: translateY(0);
+    }
+    
+    .paid-countdown-content{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      max-width: 1200px;
+      margin: 0 auto;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .paid-countdown-icon{
+      font-size: 18px;
+    }
+    
+    .paid-countdown-text{
+      text-align: center;
+    }
+    
+    .paid-countdown-text strong{
+      font-weight: 700;
+      font-size: 16px;
+    }
+    
     /* Album photo count banner sopra la griglia */
     .album-photo-count{
       padding: 12px 20px;
@@ -1259,6 +1302,14 @@
     </div>
     <div class="sticky-offer-actions">
       <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Acquista</button>
+    </div>
+  </div>
+  
+  <!-- Paid Photos Countdown Banner -->
+  <div class="paid-countdown-banner" id="paidCountdownBanner" style="display: none;">
+    <div class="paid-countdown-content">
+      <span class="paid-countdown-icon">⏰</span>
+      <span class="paid-countdown-text" id="paidCountdownText">Le tue foto pagate scadranno tra <strong id="paidCountdownDays">30</strong> giorni</span>
     </div>
   </div>
 
@@ -1533,14 +1584,50 @@
       });
     });
 
+    // Controlla se c'è un parametro email nell'URL (ritorno dopo pagamento)
+    const urlParams = new URLSearchParams(window.location.search);
+    const emailParam = urlParams.get('email');
+    const refreshParam = urlParams.get('refresh');
+    
+    if(emailParam) {
+      userEmail = emailParam;
+      localStorage.setItem('userEmail', emailParam);
+      
+      // Se refresh=paid, ricarica le foto pagate
+      if(refreshParam === 'paid' && userEmail) {
+        // Ricarica foto pagate dal server
+        fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`)
+          .then(res => res.json())
+          .then(data => {
+            if(data.ok && data.paid_photos) {
+              paidPhotos = data.paid_photos;
+              // Se ci sono foto trovate, mostra l'album
+              if(data.found_photos && data.found_photos.length > 0) {
+                allPhotos = data.found_photos.map(p => ({
+                  photo_id: p.photo_id,
+                  score: 0,
+                  has_face: true,
+                  paid: p.status === 'paid'
+                }));
+                photosLoadedCount = 0;
+                displayPhotos();
+                showStickyOfferBar(allPhotos.length);
+                showScreen('album');
+              }
+            }
+          })
+          .catch(e => console.error("Error loading paid photos:", e));
+      }
+    }
+    
     // Controlla se la lingua è già stata selezionata
     if(localStorage.getItem('selectedLanguage')) {
       currentLang = localStorage.getItem('selectedLanguage');
-      // Se email già salvata, vai direttamente a welcome
-      if(localStorage.getItem('userEmail')) {
+      // Se email già salvata, vai direttamente a welcome (a meno che non siamo già nell'album)
+      if(localStorage.getItem('userEmail') && !refreshParam) {
         userEmail = localStorage.getItem('userEmail');
         showScreen('welcome');
-      } else {
+      } else if(!refreshParam) {
         showScreen('email');
       }
       // Applica traduzioni dopo che il DOM è pronto
@@ -1621,7 +1708,7 @@
               
               photosLoadedCount = 0;
               displayPhotos();
-              showStickyOfferBar();
+              showStickyOfferBar(allPhotos.length);
               showScreen('album');
               return;
             }
@@ -2637,6 +2724,54 @@
       // Mostra banner con animazione
       stickyBar.style.display = 'flex';
       stickyBar.classList.add('active');
+      
+      // Mostra countdown banner se ci sono foto pagate
+      showPaidCountdownBanner();
+    }
+    
+    function showPaidCountdownBanner() {
+      const countdownBanner = document.getElementById('paidCountdownBanner');
+      const countdownText = document.getElementById('paidCountdownText');
+      const countdownDays = document.getElementById('paidCountdownDays');
+      
+      if(!countdownBanner || paidPhotos.length === 0) {
+        return;
+      }
+      
+      // Calcola giorni rimanenti (30 giorni dalla data di pagamento)
+      // Per ora usiamo una stima: assumiamo che le foto siano state pagate oggi
+      // In futuro potremmo recuperare la data di scadenza dal server
+      const daysRemaining = 30; // Default, in futuro recuperare da server
+      
+      if(daysRemaining > 0) {
+        // Traduci il messaggio
+        let message = "";
+        if(currentLang === 'en') {
+          message = `Your paid photos will expire in <strong>${daysRemaining}</strong> days`;
+        } else if(currentLang === 'it') {
+          message = `Le tue foto pagate scadranno tra <strong>${daysRemaining}</strong> giorni`;
+        } else if(currentLang === 'fr') {
+          message = `Vos photos payées expireront dans <strong>${daysRemaining}</strong> jours`;
+        } else if(currentLang === 'de') {
+          message = `Ihre bezahlten Fotos laufen in <strong>${daysRemaining}</strong> Tagen ab`;
+        } else if(currentLang === 'es') {
+          message = `Tus fotos pagadas expirarán en <strong>${daysRemaining}</strong> días`;
+        } else {
+          message = `Le tue foto pagate scadranno tra <strong>${daysRemaining}</strong> giorni`;
+        }
+        
+        if(countdownText) {
+          countdownText.innerHTML = message;
+        }
+        if(countdownDays) {
+          countdownDays.textContent = daysRemaining;
+        }
+        
+        // Mostra banner con animazione
+        setTimeout(() => {
+          countdownBanner.classList.add('show');
+        }, 500);
+      }
     }
 
     function openLightbox(index) {
