@@ -2667,8 +2667,12 @@
       
       albumGrid.innerHTML = '';
       
-      // Preload delle prime 6-9 immagini (quelle visibili subito)
-      const preloadCount = Math.min(9, allPhotos.length);
+      // Preload delle prime 15-20 immagini (quelle visibili subito) per caricamento più veloce
+      const preloadCount = Math.min(20, allPhotos.length);
+      
+      // Nascondi overlay dopo che le prime 6 foto sono caricate (per percepire velocità)
+      let firstPhotosLoaded = 0;
+      const hideOverlayAfter = 6;
       
       allPhotos.forEach((photo, index) => {
         const div = document.createElement('div');
@@ -2683,7 +2687,7 @@
         const skeleton = document.createElement('div');
         skeleton.className = 'photo-skeleton';
         
-        // Per le prime immagini, carica subito
+        // Per le prime immagini, carica subito con priorità alta
         if(index < preloadCount) {
           img.dataset.loaded = 'true';
           const imgElement = new Image();
@@ -2691,17 +2695,33 @@
             img.src = imgElement.src;
             img.classList.add('loaded');
             skeleton.remove();
+            firstPhotosLoaded++;
+            
+            // Nascondi overlay dopo le prime foto caricate (per percepire velocità)
+            if(firstPhotosLoaded >= hideOverlayAfter && loadingOverlay && loadingOverlay.classList.contains('active')) {
+              loadingOverlay.classList.remove('active');
+              enableAlbumInteractions();
+            }
+            
             checkAllPhotosLoaded();
           };
           imgElement.onerror = () => {
             console.error('Errore caricamento foto:', photo.photo_id);
             skeleton.style.background = 'rgba(255,0,0,0.1)';
             skeleton.innerHTML = '<div style="padding: 10px; text-align: center; color: #ff4444; font-size: 12px;">Error</div>';
+            firstPhotosLoaded++;
             checkAllPhotosLoaded();
           };
           // Usa paid=true se la foto è pagata
           const isPaid = paidPhotos.includes(photo.photo_id);
-          imgElement.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+          const photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+          
+          // Per le prime 6 foto, usa fetchpriority per caricamento più veloce
+          if(index < 6) {
+            img.fetchPriority = 'high';
+          }
+          
+          imgElement.src = photoUrl;
         }
         
         const addCartBtn = document.createElement('button');
@@ -2759,13 +2779,13 @@
         });
       }, 100);
       
-      // Nascondi overlay dopo un breve delay (le prime immagini si caricheranno velocemente)
+      // Fallback: nascondi overlay dopo max 2 secondi se non è già stato nascosto
       setTimeout(() => {
-        if(loadingOverlay) {
+        if(loadingOverlay && loadingOverlay.classList.contains('active')) {
           loadingOverlay.classList.remove('active');
+          enableAlbumInteractions();
         }
-        enableAlbumInteractions();
-      }, 500);
+      }, 2000);
     }
 
     function showStickyOfferBar(photoCount) {
