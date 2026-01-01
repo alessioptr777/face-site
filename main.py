@@ -1871,9 +1871,27 @@ async def get_cart(session_id: str = Query(..., description="ID sessione")):
 @app.post("/cart/add")
 async def add_to_cart(
     session_id: str = Query(..., description="ID sessione"),
-    photo_id: str = Query(..., description="ID foto da aggiungere")
+    photo_id: str = Query(..., description="ID foto da aggiungere"),
+    email: Optional[str] = Query(None, description="Email utente per verificare se foto è già pagata")
 ):
-    """Aggiunge una foto al carrello"""
+    """Aggiunge una foto al carrello - previene aggiunta di foto già pagate"""
+    # Verifica se la foto è già pagata (se email fornita)
+    if email and SQLITE_AVAILABLE:
+        try:
+            paid_photos = await _get_user_paid_photos(email)
+            if photo_id in paid_photos:
+                logger.warning(f"Attempt to add already paid photo to cart: {photo_id} for {email}")
+                return {
+                    "ok": False,
+                    "error": "Questa foto è già stata acquistata",
+                    "photo_ids": _get_cart(session_id),
+                    "count": len(_get_cart(session_id)),
+                    "price_cents": 0,
+                    "price_euros": 0.0
+                }
+        except Exception as e:
+            logger.error(f"Error checking paid photos in cart/add: {e}")
+    
     _add_to_cart(session_id, photo_id)
     photo_ids = _get_cart(session_id)
     price = calculate_price(len(photo_ids))
