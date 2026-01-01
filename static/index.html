@@ -1568,45 +1568,102 @@
       const screen = document.getElementById(screenName + 'Screen');
       if(screen) screen.classList.add('active');
       currentScreen = screenName;
-      
-      // Se si mostra l'album, SEMPRE ricarica le foto pagate (anche se utente esce da pagamento)
-      if(screenName === 'album' && userEmail) {
-        loadPaidPhotos().then(async () => {
-          // Aggiorna le foto nell'album se ci sono già foto caricate
-          if(allPhotos && allPhotos.length > 0) {
-            // Aggiorna lo stato paid delle foto esistenti
-            allPhotos.forEach(photo => {
-              if(paidPhotos.includes(photo.photo_id)) {
-                photo.paid = true;
-              }
-            });
-            // Ricarica le foto per aggiornare i pulsanti e i watermark
-            await displayPhotos();
-          }
-        });
-      }
     }
 
     // Variabile globale per email utente
-    let userEmail = null;
+    let userEmail = localStorage.getItem('userEmail') || null;
     
-    // Event listeners per selezione lingua
-    // IMPORTANTE: Registra gli event listener DOPO che il DOM è pronto
-    function setupLanguageListeners() {
-      const languageOptions = document.querySelectorAll('.language-option');
-      if(languageOptions.length === 0) {
-        // Se gli elementi non sono ancora nel DOM, riprova dopo un breve delay
-        setTimeout(setupLanguageListeners, 100);
+    // ========== INIZIALIZZAZIONE SEMPLIFICATA ==========
+    // Separazione netta tra flusso base e flusso post-pagamento
+    
+    async function initApp() {
+      // 1. Carica lingua salvata
+      const savedLang = localStorage.getItem('selectedLanguage');
+      if(savedLang) {
+        currentLang = savedLang;
+      }
+      
+      // 2. Controlla se è ritorno dopo pagamento
+      const urlParams = new URLSearchParams(window.location.search);
+      const emailParam = urlParams.get('email');
+      const refreshParam = urlParams.get('refresh');
+      
+      if(refreshParam === 'paid' && emailParam) {
+        // FLUSSO POST-PAGAMENTO: carica album direttamente
+        await loadAlbumAfterPayment(emailParam);
         return;
       }
       
-      languageOptions.forEach(option => {
-        // Rimuovi listener esistenti per evitare duplicati
-        const newOption = option.cloneNode(true);
-        option.parentNode.replaceChild(newOption, option);
+      // 3. FLUSSO BASE: lingua → email → selfie
+      if(savedLang) {
+        showScreen('email');
+      } else {
+        showScreen('language');
+      }
+      applyTranslations();
+    }
+    
+    // Funzione separata per caricare album dopo pagamento
+    async function loadAlbumAfterPayment(email) {
+      userEmail = email;
+      localStorage.setItem('userEmail', email);
+      
+      try {
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
         
-        newOption.addEventListener('click', () => {
-          const lang = newOption.getAttribute('data-lang');
+        if(data.ok) {
+          // Carica foto pagate
+          if(data.paid_photos) {
+            paidPhotos = data.paid_photos;
+          }
+          
+          // Prepara foto da mostrare
+          let photosToShow = [];
+          if(data.found_photos && data.found_photos.length > 0) {
+            photosToShow = data.found_photos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: p.status === 'paid'
+            }));
+            // Aggiungi foto pagate
+            const paidFromFound = data.found_photos
+              .filter(p => p.status === 'paid')
+              .map(p => p.photo_id);
+            paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
+          } else if(data.paid_photos && data.paid_photos.length > 0) {
+            photosToShow = data.paid_photos.map(photoId => ({
+              photo_id: photoId,
+              score: 0,
+              has_face: true,
+              paid: true
+            }));
+          }
+          
+          if(photosToShow.length > 0) {
+            allPhotos = photosToShow;
+            showScreen('album');
+            await displayPhotos();
+            showStickyOfferBar(allPhotos.length);
+          } else {
+            showScreen('email');
+          }
+        } else {
+          showScreen('email');
+        }
+      } catch(e) {
+        console.error("Error loading album after payment:", e);
+        showScreen('email');
+      }
+      applyTranslations();
+    }
+    
+    // Event listeners per selezione lingua (semplificato)
+    function setupLanguageListeners() {
+      document.querySelectorAll('.language-option').forEach(option => {
+        option.addEventListener('click', () => {
+          const lang = option.getAttribute('data-lang');
           currentLang = lang;
           localStorage.setItem('selectedLanguage', lang);
           applyTranslations();
@@ -1615,201 +1672,15 @@
       });
     }
     
-    // Registra listener quando DOM è pronto
+    // Avvia inizializzazione quando DOM è pronto
     if(document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', setupLanguageListeners);
+      document.addEventListener('DOMContentLoaded', () => {
+        setupLanguageListeners();
+        initApp();
+      });
     } else {
-      // DOM già pronto
       setupLanguageListeners();
-    }
-
-    // Controlla se c'è un parametro email nell'URL (ritorno dopo pagamento)
-    const urlParams = new URLSearchParams(window.location.search);
-    const emailParam = urlParams.get('email');
-    const refreshParam = urlParams.get('refresh');
-    
-    // Flag per indicare se stiamo caricando l'album dopo pagamento
-    let loadingPaidAlbum = false;
-    
-    // Se refresh=paid, carica l'album PRIMA di tutto (ha priorità)
-    if(refreshParam === 'paid' && emailParam) {
-      loadingPaidAlbum = true;
-      userEmail = emailParam;
-      localStorage.setItem('userEmail', emailParam);
-      
-      // Carica lingua se disponibile, altrimenti usa default
-      if(localStorage.getItem('selectedLanguage')) {
-        currentLang = localStorage.getItem('selectedLanguage');
-      }
-      
-      // Ricarica foto pagate dal server
-      fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`)
-        .then(res => res.json())
-        .then(async data => {
-          if(data.ok) {
-            // Salva foto pagate
-            if(data.paid_photos && data.paid_photos.length > 0) {
-              paidPhotos = data.paid_photos;
-            }
-            
-            // Mostra album con foto trovate O foto pagate
-            let photosToShow = [];
-            
-            if(data.found_photos && data.found_photos.length > 0) {
-              // Usa foto trovate
-              photosToShow = data.found_photos.map(p => ({
-                photo_id: p.photo_id,
-                score: 0,
-                has_face: true,
-                paid: p.status === 'paid'
-              }));
-              // Aggiungi anche le foto pagate da found_photos a paidPhotos
-              const paidFromFound = data.found_photos
-                .filter(p => p.status === 'paid')
-                .map(p => p.photo_id);
-              if(paidFromFound.length > 0) {
-                paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])]; // Unisci senza duplicati
-              }
-            } else if(data.paid_photos && data.paid_photos.length > 0) {
-              // Se non ci sono foto trovate, mostra almeno quelle pagate
-              photosToShow = data.paid_photos.map(photoId => ({
-                photo_id: photoId,
-                score: 0,
-                has_face: true,
-                paid: true
-              }));
-            }
-            
-            if(photosToShow.length > 0) {
-              allPhotos = photosToShow;
-              
-              // IMPORTANTE: Assicurati che tutte le foto pagate siano in paidPhotos
-              // e che le foto abbiano paid=true
-              allPhotos.forEach(photo => {
-                if(photo.paid === true || paidPhotos.includes(photo.photo_id)) {
-                  photo.paid = true;
-                  if(!paidPhotos.includes(photo.photo_id)) {
-                    paidPhotos.push(photo.photo_id);
-                  }
-                }
-              });
-              
-              // Log per debug
-              console.log("Foto pagate caricate:", paidPhotos);
-              console.log("Foto totali:", allPhotos.length);
-              console.log("Foto con paid=true:", allPhotos.filter(p => p.paid === true).length);
-              
-              photosLoadedCount = 0;
-              
-              // CARICA SEMPRE LE FOTO PAGATE PRIMA DI MOSTRARE L'ALBUM
-              // Questo assicura che paidPhotos sia popolato prima di displayPhotos
-              await loadPaidPhotos();
-              
-              // Aggiorna allPhotos con lo stato paid
-              allPhotos.forEach(photo => {
-                if(paidPhotos.includes(photo.photo_id)) {
-                  photo.paid = true;
-                }
-              });
-              
-              // Mostra l'album DOPO aver caricato le foto pagate
-              showScreen('album');
-              
-              // Poi carica le foto (paidPhotos è già popolato)
-              setTimeout(async () => {
-                await displayPhotos();
-                showStickyOfferBar(allPhotos.length);
-                setTimeout(() => applyTranslations(), 100);
-              }, 100);
-            } else {
-              // Nessuna foto, mostra messaggio
-              console.log("Nessuna foto trovata o pagata");
-              showScreen('welcome');
-              setTimeout(() => applyTranslations(), 100);
-            }
-          } else {
-            // Errore nel caricamento, vai a welcome
-            showScreen('welcome');
-            setTimeout(() => applyTranslations(), 100);
-          }
-        })
-        .catch(e => {
-          console.error("Error loading paid photos:", e);
-          showScreen('welcome');
-          setTimeout(() => applyTranslations(), 100);
-        });
-    }
-    
-    // Se c'è emailParam ma non refresh=paid, salva l'email
-    if(emailParam && !loadingPaidAlbum) {
-      userEmail = emailParam;
-      localStorage.setItem('userEmail', emailParam);
-    }
-    
-    // Controlla se la lingua è già stata selezionata
-    if(localStorage.getItem('selectedLanguage')) {
-      currentLang = localStorage.getItem('selectedLanguage');
-      // Se stiamo caricando l'album dopo pagamento, non cambiare schermata
-      if(loadingPaidAlbum) {
-        // L'album viene già mostrato dal codice sopra, non fare nulla
-        // Applica traduzioni dopo che il DOM è pronto
-        setTimeout(() => applyTranslations(), 100);
-      } else {
-        // Se email già salvata E non c'è refresh=paid, verifica se utente esiste e ha foto
-        // IMPORTANTE: Solo se NON c'è refresh=paid (per non interferire con flusso normale)
-        if(localStorage.getItem('userEmail') && !refreshParam && !emailParam) {
-          userEmail = localStorage.getItem('userEmail');
-          // Verifica subito se l'utente esiste e ha foto (senza bisogno di selfie)
-          fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`)
-            .then(res => res.json())
-            .then(async data => {
-              if(data.ok && data.found_photos && data.found_photos.length > 0) {
-                // Utente esistente con foto - mostra direttamente l'album
-                allPhotos = data.found_photos.map(p => ({
-                  photo_id: p.photo_id,
-                  score: 0,
-                  has_face: true,
-                  paid: p.status === 'paid'
-                }));
-                
-                // Salva foto pagate
-                if(data.paid_photos && data.paid_photos.length > 0) {
-                  paidPhotos = data.paid_photos;
-                } else {
-                  // Estrai da found_photos quelle con status='paid'
-                  paidPhotos = data.found_photos
-                    .filter(p => p.status === 'paid')
-                    .map(p => p.photo_id);
-                }
-                
-                photosLoadedCount = 0;
-                await displayPhotos();
-                showStickyOfferBar(allPhotos.length);
-                showScreen('album');
-                setTimeout(() => applyTranslations(), 100);
-              } else {
-                // Utente non ha foto o non esiste - vai a email (flusso normale)
-                showScreen('email');
-                setTimeout(() => applyTranslations(), 100);
-              }
-            })
-            .catch(e => {
-              console.error("Error checking user photos:", e);
-              // In caso di errore, vai a email (flusso normale)
-              showScreen('email');
-              setTimeout(() => applyTranslations(), 100);
-            });
-        } else if(!refreshParam && !emailParam) {
-          // Flusso normale: lingua selezionata → vai a email
-          showScreen('email');
-          setTimeout(() => applyTranslations(), 100);
-        }
-      }
-    } else {
-      // Prima volta: mostra schermata selezione lingua
-      showScreen('language');
-      // Applica traduzioni anche per la schermata language
-      setTimeout(() => applyTranslations(), 100);
+      initApp();
     }
     
     // Event listener per email screen
@@ -1817,7 +1688,7 @@
     const emailError = document.getElementById('emailError');
     const emailContinueBtn = document.getElementById('emailContinueBtn');
     
-    emailContinueBtn.addEventListener('click', () => {
+    emailContinueBtn.addEventListener('click', async () => {
       const email = emailInput.value.trim();
       
       // Validazione email
@@ -1834,11 +1705,9 @@
       emailError.classList.remove('show');
       emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
       
-      // Vai direttamente al selfie (rimosso welcome screen per semplificare)
+      // Vai direttamente al selfie
       showScreen('selfie');
-      setTimeout(async () => {
-        await startCamera();
-      }, 100);
+      await startCamera();
     });
     
     // Enter key su input email
@@ -2752,62 +2621,45 @@
       });
     }
     
-    // Funzione per caricare sempre le foto pagate quando l'utente ha un'email
+    // Funzione semplificata per caricare foto pagate
     async function loadPaidPhotos() {
       if(!userEmail) {
-        // Prova a recuperare l'email dal localStorage
         userEmail = localStorage.getItem('userEmail');
       }
+      if(!userEmail) return paidPhotos;
       
-      if(userEmail) {
-        try {
-          const res = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
-          const data = await res.json();
-          if(data.ok) {
-            // SOVRASCRIVI paidPhotos (non unire) per evitare duplicati e stati inconsistenti
-            paidPhotos = [];
-            
-            // Aggiungi foto pagate dal server
-            if(data.paid_photos && data.paid_photos.length > 0) {
-              paidPhotos = [...data.paid_photos];
-            }
-            
-            // Estrai anche da found_photos quelle con status='paid'
-            if(data.found_photos && data.found_photos.length > 0) {
-              const paidFromFound = data.found_photos
-                .filter(p => p.status === 'paid')
-                .map(p => p.photo_id);
-              if(paidFromFound.length > 0) {
-                paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])]; // Unisci senza duplicati
-              }
-            }
-            
-            console.log("✅ Foto pagate caricate:", paidPhotos.length, "foto");
-            return paidPhotos;
+      try {
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+        const data = await res.json();
+        if(data.ok) {
+          paidPhotos = [];
+          if(data.paid_photos) paidPhotos = [...data.paid_photos];
+          if(data.found_photos) {
+            const paidFromFound = data.found_photos
+              .filter(p => p.status === 'paid')
+              .map(p => p.photo_id);
+            paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
           }
-        } catch(e) {
-          console.error("Error loading paid photos:", e);
         }
+      } catch(e) {
+        console.error("Error loading paid photos:", e);
       }
       return paidPhotos;
     }
     
     async function displayPhotos() {
-      // Verifica che ci siano foto da mostrare
       if(!allPhotos || allPhotos.length === 0) {
         console.warn("displayPhotos chiamato ma non ci sono foto!");
-        // Torna al selfie se non ci sono foto
         alert(t('errors.noPhotos'));
         showScreen('selfie');
         startCamera();
         return;
       }
       
-      // SEMPRE carica le foto pagate PRIMA di mostrare l'album
-      // Questo assicura che paidPhotos sia sempre popolato
+      // Carica foto pagate prima di renderizzare
       await loadPaidPhotos();
       
-      // Aggiorna allPhotos con lo stato paid dopo aver caricato paidPhotos
+      // Aggiorna stato paid delle foto
       allPhotos.forEach(photo => {
         if(paidPhotos.includes(photo.photo_id)) {
           photo.paid = true;
