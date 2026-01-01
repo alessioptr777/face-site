@@ -2969,7 +2969,11 @@
         currentPhotoIndex++;
         const photo = allPhotos[currentPhotoIndex];
         const isPaid = paidPhotos.includes(photo.photo_id);
-        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+        let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+        if(userEmail && isPaid) {
+          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        }
+        lightboxImage.src = photoUrl;
         updateLightboxCounter();
         updateDownloadButton(photo.photo_id);
       }
@@ -2980,7 +2984,11 @@
         currentPhotoIndex--;
         const photo = allPhotos[currentPhotoIndex];
         const isPaid = paidPhotos.includes(photo.photo_id);
-        lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+        let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+        if(userEmail && isPaid) {
+          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        }
+        lightboxImage.src = photoUrl;
         updateLightboxCounter();
         updateDownloadButton(photo.photo_id);
       }
