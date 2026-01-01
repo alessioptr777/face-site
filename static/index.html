@@ -1660,6 +1660,22 @@
             
             if(photosToShow.length > 0) {
               allPhotos = photosToShow;
+              
+              // IMPORTANTE: Assicurati che tutte le foto pagate siano in paidPhotos
+              // e che le foto abbiano paid=true
+              allPhotos.forEach(photo => {
+                if(photo.paid === true || paidPhotos.includes(photo.photo_id)) {
+                  photo.paid = true;
+                  if(!paidPhotos.includes(photo.photo_id)) {
+                    paidPhotos.push(photo.photo_id);
+                  }
+                }
+              });
+              
+              console.log("Foto pagate caricate:", paidPhotos);
+              console.log("Foto totali:", allPhotos.length);
+              console.log("Foto con paid=true:", allPhotos.filter(p => p.paid === true).length);
+              
               photosLoadedCount = 0;
               displayPhotos();
               showStickyOfferBar(allPhotos.length);
@@ -1787,6 +1803,8 @@
     });
 
     // Event listeners
+    // Rimosso pulsante "Continua" - vai direttamente al selfie quando si mostra welcome
+    // La schermata welcome viene mostrata solo come informativa, poi si passa automaticamente al selfie
     document.getElementById("welcomeContinueBtn").addEventListener("click", async () => {
       // Prima verifica se utente esiste
       if(userEmail && capturedBlob) {
@@ -1840,6 +1858,31 @@
         await startCamera();
       }, 100);
     });
+    
+    // Auto-avanzamento: dopo 2 secondi sulla welcome, vai automaticamente al selfie
+    // (ma solo se non c'è già un selfie salvato)
+    const welcomeScreen = document.getElementById("welcomeScreen");
+    if(welcomeScreen) {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if(mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            const isActive = welcomeScreen.classList.contains('active');
+            if(isActive && !capturedBlob) {
+              // Se la welcome è attiva e non c'è selfie, vai automaticamente al selfie dopo 2 secondi
+              setTimeout(() => {
+                if(currentScreen === 'welcome' && !capturedBlob) {
+                  showScreen('selfie');
+                  setTimeout(async () => {
+                    await startCamera();
+                  }, 100);
+                }
+              }, 2000);
+            }
+          }
+        });
+      });
+      observer.observe(welcomeScreen, { attributes: true });
+    }
 
     document.getElementById("captureBtn").addEventListener("click", captureSelfie);
     document.getElementById("confirmBtn").addEventListener("click", confirmSelfie);
