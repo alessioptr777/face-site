@@ -1589,8 +1589,12 @@
     const emailParam = urlParams.get('email');
     const refreshParam = urlParams.get('refresh');
     
+    // Flag per indicare se stiamo caricando l'album dopo pagamento
+    let loadingPaidAlbum = false;
+    
     // Se refresh=paid, carica l'album PRIMA di tutto (ha priorità)
     if(refreshParam === 'paid' && emailParam) {
+      loadingPaidAlbum = true;
       userEmail = emailParam;
       localStorage.setItem('userEmail', emailParam);
       
@@ -1661,13 +1665,10 @@
           showScreen('welcome');
           setTimeout(() => applyTranslations(), 100);
         });
-      
-      // Esci qui - non continuare con il resto dell'inizializzazione
-      return;
     }
     
     // Se c'è emailParam ma non refresh=paid, salva l'email
-    if(emailParam) {
+    if(emailParam && !loadingPaidAlbum) {
       userEmail = emailParam;
       localStorage.setItem('userEmail', emailParam);
     }
@@ -1675,8 +1676,8 @@
     // Controlla se la lingua è già stata selezionata
     if(localStorage.getItem('selectedLanguage')) {
       currentLang = localStorage.getItem('selectedLanguage');
-      // Se refresh=paid, non cambiare schermata (l'album viene mostrato dal codice sopra)
-      if(refreshParam === 'paid') {
+      // Se stiamo caricando l'album dopo pagamento, non cambiare schermata
+      if(loadingPaidAlbum) {
         // L'album viene già mostrato dal codice sopra, non fare nulla
         // Applica traduzioni dopo che il DOM è pronto
         setTimeout(() => applyTranslations(), 100);
