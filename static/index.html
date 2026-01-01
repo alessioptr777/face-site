@@ -1599,20 +1599,42 @@
         fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`)
           .then(res => res.json())
           .then(data => {
-            if(data.ok && data.paid_photos) {
-              paidPhotos = data.paid_photos;
-              // Se ci sono foto trovate, mostra l'album
+            if(data.ok) {
+              // Salva foto pagate
+              if(data.paid_photos && data.paid_photos.length > 0) {
+                paidPhotos = data.paid_photos;
+              }
+              
+              // Mostra album con foto trovate O foto pagate
+              let photosToShow = [];
+              
               if(data.found_photos && data.found_photos.length > 0) {
-                allPhotos = data.found_photos.map(p => ({
+                // Usa foto trovate
+                photosToShow = data.found_photos.map(p => ({
                   photo_id: p.photo_id,
                   score: 0,
                   has_face: true,
                   paid: p.status === 'paid'
                 }));
+              } else if(data.paid_photos && data.paid_photos.length > 0) {
+                // Se non ci sono foto trovate, mostra almeno quelle pagate
+                photosToShow = data.paid_photos.map(photoId => ({
+                  photo_id: photoId,
+                  score: 0,
+                  has_face: true,
+                  paid: true
+                }));
+              }
+              
+              if(photosToShow.length > 0) {
+                allPhotos = photosToShow;
                 photosLoadedCount = 0;
                 displayPhotos();
                 showStickyOfferBar(allPhotos.length);
                 showScreen('album');
+              } else {
+                // Nessuna foto, mostra messaggio
+                console.log("Nessuna foto trovata o pagata");
               }
             }
           })

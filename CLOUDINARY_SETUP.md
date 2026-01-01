@@ -65,3 +65,4 @@ Il frontend non cambia: continua a chiamare `/photo/<filename>.jpg`
 - Esempio: `_MIT0180.jpg` → public_id: `_MIT0180`
 - Le foto vengono organizzate nella cartella `face-site` su Cloudinary (opzionale)
 
+

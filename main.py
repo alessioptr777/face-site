@@ -386,7 +386,7 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
     return False
 
 async def _mark_photo_paid(email: str, photo_id: str) -> bool:
-    """Marca una foto come pagata"""
+    """Marca una foto come pagata (crea record se non esiste)"""
     if not SQLITE_AVAILABLE:
         return False
     
@@ -395,12 +395,29 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
         expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         
         async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute("""
-                UPDATE user_photos 
-                SET paid_at = ?, status = 'paid', expires_at = ?
+            # Verifica se esiste già
+            cursor = await conn.execute("""
+                SELECT id FROM user_photos 
                 WHERE email = ? AND photo_id = ?
-            """, (now, expires_at, email, photo_id))
+            """, (email, photo_id))
+            exists = await cursor.fetchone()
+            
+            if exists:
+                # Aggiorna record esistente
+                await conn.execute("""
+                    UPDATE user_photos 
+                    SET paid_at = ?, status = 'paid', expires_at = ?
+                    WHERE email = ? AND photo_id = ?
+                """, (now, expires_at, email, photo_id))
+            else:
+                # Crea nuovo record (foto pagata senza essere stata trovata prima)
+                await conn.execute("""
+                    INSERT INTO user_photos (email, photo_id, found_at, paid_at, status, expires_at)
+                    VALUES (?, ?, ?, ?, 'paid', ?)
+                """, (email, photo_id, now, now, expires_at))
+            
             await conn.commit()
+            logger.info(f"Photo marked as paid: {email} - {photo_id}")
             return True
     except Exception as e:
         logger.error(f"Error marking photo paid: {e}")
