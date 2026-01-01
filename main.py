@@ -2013,6 +2013,18 @@ async def checkout_success(
         # Se ancora non trovato, aspetta un po' (il webhook potrebbe essere in ritardo)
         if not download_token:
             logger.warning(f"Order not found yet: {stripe_session_id}. Webhook might be delayed.")
+            # Prova a recuperare email direttamente da Stripe come fallback
+            if not email and USE_STRIPE:
+                try:
+                    stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
+                    email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
+                    photo_ids_str = stripe_session.get('metadata', {}).get('photo_ids', '')
+                    if photo_ids_str:
+                        photo_ids = photo_ids_str.split(',')
+                    logger.info(f"Retrieved email from Stripe session: {email}")
+                except Exception as e:
+                    logger.error(f"Error retrieving Stripe session: {e}")
+            
             # Aspetta 2 secondi e riprova dal database
             import asyncio
             await asyncio.sleep(2)
@@ -2028,7 +2040,8 @@ async def checkout_success(
                         if row:
                             download_token = row['download_token']
                             photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                            email = row['email']
+                            if not email:  # Usa email dal database se non già recuperata
+                                email = row['email']
                             logger.info(f"Order found after retry: {stripe_session_id}")
                 except Exception as e:
                     logger.error(f"Error retrying order from database: {e}")
