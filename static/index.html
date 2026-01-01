@@ -1813,9 +1813,11 @@
     });
 
     // Event listeners
-    // Rimosso pulsante "Continua" - vai direttamente al selfie quando si mostra welcome
-    // La schermata welcome viene mostrata solo come informativa, poi si passa automaticamente al selfie
-    document.getElementById("welcomeContinueBtn").addEventListener("click", async () => {
+    // Rimosso pulsante "Continua" - vai direttamente al selfie quando si inserisce email
+    // Il pulsante welcomeContinueBtn non viene più usato, ma manteniamo il codice per compatibilità
+    const welcomeContinueBtn = document.getElementById("welcomeContinueBtn");
+    if(welcomeContinueBtn) {
+      welcomeContinueBtn.addEventListener("click", async () => {
       // Prima verifica se utente esiste
       if(userEmail && capturedBlob) {
         try {
