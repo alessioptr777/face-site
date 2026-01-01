@@ -1970,36 +1970,68 @@ async def checkout_success(
 ):
     """Pagina di successo dopo pagamento - mostra foto direttamente"""
     try:
-        # Recupera ordine da file JSON (il webhook lo salva)
-        order_file = ORDERS_DIR / f"{session_id}.json"
         download_token = None
         order_data = {}
         photo_ids = []
         email = None
         
-        if order_file.exists():
-            with open(order_file, 'r', encoding='utf-8') as f:
-                order_data = json.load(f)
-                download_token = order_data.get('download_token')
-                photo_ids = order_data.get('photo_ids', [])
-                email = order_data.get('email')
+        # Il session_id è lo Stripe session ID (order_id)
+        stripe_session_id = session_id
         
-        # Se non trovato, prova a recuperare dal database
-        if not download_token and SQLITE_AVAILABLE:
+        # Prova prima dal database (più affidabile)
+        if SQLITE_AVAILABLE:
             try:
                 async with aiosqlite.connect(DB_PATH) as conn:
                     conn.row_factory = aiosqlite.Row
                     cursor = await conn.execute(
                         "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
-                        (session_id,)
+                        (stripe_session_id,)
                     )
                     row = await cursor.fetchone()
                     if row:
                         download_token = row['download_token']
                         photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
                         email = row['email']
+                        logger.info(f"Order found in database: {stripe_session_id} - {len(photo_ids)} photos for {email}")
             except Exception as e:
                 logger.error(f"Error getting order from database: {e}")
+        
+        # Se non trovato nel database, prova dal file JSON
+        if not download_token:
+            order_file = ORDERS_DIR / f"{stripe_session_id}.json"
+            if order_file.exists():
+                try:
+                    with open(order_file, 'r', encoding='utf-8') as f:
+                        order_data = json.load(f)
+                        download_token = order_data.get('download_token')
+                        photo_ids = order_data.get('photo_ids', [])
+                        email = order_data.get('email')
+                        logger.info(f"Order found in file: {stripe_session_id} - {len(photo_ids)} photos for {email}")
+                except Exception as e:
+                    logger.error(f"Error reading order file: {e}")
+        
+        # Se ancora non trovato, aspetta un po' (il webhook potrebbe essere in ritardo)
+        if not download_token:
+            logger.warning(f"Order not found yet: {stripe_session_id}. Webhook might be delayed.")
+            # Aspetta 2 secondi e riprova dal database
+            import asyncio
+            await asyncio.sleep(2)
+            if SQLITE_AVAILABLE:
+                try:
+                    async with aiosqlite.connect(DB_PATH) as conn:
+                        conn.row_factory = aiosqlite.Row
+                        cursor = await conn.execute(
+                            "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
+                            (stripe_session_id,)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            download_token = row['download_token']
+                            photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                            email = row['email']
+                            logger.info(f"Order found after retry: {stripe_session_id}")
+                except Exception as e:
+                    logger.error(f"Error retrying order from database: {e}")
         
         base_url = str(request.base_url).rstrip('/')
         download_url = f"{base_url}/my-photos/{download_token}" if download_token else None
@@ -2019,7 +2051,16 @@ async def checkout_success(
         
         # Prepara le parti HTML condizionali
         email_message = "<p>Controlla la tua email per il link permanente di download.</p>" if download_url else ""
-        album_link = f'<a href="/?email={email}&refresh=paid" class="button">Vai all album</a>' if email else ""
+        
+        # Messaggio per foto non ancora caricate
+        photos_message = ""
+        if photos_html:
+            photos_message = f'<div class="photos-grid">{photos_html}</div>'
+        elif email:
+            album_text = "all'album"
+            photos_message = f'<p style="margin: 20px 0; font-size: 16px;">Le tue foto sono state sbloccate e sono disponibili nell\'album. Clicca su "Torna {album_text}" per visualizzarle e scaricarle.</p>'
+        else:
+            photos_message = '<p style="margin: 20px 0; font-size: 16px;">Caricamento foto... Le foto saranno disponibili a breve.</p>'
         
         html_content = f"""
         <!DOCTYPE html>
@@ -2134,9 +2175,7 @@ async def checkout_success(
                 
                 {email_message}
                 
-                {f'<div class="photos-grid">{photos_html}</div>' if photos_html else '<p>Caricamento foto...</p>'}
-                
-                {album_link}
+                {photos_message}
                 
                 {f'<a href="{download_url}" class="button">Link permanente per download</a>' if download_url else ''}
                 
