@@ -2643,6 +2643,39 @@
       });
     }
     
+    // Funzione per caricare sempre le foto pagate quando l'utente ha un'email
+    async function loadPaidPhotos() {
+      if(!userEmail) {
+        // Prova a recuperare l'email dal localStorage
+        userEmail = localStorage.getItem('userEmail');
+      }
+      
+      if(userEmail) {
+        try {
+          const res = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+          const data = await res.json();
+          if(data.ok) {
+            // Aggiorna paidPhotos con le foto pagate dal server
+            if(data.paid_photos && data.paid_photos.length > 0) {
+              paidPhotos = [...new Set([...paidPhotos, ...data.paid_photos])]; // Unisci senza duplicati
+            }
+            // Estrai anche da found_photos quelle con status='paid'
+            if(data.found_photos && data.found_photos.length > 0) {
+              const paidFromFound = data.found_photos
+                .filter(p => p.status === 'paid')
+                .map(p => p.photo_id);
+              if(paidFromFound.length > 0) {
+                paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])]; // Unisci senza duplicati
+              }
+            }
+            console.log("Foto pagate caricate:", paidPhotos);
+          }
+        } catch(e) {
+          console.error("Error loading paid photos:", e);
+        }
+      }
+    }
+    
     function displayPhotos() {
       // Verifica che ci siano foto da mostrare
       if(!allPhotos || allPhotos.length === 0) {
@@ -2653,6 +2686,9 @@
         startCamera();
         return;
       }
+      
+      // SEMPRE carica le foto pagate quando si mostra l'album
+      loadPaidPhotos();
       
       const loadingOverlay = document.getElementById('albumLoadingOverlay');
       const loadingText = document.getElementById('albumLoadingText');
