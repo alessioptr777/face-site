@@ -2053,12 +2053,18 @@ async def checkout_success(
         photos_html = ""
         if photo_ids:
             for photo_id in photo_ids:
-                # Usa il token per verificare che sia pagata
-                photo_url = f"/photo/{photo_id}?token={download_token}" if download_token else f"/photo/{photo_id}"
+                # Usa il token e paid=true per assicurarsi che sia servita senza watermark
+                photo_url_params = []
+                if download_token:
+                    photo_url_params.append(f"token={download_token}")
+                if email:
+                    photo_url_params.append(f"email={email}")
+                photo_url_params.append("paid=true")  # Forza paid=true per foto pagate
+                photo_url = f"/photo/{photo_id}?{'&'.join(photo_url_params)}"
                 photos_html += f"""
                 <div class="photo-item">
                     <img src="{photo_url}" alt="{photo_id}" loading="lazy">
-                    <button onclick="downloadPhoto('{photo_id}', '{download_token}')" class="download-btn">Scarica</button>
+                    <button onclick="downloadPhoto('{photo_id}', '{download_token}', '{email or ''}')" class="download-btn">Scarica</button>
                 </div>
                 """
         
@@ -2196,12 +2202,33 @@ async def checkout_success(
             </div>
             
             <script>
-                function downloadPhoto(photoId, token) {{
-                    const url = token ? `/photo/${{photoId}}?token=${{token}}` : `/photo/${{photoId}}`;
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = photoId;
-                    link.click();
+                async function downloadPhoto(photoId, token, email) {{
+                    // Costruisci URL con tutti i parametri necessari per assicurarsi che sia senza watermark
+                    const params = ['paid=true'];
+                    if(token) params.push(`token=${{token}}`);
+                    if(email) params.push(`email=${{encodeURIComponent(email)}}`);
+                    const url = `/photo/${{photoId}}?${{params.join('&')}}`;
+                    
+                    // Usa fetch per scaricare l'immagine e creare blob URL
+                    try {{
+                        const response = await fetch(url);
+                        if(!response.ok) {{
+                            alert('Errore durante il download della foto');
+                            return;
+                        }}
+                        const blob = await response.blob();
+                        const blobUrl = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = blobUrl;
+                        link.download = photoId;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        window.URL.revokeObjectURL(blobUrl);
+                    }} catch(error) {{
+                        console.error('Error downloading photo:', error);
+                        alert('Errore durante il download della foto');
+                    }}
                 }}
             </script>
         </body>
