@@ -1672,15 +1672,22 @@
                 }
               });
               
+              // Log per debug
               console.log("Foto pagate caricate:", paidPhotos);
               console.log("Foto totali:", allPhotos.length);
               console.log("Foto con paid=true:", allPhotos.filter(p => p.paid === true).length);
               
               photosLoadedCount = 0;
-              displayPhotos();
-              showStickyOfferBar(allPhotos.length);
+              
+              // Mostra l'album PRIMA
               showScreen('album');
-              setTimeout(() => applyTranslations(), 100);
+              
+              // Poi carica le foto (così displayPhotos può usare paidPhotos correttamente)
+              setTimeout(() => {
+                displayPhotos();
+                showStickyOfferBar(allPhotos.length);
+                setTimeout(() => applyTranslations(), 100);
+              }, 200);
             } else {
               // Nessuna foto, mostra messaggio
               console.log("Nessuna foto trovata o pagata");
