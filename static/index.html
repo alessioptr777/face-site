@@ -1589,64 +1589,87 @@
     const emailParam = urlParams.get('email');
     const refreshParam = urlParams.get('refresh');
     
-    if(emailParam) {
+    // Se refresh=paid, carica l'album PRIMA di tutto (ha priorità)
+    if(refreshParam === 'paid' && emailParam) {
       userEmail = emailParam;
       localStorage.setItem('userEmail', emailParam);
       
-      // Se refresh=paid, ricarica le foto pagate
-      if(refreshParam === 'paid' && userEmail) {
-        // Ricarica foto pagate dal server
-        fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`)
-          .then(res => res.json())
-          .then(data => {
-            if(data.ok) {
-              // Salva foto pagate
-              if(data.paid_photos && data.paid_photos.length > 0) {
-                paidPhotos = data.paid_photos;
-              }
-              
-              // Mostra album con foto trovate O foto pagate
-              let photosToShow = [];
-              
-              if(data.found_photos && data.found_photos.length > 0) {
-                // Usa foto trovate
-                photosToShow = data.found_photos.map(p => ({
-                  photo_id: p.photo_id,
-                  score: 0,
-                  has_face: true,
-                  paid: p.status === 'paid'
-                }));
-                // Aggiungi anche le foto pagate da found_photos a paidPhotos
-                const paidFromFound = data.found_photos
-                  .filter(p => p.status === 'paid')
-                  .map(p => p.photo_id);
-                if(paidFromFound.length > 0) {
-                  paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])]; // Unisci senza duplicati
-                }
-              } else if(data.paid_photos && data.paid_photos.length > 0) {
-                // Se non ci sono foto trovate, mostra almeno quelle pagate
-                photosToShow = data.paid_photos.map(photoId => ({
-                  photo_id: photoId,
-                  score: 0,
-                  has_face: true,
-                  paid: true
-                }));
-              }
-              
-              if(photosToShow.length > 0) {
-                allPhotos = photosToShow;
-                photosLoadedCount = 0;
-                displayPhotos();
-                showStickyOfferBar(allPhotos.length);
-                showScreen('album');
-              } else {
-                // Nessuna foto, mostra messaggio
-                console.log("Nessuna foto trovata o pagata");
-              }
-            }
-          })
-          .catch(e => console.error("Error loading paid photos:", e));
+      // Carica lingua se disponibile, altrimenti usa default
+      if(localStorage.getItem('selectedLanguage')) {
+        currentLang = localStorage.getItem('selectedLanguage');
       }
+      
+      // Ricarica foto pagate dal server
+      fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`)
+        .then(res => res.json())
+        .then(data => {
+          if(data.ok) {
+            // Salva foto pagate
+            if(data.paid_photos && data.paid_photos.length > 0) {
+              paidPhotos = data.paid_photos;
+            }
+            
+            // Mostra album con foto trovate O foto pagate
+            let photosToShow = [];
+            
+            if(data.found_photos && data.found_photos.length > 0) {
+              // Usa foto trovate
+              photosToShow = data.found_photos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: p.status === 'paid'
+              }));
+              // Aggiungi anche le foto pagate da found_photos a paidPhotos
+              const paidFromFound = data.found_photos
+                .filter(p => p.status === 'paid')
+                .map(p => p.photo_id);
+              if(paidFromFound.length > 0) {
+                paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])]; // Unisci senza duplicati
+              }
+            } else if(data.paid_photos && data.paid_photos.length > 0) {
+              // Se non ci sono foto trovate, mostra almeno quelle pagate
+              photosToShow = data.paid_photos.map(photoId => ({
+                photo_id: photoId,
+                score: 0,
+                has_face: true,
+                paid: true
+              }));
+            }
+            
+            if(photosToShow.length > 0) {
+              allPhotos = photosToShow;
+              photosLoadedCount = 0;
+              displayPhotos();
+              showStickyOfferBar(allPhotos.length);
+              showScreen('album');
+              setTimeout(() => applyTranslations(), 100);
+            } else {
+              // Nessuna foto, mostra messaggio
+              console.log("Nessuna foto trovata o pagata");
+              showScreen('welcome');
+              setTimeout(() => applyTranslations(), 100);
+            }
+          } else {
+            // Errore nel caricamento, vai a welcome
+            showScreen('welcome');
+            setTimeout(() => applyTranslations(), 100);
+          }
+        })
+        .catch(e => {
+          console.error("Error loading paid photos:", e);
+          showScreen('welcome');
+          setTimeout(() => applyTranslations(), 100);
+        });
+      
+      // Esci qui - non continuare con il resto dell'inizializzazione
+      return;
+    }
+    
+    // Se c'è emailParam ma non refresh=paid, salva l'email
+    if(emailParam) {
+      userEmail = emailParam;
+      localStorage.setItem('userEmail', emailParam);
     }
     
     // Controlla se la lingua è già stata selezionata
