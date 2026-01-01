@@ -2804,11 +2804,11 @@
           paidBadge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(34, 197, 94, 0.9); color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; z-index: 5;';
           div.appendChild(paidBadge);
           
-          // Aggiungi pulsante "Scarica" per foto pagate
+          // Aggiungi pulsante "SCARICA" grande e verde per foto pagate
           const downloadBtn = document.createElement('button');
           downloadBtn.className = 'photo-download-btn';
-          downloadBtn.textContent = '📥 Scarica';
-          downloadBtn.style.cssText = 'position: absolute; bottom: 8px; right: 8px; background: rgba(123, 116, 255, 0.95); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+          downloadBtn.textContent = '📥 SCARICA';
+          downloadBtn.style.cssText = 'position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: #22c55e; color: white; border: none; padding: 14px 24px; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; z-index: 5; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4); width: calc(100% - 24px); max-width: 200px;';
           downloadBtn.onclick = (e) => {
             e.stopPropagation(); // Previeni apertura lightbox
             downloadPhoto(photo.photo_id);
