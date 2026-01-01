@@ -1791,8 +1791,11 @@
       emailError.classList.remove('show');
       emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
       
-      // Vai a welcome screen
-      showScreen('welcome');
+      // Vai direttamente al selfie (rimosso welcome screen per semplificare)
+      showScreen('selfie');
+      setTimeout(async () => {
+        await startCamera();
+      }, 100);
     });
     
     // Enter key su input email
