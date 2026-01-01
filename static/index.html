@@ -3059,19 +3059,39 @@
     
     async function downloadPhoto(photoId) {
       try {
-        // Passa email se disponibile per verifica pagamento
-        const emailParam = userEmail ? `&email=${encodeURIComponent(userEmail)}` : '';
-        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true${emailParam}`;
+        // Verifica che la foto sia pagata
+        if(!paidPhotos.includes(photoId)) {
+          alert("Questa foto non è stata ancora pagata");
+          return;
+        }
+        
+        // Passa SEMPRE email per verifica backend (obbligatorio per foto pagate)
+        if(!userEmail) {
+          userEmail = localStorage.getItem('userEmail');
+        }
+        
+        if(!userEmail) {
+          alert("Email non trovata. Per favore, accedi di nuovo.");
+          return;
+        }
+        
+        // Costruisci URL con paid=true e email per verifica backend
+        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(userEmail)}`;
+        
+        // Usa SEMPRE fetch per scaricare (garantisce che i parametri vengano passati correttamente)
+        const response = await fetch(photoUrl);
+        if(!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
         
         // Rileva se siamo su mobile
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         
         if(isMobile && navigator.share) {
           // Web Share API per mobile
           try {
-            const response = await fetch(photoUrl);
-            const blob = await response.blob();
             const file = new File([blob], `${photoId}.jpg`, { type: 'image/jpeg' });
             
             if(navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -3087,16 +3107,18 @@
           }
         }
         
-        // Download diretto per desktop o fallback mobile
+        // Download diretto usando blob URL (garantisce che la foto scaricata sia quella senza watermark)
+        const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = photoUrl;
+        link.href = blobUrl;
         link.download = `${photoId}.jpg`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl); // Libera memoria
       } catch(e) {
         console.error("Error downloading photo:", e);
-        alert(t('errors.download') || "Error downloading photo");
+        alert(t('errors.download') || "Errore durante il download della foto. Riprova.");
       }
     }
 
