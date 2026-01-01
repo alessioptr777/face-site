@@ -2068,19 +2068,7 @@ async def checkout_success(
                 </div>
                 """
         
-        # Prepara le parti HTML condizionali
-        email_message = "<p>Controlla la tua email per il link permanente di download.</p>" if download_url else ""
-        
-        # Messaggio per foto non ancora caricate
-        photos_message = ""
-        if photos_html:
-            photos_message = f'<div class="photos-grid">{photos_html}</div>'
-        elif email:
-            album_text = "all'album"
-            photos_message = f'<p style="margin: 20px 0; font-size: 16px;">Le tue foto sono state sbloccate e sono disponibili nell\'album. Clicca su "Torna {album_text}" per visualizzarle e scaricarle.</p>'
-        else:
-            photos_message = '<p style="margin: 20px 0; font-size: 16px;">Caricamento foto... Le foto saranno disponibili a breve.</p>'
-        
+        # Pagina semplificata: messaggio chiaro + un solo pulsante grande
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -2096,141 +2084,61 @@ async def checkout_success(
                     color: #fff;
                     padding: 20px;
                     min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }}
                 .container {{
-                    max-width: 1200px;
+                    max-width: 600px;
                     margin: 0 auto;
                     text-align: center;
+                    padding: 40px 20px;
                 }}
-                .header {{
-                    margin-bottom: 30px;
+                .success-icon {{
+                    font-size: 80px;
+                    margin-bottom: 20px;
                 }}
-                h1 {{ font-size: 32px; margin: 0 0 10px; }}
-                p {{ font-size: 18px; margin: 10px 0; }}
-                .warning {{
-                    background: rgba(255, 243, 205, 0.3);
-                    border-left: 4px solid #ffc107;
-                    padding: 15px;
-                    margin: 20px 0;
-                    text-align: left;
-                    border-radius: 8px;
-                    max-width: 600px;
-                    margin-left: auto;
-                    margin-right: auto;
+                h1 {{
+                    font-size: 36px;
+                    margin: 0 0 15px;
+                    font-weight: 700;
                 }}
-                .photos-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                    gap: 20px;
-                    margin: 30px 0;
+                .message {{
+                    font-size: 22px;
+                    margin: 0 0 40px;
+                    line-height: 1.5;
                 }}
-                .photo-item {{
-                    position: relative;
-                    border-radius: 12px;
-                    overflow: hidden;
-                    background: rgba(255,255,255,0.1);
-                    backdrop-filter: blur(10px);
-                }}
-                .photo-item img {{
-                    width: 100%;
-                    height: auto;
+                .main-button {{
                     display: block;
-                }}
-                .download-btn {{
-                    position: absolute;
-                    bottom: 10px;
-                    right: 10px;
-                    background: #fff;
-                    color: #5f58ff;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-weight: 600;
-                    font-size: 14px;
-                }}
-                .download-btn:hover {{
-                    background: #f0f0f0;
-                }}
-                .button {{
-                    display: inline-block;
-                    margin: 10px;
-                    padding: 15px 30px;
-                    background: #fff;
-                    color: #5f58ff;
-                    text-decoration: none;
-                    border-radius: 8px;
-                    font-weight: 600;
-                    font-size: 16px;
-                }}
-                .button-secondary {{
-                    background: rgba(255,255,255,0.2);
+                    width: 100%;
+                    max-width: 400px;
+                    margin: 0 auto;
+                    padding: 20px 40px;
+                    background: #22c55e;
                     color: #fff;
+                    text-decoration: none;
+                    border-radius: 12px;
+                    font-weight: 700;
+                    font-size: 20px;
+                    box-shadow: 0 4px 20px rgba(34, 197, 94, 0.4);
+                    transition: transform 0.2s, box-shadow 0.2s;
                 }}
-                .link-box {{
-                    background: rgba(255,255,255,0.1);
-                    padding: 15px;
-                    border-radius: 8px;
-                    margin: 20px auto;
-                    max-width: 600px;
-                    word-break: break-all;
-                    font-family: monospace;
-                    font-size: 12px;
+                .main-button:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 25px rgba(34, 197, 94, 0.5);
+                }}
+                .main-button:active {{
+                    transform: translateY(0);
                 }}
             </style>
         </head>
         <body>
             <div class="container">
-                <div class="header">
-                    <h1>✅ Pagamento completato!</h1>
-                    <p>Le tue foto sono state sbloccate.</p>
-                </div>
-                
-                <div class="warning">
-                    <strong>⚠️ IMPORTANTE:</strong><br>
-                    Le foto saranno disponibili per <strong>30 giorni</strong>.<br>
-                    Assicurati di averle scaricate nella tua galleria prima della scadenza.
-                </div>
-                
-                {email_message}
-                
-                {photos_message}
-                
-                {f'<a href="{download_url}" class="button">Link permanente per download</a>' if download_url else ''}
-                
-                {f'<a href="/?email={email}&refresh=paid" class="button button-secondary">Torna all album</a>' if email else '<a href="/" class="button button-secondary">Torna alla home</a>'}
+                <div class="success-icon">✅</div>
+                <h1>PAGAMENTO COMPLETATO!</h1>
+                <p class="message">Le tue foto sono pronte.</p>
+                {f'<a href="/?email={email}&refresh=paid" class="main-button">VAI ALLE MIE FOTO</a>' if email else '<a href="/" class="main-button">VAI ALLE MIE FOTO</a>'}
             </div>
-            
-            <script>
-                async function downloadPhoto(photoId, token, email) {{
-                    // Costruisci URL con tutti i parametri necessari per assicurarsi che sia senza watermark
-                    const params = ['paid=true'];
-                    if(token) params.push(`token=${{token}}`);
-                    if(email) params.push(`email=${{encodeURIComponent(email)}}`);
-                    const url = `/photo/${{photoId}}?${{params.join('&')}}`;
-                    
-                    // Usa fetch per scaricare l'immagine e creare blob URL
-                    try {{
-                        const response = await fetch(url);
-                        if(!response.ok) {{
-                            alert('Errore durante il download della foto');
-                            return;
-                        }}
-                        const blob = await response.blob();
-                        const blobUrl = window.URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        link.href = blobUrl;
-                        link.download = photoId;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        window.URL.revokeObjectURL(blobUrl);
-                    }} catch(error) {{
-                        console.error('Error downloading photo:', error);
-                        alert('Errore durante il download della foto');
-                    }}
-                }}
-            </script>
         </body>
         </html>
         """
