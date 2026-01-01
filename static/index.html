@@ -1568,6 +1568,23 @@
       const screen = document.getElementById(screenName + 'Screen');
       if(screen) screen.classList.add('active');
       currentScreen = screenName;
+      
+      // Se si mostra l'album, SEMPRE ricarica le foto pagate (anche se utente esce da pagamento)
+      if(screenName === 'album' && userEmail) {
+        loadPaidPhotos().then(() => {
+          // Aggiorna le foto nell'album se ci sono già foto caricate
+          if(allPhotos && allPhotos.length > 0) {
+            // Aggiorna lo stato paid delle foto esistenti
+            allPhotos.forEach(photo => {
+              if(paidPhotos.includes(photo.photo_id)) {
+                photo.paid = true;
+              }
+            });
+            // Ricarica le foto per aggiornare i pulsanti e i watermark
+            displayPhotos();
+          }
+        });
+      }
     }
 
     // Variabile globale per email utente
