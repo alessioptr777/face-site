@@ -2550,9 +2550,13 @@
                 }
               };
               
-              // Usa paid=true se la foto è pagata
+              // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
               const isPaid = paidPhotos.includes(photoId);
-              imgElement.src = `/photo/${encodeURIComponent(photoId)}?paid=${isPaid}`;
+              let photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=${isPaid}`;
+              if(userEmail && isPaid) {
+                photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+              }
+              imgElement.src = photoUrl;
             }
             
             imageObserver.unobserve(img);
@@ -2712,9 +2716,12 @@
             firstPhotosLoaded++;
             checkAllPhotosLoaded();
           };
-          // Usa paid=true se la foto è pagata
-          const isPaid = paidPhotos.includes(photo.photo_id);
-          const photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+          // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
+          const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
+          let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+          if(userEmail && isPaid) {
+            photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+          }
           
           // Per le prime 6 foto, usa fetchpriority per caricamento più veloce
           if(index < 6) {
@@ -2929,9 +2936,13 @@
         alert(t('errors.connection'));
       };
       
-      // Usa paid=true se la foto è pagata
+      // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
       const isPaid = paidPhotos.includes(photo.photo_id);
-      img.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+      let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+      if(userEmail && isPaid) {
+        photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+      }
+      img.src = photoUrl;
       
       // Mostra/nascondi frecce
       const prevBtn = document.getElementById('lightboxPrev');
