@@ -1616,6 +1616,13 @@
                   has_face: true,
                   paid: p.status === 'paid'
                 }));
+                // Aggiungi anche le foto pagate da found_photos a paidPhotos
+                const paidFromFound = data.found_photos
+                  .filter(p => p.status === 'paid')
+                  .map(p => p.photo_id);
+                if(paidFromFound.length > 0) {
+                  paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])]; // Unisci senza duplicati
+                }
               } else if(data.paid_photos && data.paid_photos.length > 0) {
                 // Se non ci sono foto trovate, mostra almeno quelle pagate
                 photosToShow = data.paid_photos.map(photoId => ({
@@ -2639,16 +2646,32 @@
         addCartBtn.className = 'add-cart';
         addCartBtn.dataset.photoId = photo.photo_id;
         
-        // Se la foto è pagata, non mostrare il pulsante carrello
-        const isPaid = paidPhotos.includes(photo.photo_id);
+        // Se la foto è pagata, mostra pulsante "Scarica" invece del carrello
+        // Controlla sia paidPhotos che photo.paid per sicurezza
+        const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
         if(isPaid) {
           addCartBtn.style.display = 'none';
+          // Assicurati che la foto sia in paidPhotos
+          if(!paidPhotos.includes(photo.photo_id)) {
+            paidPhotos.push(photo.photo_id);
+          }
           // Aggiungi badge "Pagata"
           const paidBadge = document.createElement('div');
           paidBadge.className = 'photo-paid-badge';
           paidBadge.textContent = '✓ Pagata';
           paidBadge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(34, 197, 94, 0.9); color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; z-index: 5;';
           div.appendChild(paidBadge);
+          
+          // Aggiungi pulsante "Scarica" per foto pagate
+          const downloadBtn = document.createElement('button');
+          downloadBtn.className = 'photo-download-btn';
+          downloadBtn.textContent = '📥 Scarica';
+          downloadBtn.style.cssText = 'position: absolute; bottom: 8px; right: 8px; background: rgba(123, 116, 255, 0.95); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+          downloadBtn.onclick = (e) => {
+            e.stopPropagation(); // Previeni apertura lightbox
+            downloadPhoto(photo.photo_id);
+          };
+          div.appendChild(downloadBtn);
         } else {
           // Verifica se la foto è già nel carrello
           if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
@@ -2925,6 +2948,12 @@
 
     async function toggleCart(photoId, buttonElement) {
       try {
+        // Previeni l'aggiunta di foto pagate al carrello
+        if(paidPhotos.includes(photoId)) {
+          console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
+          return;
+        }
+        
         // Verifica se la foto è già nel carrello
         const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
         
@@ -2972,6 +3001,11 @@
     }
     
     async function addToCart(photoId) {
+      // Previeni l'aggiunta di foto pagate al carrello
+      if(paidPhotos.includes(photoId)) {
+        console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
+        return;
+      }
       // Manteniamo questa funzione per compatibilità, ma usa toggleCart
       const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
       await toggleCart(photoId, btn);
