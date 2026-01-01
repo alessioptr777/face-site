@@ -76,7 +76,7 @@ APP_NAME = os.getenv("APP_NAME", "TenerifePictures API")
 def calculate_price(photo_count: int) -> int:
     """Calcola il prezzo in centesimi di euro in base al numero di foto"""
     if photo_count == 1:
-        return 2000  # €20.00
+        return 100  # €1.00 (TEST MODE - cambiare a 2000 per produzione)
     elif photo_count == 2:
         return 4000  # €40.00
     elif photo_count == 3:
