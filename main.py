@@ -2104,6 +2104,17 @@ async def checkout_success(
                 </div>
                 """
         
+        # Prepara le parti HTML che contengono backslash (non possono essere in f-string)
+        if photos_html:
+            photos_section = f'<div class="photos-grid">{photos_html}</div>'
+        else:
+            photos_section = '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'
+        
+        if email:
+            album_button = f'<a href="/?email={email}&refresh=paid" class="main-button">VAI ALL\'ALBUM COMPLETO</a>'
+        else:
+            album_button = '<a href="/" class="main-button">VAI ALL\'ALBUM</a>'
+        
         # Pagina con foto mostrate direttamente
         html_content = f"""
         <!DOCTYPE html>
@@ -2231,8 +2242,8 @@ async def checkout_success(
                 <div class="success-icon">✅</div>
                 <h1>PAGAMENTO COMPLETATO!</h1>
                 <p class="message">Le tue foto sono pronte per il download.</p>
-                {f'<div class="photos-grid">{photos_html}</div>' if photos_html else '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'}
-                {f'<a href="/?email={email}&refresh=paid" class="main-button">VAI ALL\'ALBUM COMPLETO</a>' if email else '<a href="/" class="main-button">VAI ALL\'ALBUM</a>'}
+                {photos_section}
+                {album_button}
             </div>
             <script>
                 async function downloadPhotoSuccess(photoId, email) {{
