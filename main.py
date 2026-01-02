@@ -1406,7 +1406,6 @@ async def serve_photo(
     
     # Se download=true, forza il download con header Content-Disposition
     if download:
-        from fastapi.responses import Response
         with open(resolved_path, 'rb') as f:
             content = f.read()
         headers = {
