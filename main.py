@@ -75,20 +75,24 @@ APP_NAME = os.getenv("APP_NAME", "TenerifePictures API")
 # Sistema prezzi
 def calculate_price(photo_count: int) -> int:
     """Calcola il prezzo in centesimi di euro in base al numero di foto"""
-    if photo_count == 1:
-        return 100  # €1.00 (TEST MODE - cambiare a 2000 per produzione)
-    elif photo_count == 2:
-        return 4000  # €40.00
-    elif photo_count == 3:
-        return 3500  # €35.00
-    elif photo_count == 4:
-        return 4000  # €40.00
-    elif photo_count == 5:
-        return 4500  # €45.00
-    elif 6 <= photo_count <= 11:
-        return 5000  # €50.00
-    else:  # 12+
-        return 6000  # €60.00
+    # TEST MODE: tutte le foto costano 1 centesimo
+    return 1  # €0.01 (TEST MODE - cambiare per produzione)
+    
+    # Prezzi produzione (commentati):
+    # if photo_count == 1:
+    #     return 2000  # €20.00
+    # elif photo_count == 2:
+    #     return 4000  # €40.00
+    # elif photo_count == 3:
+    #     return 3500  # €35.00
+    # elif photo_count == 4:
+    #     return 4000  # €40.00
+    # elif photo_count == 5:
+    #     return 4500  # €45.00
+    # elif 6 <= photo_count <= 11:
+    #     return 5000  # €50.00
+    # else:  # 12+
+    #     return 6000  # €60.00
 
 # Directory per ordini e download tokens
 ORDERS_DIR = DATA_DIR / "orders"
@@ -2291,67 +2295,90 @@ async def checkout_success(
                             photoUrl += `&email=${{encodeURIComponent(email)}}`;
                         }}
                         
-                        // Su iOS: usa approccio ottimizzato per salvare direttamente nella galleria
+                        // Su iOS: usa approccio semplice e diretto
                         if (isIOS()) {{
                             try {{
                                 // Prova prima con Web Share API (salva direttamente nella galleria)
                                 const response = await fetch(photoUrl);
                                 if (!response.ok) {{
-                                    throw new Error('Errore nel download');
+                                    throw new Error('Errore nel download: ' + response.status);
                                 }}
                                 
                                 const blob = await response.blob();
                                 const file = new File([blob], filename, {{ type: 'image/jpeg' }});
                                 
-                                if (navigator.share && navigator.canShare && navigator.canShare({{ files: [file] }})) {{
-                                    await navigator.share({{
-                                        files: [file],
-                                        title: 'Salva foto',
-                                        text: 'Salva questa foto nella galleria'
-                                    }});
-                                    btn.textContent = '✅ Salvata!';
-                                    setTimeout(() => {{
-                                        btn.disabled = false;
-                                        btn.textContent = '📥 Scarica';
-                                    }}, 2000);
-                                    return;
+                                if (navigator.share && navigator.canShare) {{
+                                    try {{
+                                        if (navigator.canShare({{ files: [file] }})) {{
+                                            await navigator.share({{
+                                                files: [file],
+                                                title: 'Salva foto',
+                                                text: 'Salva questa foto nella galleria'
+                                            }});
+                                            btn.textContent = '✅ Salvata!';
+                                            setTimeout(() => {{
+                                                btn.disabled = false;
+                                                btn.textContent = '📥 Scarica';
+                                            }}, 2000);
+                                            return;
+                                        }}
+                                    }} catch (shareErr) {{
+                                        console.log('Web Share error:', shareErr);
+                                    }}
                                 }}
-                            }} catch (shareError) {{
-                                console.log('Web Share non disponibile, uso metodo alternativo:', shareError);
-                            }}
-                            
-                            // Fallback: scarica e apri in nuova tab (utente può salvare con long-press)
-                            const response = await fetch(photoUrl);
-                            if (!response.ok) {{
-                                throw new Error('Errore nel download');
-                            }}
-                            
-                            const blob = await response.blob();
-                            const blobUrl = window.URL.createObjectURL(blob);
-                            
-                            // Apri l'immagine in una nuova tab
-                            const newWindow = window.open(blobUrl, '_blank');
-                            
-                            // Mostra messaggio di istruzioni
-                            if (newWindow) {{
-                                setTimeout(() => {{
-                                    alert('📱 Tocca e tieni premuto sull\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
-                                }}, 500);
-                            }} else {{
-                                // Se popup bloccato, mostra istruzioni alternative
-                                alert('📱 Per salvare la foto:\n1. Tocca e tieni premuto sull\'immagine\n2. Seleziona "Salva in Foto"');
-                            }}
-                            
-                            // Pulisci blob URL dopo un delay
-                            setTimeout(() => {{
-                                window.URL.revokeObjectURL(blobUrl);
-                            }}, 5000);
-                            
-                            btn.textContent = '✅ Aperta!';
-                            setTimeout(() => {{
+                            }} catch (fetchError) {{
+                                console.error('Errore fetch:', fetchError);
+                                alert('Errore nel caricamento della foto. Riprova.');
                                 btn.disabled = false;
                                 btn.textContent = '📥 Scarica';
-                            }}, 2000);
+                                return;
+                            }}
+                            
+                            // Fallback: apri l'immagine direttamente usando l'URL
+                            // Su iOS Safari, questo permette all'utente di fare long-press e salvare
+                            const imgWindow = window.open(photoUrl, '_blank');
+                            
+                            if (imgWindow) {{
+                                // Mostra istruzioni dopo un breve delay
+                                setTimeout(() => {{
+                                    alert('📱 Tocca e tieni premuto sull\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
+                                }}, 800);
+                                
+                                btn.textContent = '✅ Aperta!';
+                                setTimeout(() => {{
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 Scarica';
+                                }}, 2000);
+                            }} else {{
+                                // Se popup bloccato, mostra istruzioni e riprova con link diretto
+                                alert('📱 Popup bloccato. Per salvare la foto:\n1. Tocca e tieni premuto sull\'immagine qui sotto\n2. Seleziona "Salva in Foto"\n\nOppure apri questa pagina in Safari.');
+                                
+                                // Crea un link visibile temporaneo
+                                const tempLink = document.createElement('a');
+                                tempLink.href = photoUrl;
+                                tempLink.target = '_blank';
+                                tempLink.style.display = 'block';
+                                tempLink.style.margin = '20px auto';
+                                tempLink.style.padding = '15px 30px';
+                                tempLink.style.background = '#22c55e';
+                                tempLink.style.color = '#fff';
+                                tempLink.style.borderRadius = '8px';
+                                tempLink.style.textDecoration = 'none';
+                                tempLink.style.fontWeight = 'bold';
+                                tempLink.textContent = '📱 Tocca qui per aprire la foto';
+                                tempLink.onclick = function(e) {{
+                                    e.preventDefault();
+                                    window.open(photoUrl, '_blank');
+                                }};
+                                
+                                const container = document.querySelector('.container');
+                                if (container) {{
+                                    container.appendChild(tempLink);
+                                }}
+                                
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}
                         }}
                         // Su Android: download diretto (salva automaticamente nella galleria)
                         else if (isAndroid()) {{
