@@ -2285,31 +2285,99 @@ async def checkout_success(
                         
                         const filename = photoId.split('/').pop() || 'foto.jpg';
                         
-                        // Costruisci URL con paid=true, email e download=true per forzare download su mobile
-                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true&download=true`;
+                        // Costruisci URL con paid=true e email per verifica backend
+                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true`;
                         if (email) {{
                             photoUrl += `&email=${{encodeURIComponent(email)}}`;
                         }}
                         
-                        // Su mobile: usa link diretto con download=true (forza download automatico)
-                        if (isIOS() || isAndroid()) {{
-                            // Crea un link invisibile e cliccalo - il browser scaricherà automaticamente
+                        // Su iOS: usa approccio ottimizzato per salvare direttamente nella galleria
+                        if (isIOS()) {{
+                            try {{
+                                // Prova prima con Web Share API (salva direttamente nella galleria)
+                                const response = await fetch(photoUrl);
+                                if (!response.ok) {{
+                                    throw new Error('Errore nel download');
+                                }}
+                                
+                                const blob = await response.blob();
+                                const file = new File([blob], filename, {{ type: 'image/jpeg' }});
+                                
+                                if (navigator.share && navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+                                    await navigator.share({{
+                                        files: [file],
+                                        title: 'Salva foto',
+                                        text: 'Salva questa foto nella galleria'
+                                    }});
+                                    btn.textContent = '✅ Salvata!';
+                                    setTimeout(() => {{
+                                        btn.disabled = false;
+                                        btn.textContent = '📥 Scarica';
+                                    }}, 2000);
+                                    return;
+                                }}
+                            }} catch (shareError) {{
+                                console.log('Web Share non disponibile, uso metodo alternativo:', shareError);
+                            }}
+                            
+                            // Fallback: scarica e apri in nuova tab (utente può salvare con long-press)
+                            const response = await fetch(photoUrl);
+                            if (!response.ok) {{
+                                throw new Error('Errore nel download');
+                            }}
+                            
+                            const blob = await response.blob();
+                            const blobUrl = window.URL.createObjectURL(blob);
+                            
+                            // Apri l'immagine in una nuova tab
+                            const newWindow = window.open(blobUrl, '_blank');
+                            
+                            // Mostra messaggio di istruzioni
+                            if (newWindow) {{
+                                setTimeout(() => {{
+                                    alert('📱 Tocca e tieni premuto sull\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
+                                }}, 500);
+                            }} else {{
+                                // Se popup bloccato, mostra istruzioni alternative
+                                alert('📱 Per salvare la foto:\n1. Tocca e tieni premuto sull\'immagine\n2. Seleziona "Salva in Foto"');
+                            }}
+                            
+                            // Pulisci blob URL dopo un delay
+                            setTimeout(() => {{
+                                window.URL.revokeObjectURL(blobUrl);
+                            }}, 5000);
+                            
+                            btn.textContent = '✅ Aperta!';
+                            setTimeout(() => {{
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}, 2000);
+                        }}
+                        // Su Android: download diretto (salva automaticamente nella galleria)
+                        else if (isAndroid()) {{
+                            const photoUrlDownload = photoUrl + '&download=true';
                             const link = document.createElement('a');
-                            link.href = photoUrl;
+                            link.href = photoUrlDownload;
                             link.download = filename;
                             link.style.display = 'none';
                             link.target = '_self';
                             document.body.appendChild(link);
                             link.click();
                             
-                            // Rimuovi il link dopo un delay
                             setTimeout(() => {{
                                 document.body.removeChild(link);
                             }}, 1000);
+                            
+                            btn.textContent = '✅ Scaricata!';
+                            setTimeout(() => {{
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}, 2000);
                         }}
-                        // Desktop: usa fetch e blob (più affidabile)
+                        // Desktop: download normale
                         else {{
-                            const response = await fetch(photoUrl);
+                            const photoUrlDownload = photoUrl + '&download=true';
+                            const response = await fetch(photoUrlDownload);
                             if (!response.ok) {{
                                 throw new Error('Errore nel download');
                             }}
@@ -2323,13 +2391,13 @@ async def checkout_success(
                             link.click();
                             document.body.removeChild(link);
                             window.URL.revokeObjectURL(blobUrl);
+                            
+                            btn.textContent = '✅ Scaricata!';
+                            setTimeout(() => {{
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}, 2000);
                         }}
-                        
-                        btn.textContent = '✅ Scaricata!';
-                        setTimeout(() => {{
-                            btn.disabled = false;
-                            btn.textContent = '📥 Scarica';
-                        }}, 2000);
                     }} catch (error) {{
                         console.error('Errore download:', error);
                         alert('Errore durante il download. Riprova più tardi.');
