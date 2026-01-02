@@ -1608,13 +1608,17 @@ async def my_photos_page(
             days_remaining = 30
         
         # Genera HTML per pagina download
+        email = order.get('email', '')
         photos_html = ""
         for photo_id in photo_ids:
-            photo_url = f"/photo/{photo_id}?token={token}"
+            # Usa token per verifica, ma aggiungi anche email se disponibile
+            photo_url = f"/photo/{photo_id}?token={token}&paid=true"
+            if email:
+                photo_url += f"&email={email}"
             photos_html += f"""
             <div class="photo-item">
                 <img src="{photo_url}" alt="{photo_id}" loading="lazy">
-                <button onclick="downloadPhoto('{photo_id}', '{token}')" class="download-btn">Scarica</button>
+                <button onclick="downloadPhoto('{photo_id}', '{token}', '{email}')" class="download-btn">Scarica</button>
             </div>
             """
         
@@ -1659,22 +1663,66 @@ async def my_photos_page(
             
             <a href="#" onclick="downloadAll(); return false;" class="download-all">Scarica tutte le foto</a>
             
+            <div style="text-align: center; margin-top: 30px;">
+                <a href="/" style="color: #7b74ff; text-decoration: none; font-size: 16px;">← Torna alla home</a>
+            </div>
+            
             <script>
-                function downloadPhoto(photoId, token) {{
-                    const url = token ? `/photo/${{photoId}}?token=${{token}}` : `/photo/${{photoId}}`;
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = photoId;
-                    link.click();
+                // Salva email e token in localStorage per accesso futuro
+                const email = '{email}';
+                const token = '{token}';
+                if(email) {{
+                    localStorage.setItem('userEmail', email);
+                }}
+                if(token) {{
+                    localStorage.setItem('downloadToken', token);
+                }}
+                
+                function downloadPhoto(photoId, token, email) {{
+                    // Costruisci URL con token, paid=true e download=true
+                    let url = `/photo/${{encodeURIComponent(photoId)}}?token=${{token}}&paid=true&download=true`;
+                    if(email) {{
+                        url += `&email=${{encodeURIComponent(email)}}`;
+                    }}
+                    
+                    // Su mobile, usa fetch per download corretto
+                    if(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {{
+                        fetch(url)
+                            .then(response => response.blob())
+                            .then(blob => {{
+                                const blobUrl = window.URL.createObjectURL(blob);
+                                const link = document.createElement('a');
+                                link.href = blobUrl;
+                                link.download = photoId;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                window.URL.revokeObjectURL(blobUrl);
+                            }})
+                            .catch(err => {{
+                                console.error('Download error:', err);
+                                // Fallback: apri in nuova tab
+                                window.open(url, '_blank');
+                            }});
+                    }} else {{
+                        // Desktop: download diretto
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = photoId;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }}
                 }}
                 
                 async function downloadAll() {{
                     const photoIds = {json.dumps(photo_ids)};
                     const token = '{token}';
+                    const email = '{email}';
                     for (const photoId of photoIds) {{
                         await new Promise(resolve => {{
                             setTimeout(() => {{
-                                downloadPhoto(photoId, token);
+                                downloadPhoto(photoId, token, email);
                                 resolve();
                             }}, 500);
                         }});

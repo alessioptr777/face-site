@@ -3251,8 +3251,8 @@
         
         const filename = `${photoId}.jpg`;
         
-        // Costruisci URL con paid=true e email per verifica backend
-        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(userEmail)}`;
+        // Costruisci URL con paid=true, email e download=true per verifica backend e forzare download
+        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(userEmail)}&download=true`;
         
         // Su iOS: usa approccio semplice e diretto
         if(isIOS()) {
@@ -3302,9 +3302,9 @@
         }
         // Su Android: download diretto (salva automaticamente nella galleria)
         else if(isAndroid()) {
-          const photoUrlDownload = photoUrl + '&download=true';
+          // photoUrl già contiene download=true
           const link = document.createElement('a');
-          link.href = photoUrlDownload;
+          link.href = photoUrl;
           link.download = filename;
           link.style.display = 'none';
           link.target = '_self';
@@ -3317,8 +3317,8 @@
         }
         // Desktop: download normale
         else {
-          const photoUrlDownload = photoUrl + '&download=true';
-          const response = await fetch(photoUrlDownload);
+          // photoUrl già contiene download=true
+          const response = await fetch(photoUrl);
           if(!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
