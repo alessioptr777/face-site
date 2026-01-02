@@ -1094,6 +1094,7 @@
       <p class="email-error" id="emailError" data-i18n="email.error">Email non valida</p>
     </div>
     <button class="btn-primary" id="emailContinueBtn" data-i18n="email.continue">Continua</button>
+    <button class="btn-secondary" id="myPhotosBtn" style="margin-top: 15px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2);" data-i18n="email.myPhotos">📸 Le mie foto già acquistate</button>
   </div>
 
   <!-- Welcome Screen -->
@@ -1373,7 +1374,7 @@
     const translations = {
       en: {
         language: { title: "Choose your language", subtitle: "Select your preferred language" },
-        email: { title: "Enter your email", subtitle: "Your email is required to save and recover your photos", placeholder: "your@email.com", continue: "Continue", error: "Invalid email address", required: "Email is required for checkout" },
+        email: { title: "Enter your email", subtitle: "Your email is required to save and recover your photos", placeholder: "your@email.com", continue: "Continue", error: "Invalid email address", required: "Email is required for checkout", myPhotos: "📸 My purchased photos" },
         welcome: { title: "Find your photos!", text: "In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.", continue: "Continue", privacy: "We operate in full respect of Privacy and use your face exclusively to find photos that feature you." },
         selfie: { title: "Take your selfie", error: "Camera not available", retry: "Retry" },
         confirm: { title: "Confirm selfie", privacy: "By selecting \"Confirm\" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.", confirm: "Confirm", retake: "Take again" },
@@ -1386,7 +1387,7 @@
       },
       it: {
         language: { title: "Scegli la tua lingua", subtitle: "Seleziona la lingua preferita" },
-        email: { title: "Inserisci la tua email", subtitle: "La tua email è obbligatoria per salvare e recuperare le tue foto", placeholder: "tua@email.com", continue: "Continua", error: "Email non valida", required: "L'email è obbligatoria per il checkout" },
+        email: { title: "Inserisci la tua email", subtitle: "La tua email è obbligatoria per salvare e recuperare le tue foto", placeholder: "tua@email.com", continue: "Continua", error: "Email non valida", required: "L'email è obbligatoria per il checkout", myPhotos: "📸 Le mie foto già acquistate" },
         welcome: { title: "Trova le tue foto!", text: "Nel prossimo passaggio ti sarà chiesto di abilitare la fotocamera, per permettere al nostro sistema di consegnare le tue foto dell'evento.", continue: "Continua", privacy: "Operiamo nel totale rispetto della Privacy ed utilizziamo il tuo viso esclusivamente per trovare le foto che ti ritraggono." },
         selfie: { title: "Scatta il tuo selfie", error: "La fotocamera non è disponibile", retry: "Riprova" },
         confirm: { title: "Conferma selfie", privacy: "Selezionando \"Conferma\" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da Privacy Policy.", confirm: "Conferma", retake: "Scatta di nuovo" },
@@ -1399,7 +1400,7 @@
       },
       fr: {
         language: { title: "Choisissez votre langue", subtitle: "Sélectionnez votre langue préférée" },
-        email: { title: "Entrez votre email", subtitle: "Votre email est requis pour enregistrer et récupérer vos photos", placeholder: "votre@email.com", continue: "Continuer", error: "Adresse email invalide", required: "L'email est requise pour le paiement" },
+        email: { title: "Entrez votre email", subtitle: "Votre email est requis pour enregistrer et récupérer vos photos", placeholder: "votre@email.com", continue: "Continuer", error: "Adresse email invalide", required: "L'email est requise pour le paiement", myPhotos: "📸 Mes photos achetées" },
         welcome: { title: "Trouvez vos photos!", text: "Dans la prochaine étape, il vous sera demandé d'activer la caméra pour permettre à notre système de vous livrer les photos de l'événement.", continue: "Continuer", privacy: "Nous opérons dans le plein respect de la vie privée et utilisons votre visage exclusivement pour trouver les photos qui vous représentent." },
         selfie: { title: "Prenez votre selfie", error: "Caméra non disponible", retry: "Réessayer" },
         confirm: { title: "Confirmer le selfie", privacy: "En sélectionnant \"Confirmer\", vous acceptez le traitement des données biométriques aux fins de Détection et Reconnaissance conformément à la Politique de Confidentialité.", confirm: "Confirmer", retake: "Reprendre" },
@@ -1412,7 +1413,7 @@
       },
       de: {
         language: { title: "Wählen Sie Ihre Sprache", subtitle: "Wählen Sie Ihre bevorzugte Sprache" },
-        email: { title: "Geben Sie Ihre E-Mail ein", subtitle: "Ihre E-Mail ist erforderlich, um Ihre Fotos zu speichern und wiederherzustellen", placeholder: "ihre@email.com", continue: "Weiter", error: "Ungültige E-Mail-Adresse", required: "E-Mail ist für den Checkout erforderlich" },
+        email: { title: "Geben Sie Ihre E-Mail ein", subtitle: "Ihre E-Mail ist erforderlich, um Ihre Fotos zu speichern und wiederherzustellen", placeholder: "ihre@email.com", continue: "Weiter", error: "Ungültige E-Mail-Adresse", required: "E-Mail ist für den Checkout erforderlich", myPhotos: "📸 Meine gekauften Fotos" },
         welcome: { title: "Finden Sie Ihre Fotos!", text: "Im nächsten Schritt werden Sie aufgefordert, die Kamera zu aktivieren, damit unser System Ihnen Ihre Event-Fotos liefern kann.", continue: "Weiter", privacy: "Wir arbeiten im vollsten Respekt der Privatsphäre und verwenden Ihr Gesicht ausschließlich, um Fotos zu finden, auf denen Sie abgebildet sind." },
         selfie: { title: "Machen Sie Ihr Selfie", error: "Kamera nicht verfügbar", retry: "Erneut versuchen" },
         confirm: { title: "Selfie bestätigen", privacy: "Durch Auswahl von \"Bestätigen\" stimmen Sie der Verarbeitung biometrischer Daten zu den Zwecken der Erkennung und Identifizierung gemäß Datenschutzrichtlinie zu.", confirm: "Bestätigen", retake: "Erneut aufnehmen" },
@@ -1425,7 +1426,7 @@
       },
       es: {
         language: { title: "Elige tu idioma", subtitle: "Selecciona tu idioma preferido" },
-        email: { title: "Ingresa tu email", subtitle: "Tu email es obligatorio para guardar y recuperar tus fotos", placeholder: "tu@email.com", continue: "Continuar", error: "Email inválido", required: "El email es obligatorio para el checkout" },
+        email: { title: "Ingresa tu email", subtitle: "Tu email es obligatorio para guardar y recuperar tus fotos", placeholder: "tu@email.com", continue: "Continuar", error: "Email inválido", required: "El email es obligatorio para el checkout", myPhotos: "📸 Mis fotos compradas" },
         welcome: { title: "¡Encuentra tus fotos!", text: "En el siguiente paso se te pedirá que habilites la cámara, para permitir que nuestro sistema te entregue las fotos del evento.", continue: "Continuar", privacy: "Operamos con total respeto a la Privacidad y utilizamos tu rostro exclusivamente para encontrar fotos en las que apareces." },
         selfie: { title: "Toma tu selfie", error: "Cámara no disponible", retry: "Reintentar" },
         confirm: { title: "Confirmar selfie", privacy: "Al seleccionar \"Confirmar\" consientes el tratamiento de datos biométricos para los fines de Detección y Reconocimiento según la Política de Privacidad.", confirm: "Confirmar", retake: "Tomar de nuevo" },
@@ -1705,6 +1706,63 @@
     const emailError = document.getElementById('emailError');
     const emailContinueBtn = document.getElementById('emailContinueBtn');
     
+    // Funzione per controllare se l'email ha foto pagate
+    async function checkEmailForPaidPhotos(email) {
+      try {
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        
+        if(data.ok && data.paid_photos && data.paid_photos.length > 0) {
+          // L'utente ha foto pagate - mostra direttamente l'album
+          userEmail = email;
+          localStorage.setItem('userEmail', email);
+          
+          // Carica foto pagate
+          paidPhotos = data.paid_photos;
+          
+          // Prepara foto da mostrare
+          let photosToShow = [];
+          
+          // Preferisci found_photos (hanno più info)
+          if(data.found_photos && data.found_photos.length > 0) {
+            photosToShow = data.found_photos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: p.status === 'paid'
+            }));
+            // Aggiungi foto pagate
+            const paidFromFound = data.found_photos
+              .filter(p => p.status === 'paid')
+              .map(p => p.photo_id);
+            paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
+          } 
+          // Se non ci sono found_photos, usa paid_photos
+          else if(data.paid_photos && data.paid_photos.length > 0) {
+            photosToShow = data.paid_photos.map(photoId => ({
+              photo_id: photoId,
+              score: 0,
+              has_face: true,
+              paid: true
+            }));
+          }
+          
+          if(photosToShow.length > 0) {
+            allPhotos = photosToShow;
+            showScreen('album');
+            await displayPhotos();
+            showStickyOfferBar(allPhotos.length);
+            applyTranslations();
+            return true; // Foto trovate e mostrate
+          }
+        }
+        return false; // Nessuna foto pagata trovata
+      } catch(e) {
+        console.error('Errore controllo foto pagate:', e);
+        return false;
+      }
+    }
+    
     emailContinueBtn.addEventListener('click', async () => {
       const email = emailInput.value.trim();
       
@@ -1722,10 +1780,54 @@
       emailError.classList.remove('show');
       emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
       
-      // Vai direttamente al selfie
-      showScreen('selfie');
-      await startCamera();
+      // Controlla se ha foto pagate prima di andare al selfie
+      const hasPaidPhotos = await checkEmailForPaidPhotos(email);
+      
+      if(!hasPaidPhotos) {
+        // Non ha foto pagate, vai al selfie per cercare nuove foto
+        showScreen('selfie');
+        await startCamera();
+      }
+      // Se hasPaidPhotos è true, l'album è già stato mostrato da checkEmailForPaidPhotos
     });
+    
+    // Pulsante "Le mie foto già acquistate"
+    const myPhotosBtn = document.getElementById('myPhotosBtn');
+    if(myPhotosBtn) {
+      myPhotosBtn.addEventListener('click', async () => {
+        const email = emailInput.value.trim();
+        
+        // Validazione email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if(!email || !emailRegex.test(email)) {
+          emailError.classList.add('show');
+          emailInput.style.borderColor = '#ff4444';
+          return;
+        }
+        
+        // Salva email
+        userEmail = email;
+        localStorage.setItem('userEmail', email);
+        emailError.classList.remove('show');
+        emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+        
+        // Mostra loading
+        myPhotosBtn.disabled = true;
+        const originalText = myPhotosBtn.textContent;
+        myPhotosBtn.textContent = '⏳ Caricamento...';
+        
+        // Controlla se ha foto pagate
+        const hasPaidPhotos = await checkEmailForPaidPhotos(email);
+        
+        // Ripristina pulsante
+        myPhotosBtn.disabled = false;
+        myPhotosBtn.textContent = originalText;
+        
+        if(!hasPaidPhotos) {
+          alert('Non hai ancora foto acquistate con questa email. Cerca le tue foto per iniziare!');
+        }
+      });
+    }
     
     // Enter key su input email
     emailInput.addEventListener('keypress', (e) => {
