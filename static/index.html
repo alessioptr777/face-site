@@ -3033,6 +3033,17 @@
       }
     }
     
+    // Rileva se è iOS
+    function isIOS() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+    
+    // Rileva se è Android
+    function isAndroid() {
+      return /Android/i.test(navigator.userAgent);
+    }
+    
     async function downloadPhoto(photoId) {
       try {
         // Verifica che la foto sia pagata
@@ -3051,47 +3062,44 @@
           return;
         }
         
-        // Costruisci URL con paid=true e email per verifica backend
-        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(userEmail)}`;
+        const filename = `${photoId}.jpg`;
         
-        // Usa SEMPRE fetch per scaricare (garantisce che i parametri vengano passati correttamente)
-        const response = await fetch(photoUrl);
-        if(!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        // Costruisci URL con paid=true, email e download=true per forzare download su mobile
+        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true&download=true&email=${encodeURIComponent(userEmail)}`;
+        
+        // Su mobile: usa link diretto con download=true (forza download automatico)
+        if(isIOS() || isAndroid()) {
+          // Crea un link invisibile e cliccalo - il browser scaricherà automaticamente
+          const link = document.createElement('a');
+          link.href = photoUrl;
+          link.download = filename;
+          link.style.display = 'none';
+          link.target = '_self';
+          document.body.appendChild(link);
+          link.click();
+          
+          // Rimuovi il link dopo un delay
+          setTimeout(() => {
+            document.body.removeChild(link);
+          }, 1000);
         }
-        
-        const blob = await response.blob();
-        
-        // Rileva se siamo su mobile
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        
-        if(isMobile && navigator.share) {
-          // Web Share API per mobile
-          try {
-            const file = new File([blob], `${photoId}.jpg`, { type: 'image/jpeg' });
-            
-            if(navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: 'Tenerife Stars Pictures',
-                text: 'La mia foto da Tenerife Stars Pictures'
-              });
-              return;
-            }
-          } catch(e) {
-            console.log("Web Share API non disponibile, uso download diretto");
+        // Desktop: usa fetch e blob (più affidabile)
+        else {
+          const response = await fetch(photoUrl);
+          if(!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
           }
+          
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
         }
-        
-        // Download diretto usando blob URL (garantisce che la foto scaricata sia quella senza watermark)
-        const blobUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = `${photoId}.jpg`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(blobUrl); // Libera memoria
       } catch(e) {
         console.error("Error downloading photo:", e);
         alert(t('errors.download') || "Errore durante il download della foto. Riprova.");

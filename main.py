@@ -1270,7 +1270,8 @@ async def serve_photo(
     request: Request,
     paid: bool = Query(False, description="Se true, serve foto senza watermark (solo se pagata)"),
     token: Optional[str] = Query(None, description="Download token per verificare pagamento"),
-    email: Optional[str] = Query(None, description="Email utente per verificare pagamento")
+    email: Optional[str] = Query(None, description="Email utente per verificare pagamento"),
+    download: bool = Query(False, description="Se true, forza il download con header Content-Disposition")
 ):
     """Endpoint per servire le foto - con watermark se non pagata"""
     logger.info(f"=== PHOTO REQUEST ===")
@@ -1333,6 +1334,15 @@ async def serve_photo(
                         # Servi la foto scaricata da Cloudinary (senza watermark)
                         logger.info(f"Serving paid photo from Cloudinary (no watermark)")
                         _track_download(filename)
+                        
+                        # Se download=true, forza il download con header Content-Disposition
+                        if download:
+                            headers = {
+                                "Content-Disposition": f'attachment; filename="{filename}"',
+                                "Content-Type": "image/jpeg"
+                            }
+                            return Response(content=response.content, headers=headers, media_type="image/jpeg")
+                        
                         return Response(content=response.content, media_type="image/jpeg")
                     else:
                         logger.warning(f"Failed to download from Cloudinary: {response.status_code}")
@@ -1393,6 +1403,17 @@ async def serve_photo(
     # Se pagata, serve originale (ma traccia download solo se pagata)
     logger.info(f"Returning original file (paid): {resolved_path}")
     _track_download(filename)
+    
+    # Se download=true, forza il download con header Content-Disposition
+    if download:
+        from fastapi.responses import Response
+        with open(resolved_path, 'rb') as f:
+            content = f.read()
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Type": "image/jpeg"
+        }
+        return Response(content=content, headers=headers, media_type="image/jpeg")
     
     return FileResponse(resolved_path)
 
@@ -2246,33 +2267,64 @@ async def checkout_success(
                 {album_button}
             </div>
             <script>
+                // Rileva se è iOS
+                function isIOS() {{
+                    return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                }}
+                
+                // Rileva se è Android
+                function isAndroid() {{
+                    return /Android/i.test(navigator.userAgent);
+                }}
+                
                 async function downloadPhotoSuccess(photoId, email) {{
                     try {{
                         const btn = event.target;
                         btn.disabled = true;
                         btn.textContent = '⏳ Scaricamento...';
                         
-                        // Costruisci URL con paid=true e email per verifica backend
-                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true`;
+                        const filename = photoId.split('/').pop() || 'foto.jpg';
+                        
+                        // Costruisci URL con paid=true, email e download=true per forzare download su mobile
+                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true&download=true`;
                         if (email) {{
                             photoUrl += `&email=${{encodeURIComponent(email)}}`;
                         }}
                         
-                        // Scarica usando fetch e blob
-                        const response = await fetch(photoUrl);
-                        if (!response.ok) {{
-                            throw new Error('Errore nel download');
+                        // Su mobile: usa link diretto con download=true (forza download automatico)
+                        if (isIOS() || isAndroid()) {{
+                            // Crea un link invisibile e cliccalo - il browser scaricherà automaticamente
+                            const link = document.createElement('a');
+                            link.href = photoUrl;
+                            link.download = filename;
+                            link.style.display = 'none';
+                            link.target = '_self';
+                            document.body.appendChild(link);
+                            link.click();
+                            
+                            // Rimuovi il link dopo un delay
+                            setTimeout(() => {{
+                                document.body.removeChild(link);
+                            }}, 1000);
                         }}
-                        
-                        const blob = await response.blob();
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = photoId.split('/').pop() || 'foto.jpg';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url);
+                        // Desktop: usa fetch e blob (più affidabile)
+                        else {{
+                            const response = await fetch(photoUrl);
+                            if (!response.ok) {{
+                                throw new Error('Errore nel download');
+                            }}
+                            
+                            const blob = await response.blob();
+                            const blobUrl = window.URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = blobUrl;
+                            link.download = filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            window.URL.revokeObjectURL(blobUrl);
+                        }}
                         
                         btn.textContent = '✅ Scaricata!';
                         setTimeout(() => {{
