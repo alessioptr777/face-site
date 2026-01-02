@@ -151,14 +151,23 @@ SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "tenerifestars.photo@gmai
 USE_SENDGRID = SENDGRID_AVAILABLE and bool(SENDGRID_API_KEY)
 
 if USE_SENDGRID:
-    sg_client = SendGridAPIClient(SENDGRID_API_KEY)
-    logger.info("SendGrid configured - email sending enabled")
+    try:
+        sg_client = SendGridAPIClient(SENDGRID_API_KEY)
+        logger.info("SendGrid configured - email sending enabled")
+        logger.info(f"SendGrid FROM email: {SENDGRID_FROM_EMAIL}")
+        # Test connessione SendGrid (opzionale, solo per debug)
+        # logger.info(f"SendGrid API Key length: {len(SENDGRID_API_KEY)} characters")
+    except Exception as e:
+        logger.error(f"Error initializing SendGrid client: {e}")
+        sg_client = None
+        USE_SENDGRID = False
 else:
     sg_client = None
     if not SENDGRID_AVAILABLE:
         logger.warning("SendGrid not configured - sendgrid package not available")
     elif not SENDGRID_API_KEY:
         logger.warning("SendGrid not configured - SENDGRID_API_KEY not set")
+        logger.warning("Please set SENDGRID_API_KEY environment variable on Render")
     else:
         logger.warning("SendGrid not configured - email features disabled")
 
@@ -691,10 +700,15 @@ async def _send_email(to_email: str, subject: str, html_content: str, plain_cont
     if not USE_SENDGRID or not sg_client:
         logger.warning(f"SendGrid not available - email not sent to {to_email}")
         logger.warning(f"USE_SENDGRID={USE_SENDGRID}, sg_client={sg_client is not None}")
+        logger.warning(f"SENDGRID_AVAILABLE={SENDGRID_AVAILABLE}, SENDGRID_API_KEY set={bool(SENDGRID_API_KEY)}")
         return False
     
     try:
-        logger.info(f"Sending email to {to_email} with subject: {subject}")
+        logger.info(f"=== SENDING EMAIL ===")
+        logger.info(f"To: {to_email}")
+        logger.info(f"From: {SENDGRID_FROM_EMAIL}")
+        logger.info(f"Subject: {subject}")
+        
         message = Mail(
             from_email=Email(SENDGRID_FROM_EMAIL, "Tenerife Stars Pictures"),
             to_emails=To(to_email),
@@ -705,17 +719,21 @@ async def _send_email(to_email: str, subject: str, html_content: str, plain_cont
         if plain_content:
             message.plain_text_content = Content("text/plain", plain_content)
         
+        logger.info("Calling SendGrid API...")
         response = sg_client.send(message)
-        logger.info(f"SendGrid response: status_code={response.status_code}, headers={dict(response.headers)}")
+        logger.info(f"SendGrid response: status_code={response.status_code}")
+        logger.info(f"SendGrid response headers: {dict(response.headers)}")
         
         if response.status_code in [200, 201, 202]:
-            logger.info(f"Email sent successfully to {to_email}")
+            logger.info(f"✅ Email sent successfully to {to_email}")
             return True
         else:
-            logger.error(f"SendGrid error: status_code={response.status_code}, body={response.body}")
+            logger.error(f"❌ SendGrid error: status_code={response.status_code}")
+            logger.error(f"SendGrid response body: {response.body}")
             return False
     except Exception as e:
-        logger.error(f"Error sending email to {to_email}: {e}", exc_info=True)
+        logger.error(f"❌ Error sending email to {to_email}: {e}", exc_info=True)
+        logger.error(f"Exception type: {type(e).__name__}")
         return False
 
 async def _send_payment_confirmation_email(email: str, photo_ids: List[str], download_token: str, base_url: str):
@@ -2603,14 +2621,23 @@ async def stripe_webhook(request: Request):
                 if download_token:
                     # Invia email di conferma pagamento
                     try:
-                        logger.info(f"Attempting to send payment confirmation email to {email} for {len(photo_ids)} photos")
+                        logger.info(f"=== PAYMENT CONFIRMATION EMAIL ===")
+                        logger.info(f"Email: {email}")
+                        logger.info(f"Photos: {len(photo_ids)}")
+                        logger.info(f"Download token: {download_token}")
+                        logger.info(f"Base URL: {base_url}")
+                        logger.info(f"USE_SENDGRID: {USE_SENDGRID}")
+                        logger.info(f"sg_client available: {sg_client is not None}")
+                        
                         email_sent = await _send_payment_confirmation_email(email, photo_ids, download_token, base_url)
                         if email_sent:
-                            logger.info(f"Payment confirmation email sent successfully to {email}")
+                            logger.info(f"✅ Payment confirmation email sent successfully to {email}")
                         else:
-                            logger.warning(f"Payment confirmation email failed to send to {email}")
+                            logger.error(f"❌ Payment confirmation email FAILED to send to {email}")
+                            logger.error("Check SendGrid configuration and logs above for details")
                     except Exception as e:
-                        logger.error(f"Error sending payment confirmation email: {e}", exc_info=True)
+                        logger.error(f"❌ Exception sending payment confirmation email: {e}", exc_info=True)
+                        logger.error(f"Exception type: {type(e).__name__}")
                 
                 # Salva anche in file JSON per compatibilità
                 order_data = {
@@ -2636,6 +2663,51 @@ async def stripe_webhook(request: Request):
             logger.error(f"Order failed: missing required data. session_id={session_id}, email={email}, photo_ids={photo_ids_str}")
     
     return {"ok": True}
+
+@app.get("/test-email")
+async def test_email(
+    email: str = Query(..., description="Email di test")
+):
+    """Endpoint di test per verificare l'invio email"""
+    try:
+        logger.info(f"=== TEST EMAIL ENDPOINT ===")
+        logger.info(f"USE_SENDGRID: {USE_SENDGRID}")
+        logger.info(f"SENDGRID_AVAILABLE: {SENDGRID_AVAILABLE}")
+        logger.info(f"SENDGRID_API_KEY set: {bool(SENDGRID_API_KEY)}")
+        logger.info(f"SENDGRID_FROM_EMAIL: {SENDGRID_FROM_EMAIL}")
+        logger.info(f"sg_client available: {sg_client is not None}")
+        
+        if not USE_SENDGRID:
+            return {
+                "ok": False,
+                "error": "SendGrid not configured",
+                "details": {
+                    "SENDGRID_AVAILABLE": SENDGRID_AVAILABLE,
+                    "SENDGRID_API_KEY_set": bool(SENDGRID_API_KEY),
+                    "sg_client_available": sg_client is not None
+                }
+            }
+        
+        # Test invio email
+        test_subject = "Test Email - Tenerife Stars Pictures"
+        test_html = "<h1>Test Email</h1><p>Questa è una email di test.</p>"
+        test_plain = "Test Email - Questa è una email di test."
+        
+        result = await _send_email(email, test_subject, test_html, test_plain)
+        
+        return {
+            "ok": result,
+            "message": "Email sent successfully" if result else "Email failed to send",
+            "email": email,
+            "check_logs": True
+        }
+    except Exception as e:
+        logger.error(f"Error in test email endpoint: {e}", exc_info=True)
+        return {
+            "ok": False,
+            "error": str(e),
+            "type": type(e).__name__
+        }
 
 @app.get("/download/{photo_id:path}")
 async def download_photo(
