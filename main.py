@@ -2284,43 +2284,43 @@ async def stripe_webhook(request: Request):
                 logger.warning(f"Email not in metadata, recovered from session: {email}")
             
             if email:
-            photo_ids = photo_ids_str.split(',')
-            order_id = session.get('id')
-            amount_cents = session.get('amount_total', 0)
-            
-            # Crea ordine nel database con download token
-            base_url = str(request.base_url).rstrip('/')
-            download_token = await _create_order(email, order_id, order_id, photo_ids, amount_cents)
-            
-            if download_token:
-                # Invia email di conferma pagamento
-                try:
-                    logger.info(f"Attempting to send payment confirmation email to {email} for {len(photo_ids)} photos")
-                    email_sent = await _send_payment_confirmation_email(email, photo_ids, download_token, base_url)
-                    if email_sent:
-                        logger.info(f"Payment confirmation email sent successfully to {email}")
-                    else:
-                        logger.warning(f"Payment confirmation email failed to send to {email}")
-                except Exception as e:
-                    logger.error(f"Error sending payment confirmation email: {e}", exc_info=True)
-            
-            # Salva anche in file JSON per compatibilità
-            order_data = {
-                'order_id': order_id,
-                'stripe_session_id': order_id,
-                'session_id': session_id,
-                'email': email,
-                'photo_ids': photo_ids,
-                'amount_cents': amount_cents,
-                'paid_at': datetime.now(timezone.utc).isoformat(),
-                'status': 'paid',
-                'download_token': download_token
-            }
-            
-            order_file = ORDERS_DIR / f"{order_id}.json"
-            with open(order_file, 'w', encoding='utf-8') as f:
-                json.dump(order_data, f, ensure_ascii=False, indent=2)
-            
+                photo_ids = photo_ids_str.split(',')
+                order_id = session.get('id')
+                amount_cents = session.get('amount_total', 0)
+                
+                # Crea ordine nel database con download token
+                base_url = str(request.base_url).rstrip('/')
+                download_token = await _create_order(email, order_id, order_id, photo_ids, amount_cents)
+                
+                if download_token:
+                    # Invia email di conferma pagamento
+                    try:
+                        logger.info(f"Attempting to send payment confirmation email to {email} for {len(photo_ids)} photos")
+                        email_sent = await _send_payment_confirmation_email(email, photo_ids, download_token, base_url)
+                        if email_sent:
+                            logger.info(f"Payment confirmation email sent successfully to {email}")
+                        else:
+                            logger.warning(f"Payment confirmation email failed to send to {email}")
+                    except Exception as e:
+                        logger.error(f"Error sending payment confirmation email: {e}", exc_info=True)
+                
+                # Salva anche in file JSON per compatibilità
+                order_data = {
+                    'order_id': order_id,
+                    'stripe_session_id': order_id,
+                    'session_id': session_id,
+                    'email': email,
+                    'photo_ids': photo_ids,
+                    'amount_cents': amount_cents,
+                    'paid_at': datetime.now(timezone.utc).isoformat(),
+                    'status': 'paid',
+                    'download_token': download_token
+                }
+                
+                order_file = ORDERS_DIR / f"{order_id}.json"
+                with open(order_file, 'w', encoding='utf-8') as f:
+                    json.dump(order_data, f, ensure_ascii=False, indent=2)
+                
                 logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
             else:
                 logger.error(f"Order failed: missing email. session_id={session_id}, photo_ids={photo_ids_str}")
