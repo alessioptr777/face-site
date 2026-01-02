@@ -3401,8 +3401,8 @@
     }
 
     function calculatePrice(count) {
-      // TEST MODE: tutte le foto costano 1 centesimo
-      return 1; // €0.01 (TEST MODE - cambiare per produzione)
+      // TEST MODE: tutte le foto costano 50 centesimi (minimo Stripe)
+      return 50; // €0.50 (TEST MODE - minimo Stripe, cambiare per produzione)
       
       // Prezzi produzione (commentati):
       // if(count === 1) return 2000; // €20.00

@@ -75,8 +75,8 @@ APP_NAME = os.getenv("APP_NAME", "TenerifePictures API")
 # Sistema prezzi
 def calculate_price(photo_count: int) -> int:
     """Calcola il prezzo in centesimi di euro in base al numero di foto"""
-    # TEST MODE: tutte le foto costano 1 centesimo
-    return 1  # €0.01 (TEST MODE - cambiare per produzione)
+    # TEST MODE: tutte le foto costano 50 centesimi (minimo Stripe)
+    return 50  # €0.50 (TEST MODE - minimo Stripe, cambiare per produzione)
     
     # Prezzi produzione (commentati):
     # if photo_count == 1:
