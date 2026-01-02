@@ -2081,7 +2081,6 @@ async def checkout_success(
                 logger.error(f"Error recovering email from Stripe in success page: {e}")
         
         base_url = str(request.base_url).rstrip('/')
-        download_url = f"{base_url}/my-photos/{download_token}" if download_token else None
         
         # Genera HTML per le foto (mostra direttamente)
         photos_html = ""
@@ -2095,14 +2094,17 @@ async def checkout_success(
                     photo_url_params.append(f"email={email}")
                 photo_url_params.append("paid=true")  # Forza paid=true per foto pagate
                 photo_url = f"/photo/{photo_id}?{'&'.join(photo_url_params)}"
+                # Escape per JavaScript
+                photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '\\"')
+                email_escaped = (email or "").replace("'", "\\'").replace('"', '\\"')
                 photos_html += f"""
                 <div class="photo-item">
-                    <img src="{photo_url}" alt="{photo_id}" loading="lazy">
-                    <button onclick="downloadPhoto('{photo_id}', '{download_token}', '{email or ''}')" class="download-btn">Scarica</button>
+                    <img src="{photo_url}" alt="Foto" loading="lazy" class="photo-img">
+                    <button onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}')" class="download-btn">📥 Scarica</button>
                 </div>
                 """
         
-        # Pagina semplificata: messaggio chiaro + un solo pulsante grande
+        # Pagina con foto mostrate direttamente
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -2118,12 +2120,9 @@ async def checkout_success(
                     color: #fff;
                     padding: 20px;
                     min-height: 100vh;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
                 }}
                 .container {{
-                    max-width: 600px;
+                    max-width: 800px;
                     margin: 0 auto;
                     text-align: center;
                     padding: 40px 20px;
@@ -2139,30 +2138,91 @@ async def checkout_success(
                 }}
                 .message {{
                     font-size: 22px;
-                    margin: 0 0 40px;
+                    margin: 0 0 30px;
                     line-height: 1.5;
+                }}
+                .photos-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin: 30px 0;
+                    padding: 20px 0;
+                }}
+                .photo-item {{
+                    background: rgba(255, 255, 255, 0.1);
+                    border-radius: 12px;
+                    padding: 15px;
+                    backdrop-filter: blur(10px);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 15px;
+                }}
+                .photo-img {{
+                    width: 100%;
+                    height: auto;
+                    border-radius: 8px;
+                    max-height: 300px;
+                    object-fit: contain;
+                    background: rgba(0, 0, 0, 0.2);
+                }}
+                .download-btn {{
+                    width: 100%;
+                    padding: 12px 20px;
+                    background: #22c55e;
+                    color: #fff;
+                    border: none;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    font-size: 16px;
+                    cursor: pointer;
+                    transition: transform 0.2s, box-shadow 0.2s;
+                    box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+                }}
+                .download-btn:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4);
+                }}
+                .download-btn:active {{
+                    transform: translateY(0);
+                }}
+                .download-btn:disabled {{
+                    opacity: 0.6;
+                    cursor: not-allowed;
                 }}
                 .main-button {{
                     display: block;
                     width: 100%;
                     max-width: 400px;
-                    margin: 0 auto;
+                    margin: 30px auto 0;
                     padding: 20px 40px;
-                    background: #22c55e;
+                    background: rgba(255, 255, 255, 0.2);
                     color: #fff;
                     text-decoration: none;
                     border-radius: 12px;
                     font-weight: 700;
-                    font-size: 20px;
-                    box-shadow: 0 4px 20px rgba(34, 197, 94, 0.4);
-                    transition: transform 0.2s, box-shadow 0.2s;
+                    font-size: 18px;
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                    transition: transform 0.2s, background 0.2s;
                 }}
                 .main-button:hover {{
                     transform: translateY(-2px);
-                    box-shadow: 0 6px 25px rgba(34, 197, 94, 0.5);
+                    background: rgba(255, 255, 255, 0.3);
                 }}
                 .main-button:active {{
                     transform: translateY(0);
+                }}
+                @media (max-width: 600px) {{
+                    .photos-grid {{
+                        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                        gap: 15px;
+                    }}
+                    h1 {{
+                        font-size: 28px;
+                    }}
+                    .message {{
+                        font-size: 18px;
+                    }}
                 }}
             </style>
         </head>
@@ -2170,9 +2230,52 @@ async def checkout_success(
             <div class="container">
                 <div class="success-icon">✅</div>
                 <h1>PAGAMENTO COMPLETATO!</h1>
-                <p class="message">Le tue foto sono pronte.</p>
-                {f'<a href="/?email={email}&refresh=paid" class="main-button">VAI ALLE MIE FOTO</a>' if email else '<a href="/" class="main-button">VAI ALLE MIE FOTO</a>'}
+                <p class="message">Le tue foto sono pronte per il download.</p>
+                {f'<div class="photos-grid">{photos_html}</div>' if photos_html else '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'}
+                {f'<a href="/?email={email}&refresh=paid" class="main-button">VAI ALL\'ALBUM COMPLETO</a>' if email else '<a href="/" class="main-button">VAI ALL\'ALBUM</a>'}
             </div>
+            <script>
+                async function downloadPhotoSuccess(photoId, email) {{
+                    try {{
+                        const btn = event.target;
+                        btn.disabled = true;
+                        btn.textContent = '⏳ Scaricamento...';
+                        
+                        // Costruisci URL con paid=true e email per verifica backend
+                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true`;
+                        if (email) {{
+                            photoUrl += `&email=${{encodeURIComponent(email)}}`;
+                        }}
+                        
+                        // Scarica usando fetch e blob
+                        const response = await fetch(photoUrl);
+                        if (!response.ok) {{
+                            throw new Error('Errore nel download');
+                        }}
+                        
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = photoId.split('/').pop() || 'foto.jpg';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                        
+                        btn.textContent = '✅ Scaricata!';
+                        setTimeout(() => {{
+                            btn.disabled = false;
+                            btn.textContent = '📥 Scarica';
+                        }}, 2000);
+                    }} catch (error) {{
+                        console.error('Errore download:', error);
+                        alert('Errore durante il download. Riprova più tardi.');
+                        btn.disabled = false;
+                        btn.textContent = '📥 Scarica';
+                    }}
+                }}
+            </script>
         </body>
         </html>
         """
@@ -2372,3 +2475,265 @@ async def download_photo(
     except Exception as e:
         logger.error(f"Error downloading photo: {e}")
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
+
+# ========== ADMIN PANEL ==========
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Cambia in produzione!
+
+def _check_admin_auth(password: Optional[str] = None) -> bool:
+    """Verifica autenticazione admin"""
+    if not password:
+        return False
+    return password == ADMIN_PASSWORD
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel():
+    """Pagina admin"""
+    admin_path = STATIC_DIR / "admin.html"
+    if not admin_path.exists():
+        raise HTTPException(status_code=404, detail="Admin page not found")
+    return FileResponse(admin_path)
+
+@app.get("/admin/stats")
+async def admin_stats(password: str = Query(..., description="Password admin")):
+    """Statistiche dashboard admin"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        total_orders = 0
+        total_revenue = 0
+        total_users = 0
+        recent_orders = []
+        
+        if SQLITE_AVAILABLE:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                conn.row_factory = aiosqlite.Row
+                
+                # Ordini totali e ricavi
+                cursor = await conn.execute("SELECT COUNT(*) as count, SUM(amount_cents) as total FROM orders")
+                row = await cursor.fetchone()
+                if row:
+                    total_orders = row['count'] or 0
+                    total_revenue = row['total'] or 0
+                
+                # Utenti totali
+                cursor = await conn.execute("SELECT COUNT(DISTINCT email) as count FROM users")
+                row = await cursor.fetchone()
+                if row:
+                    total_users = row['count'] or 0
+                
+                # Ordini recenti (ultimi 10)
+                cursor = await conn.execute("""
+                    SELECT email, photo_ids, amount_cents, paid_at, download_token
+                    FROM orders
+                    ORDER BY paid_at DESC
+                    LIMIT 10
+                """)
+                rows = await cursor.fetchall()
+                for row in rows:
+                    photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                    recent_orders.append({
+                        'email': row['email'],
+                        'photo_count': len(photo_ids),
+                        'amount_cents': row['amount_cents'],
+                        'paid_at': row['paid_at'],
+                        'download_token': row['download_token']
+                    })
+        
+        # Foto totali
+        total_photos = len(list(PHOTOS_DIR.glob("*.jpg"))) + len(list(PHOTOS_DIR.glob("*.jpeg"))) + len(list(PHOTOS_DIR.glob("*.png")))
+        
+        return {
+            "ok": True,
+            "total_orders": total_orders,
+            "total_revenue": total_revenue,
+            "total_users": total_users,
+            "total_photos": total_photos,
+            "recent_orders": recent_orders
+        }
+    except Exception as e:
+        logger.error(f"Error getting admin stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/orders")
+async def admin_orders(password: str = Query(..., description="Password admin")):
+    """Lista ordini admin"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        orders = []
+        if SQLITE_AVAILABLE:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                conn.row_factory = aiosqlite.Row
+                cursor = await conn.execute("""
+                    SELECT email, photo_ids, amount_cents, paid_at, download_token, order_id
+                    FROM orders
+                    ORDER BY paid_at DESC
+                """)
+                rows = await cursor.fetchall()
+                for row in rows:
+                    photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                    orders.append({
+                        'order_id': row['order_id'],
+                        'email': row['email'],
+                        'photo_count': len(photo_ids),
+                        'amount_cents': row['amount_cents'],
+                        'paid_at': row['paid_at'],
+                        'download_token': row['download_token']
+                    })
+        
+        return {"ok": True, "orders": orders}
+    except Exception as e:
+        logger.error(f"Error getting admin orders: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/upload")
+async def admin_upload(
+    photo: UploadFile = File(...),
+    password: str = Query(..., description="Password admin")
+):
+    """Upload e indicizzazione foto admin"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        global meta_rows, back_photos, faiss_index
+        
+        # Salva foto
+        photo_path = PHOTOS_DIR / photo.filename
+        content = await photo.read()
+        with open(photo_path, 'wb') as f:
+            f.write(content)
+        
+        # Indicizza foto (se face_app è disponibile)
+        if face_app is not None:
+            img = _read_image_from_bytes(content)
+            faces = face_app.get(img)
+            
+            if faces:
+                # Foto con volti - aggiungi all'indice
+                for f in faces:
+                    embedding = _normalize(f.embedding.astype("float32"))
+                    if faiss_index is not None:
+                        faiss_index.add(embedding.reshape(1, -1))
+                    
+                    # Aggiungi a meta
+                    record = {
+                        "face_idx": len(meta_rows),
+                        "photo_id": photo.filename,
+                        "has_face": True,
+                        "det_score": float(getattr(f, "det_score", 0.0)),
+                        "bbox": [float(x) for x in f.bbox.tolist()],
+                    }
+                    meta_rows.append(record)
+                    
+                    # Salva meta su file
+                    with open(META_PATH, 'a', encoding='utf-8') as meta_f:
+                        meta_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                
+                # Salva indice aggiornato
+                if faiss_index is not None:
+                    faiss.write_index(faiss_index, INDEX_PATH)
+                
+                logger.info(f"Photo indexed: {photo.filename} - {len(faces)} faces")
+            else:
+                # Foto senza volti - aggiungi a back_photos
+                back_record = {
+                    "photo_id": photo.filename,
+                    "has_face": False,
+                }
+                back_photos.append(back_record)
+                
+                # Salva su file
+                with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
+                    back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
+                
+                logger.info(f"Photo added as back photo (no faces): {photo.filename}")
+        
+        return {"ok": True, "filename": photo.filename}
+    except Exception as e:
+        logger.error(f"Error uploading photo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/back-photos")
+async def admin_back_photos(password: str = Query(..., description="Password admin")):
+    """Lista foto senza volti"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        photos = []
+        if BACK_PHOTOS_PATH.exists():
+            with open(BACK_PHOTOS_PATH, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        record = json.loads(line)
+                        photos.append({
+                            'filename': record.get('photo_id'),
+                            'has_face': record.get('has_face', False)
+                        })
+        
+        return {"ok": True, "photos": photos}
+    except Exception as e:
+        logger.error(f"Error getting back photos: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/back-photo")
+async def admin_add_back_photo(
+    photo: UploadFile = File(...),
+    password: str = Query(..., description="Password admin")
+):
+    """Aggiungi foto senza volti"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        # Salva foto
+        photo_path = PHOTOS_DIR / photo.filename
+        content = await photo.read()
+        with open(photo_path, 'wb') as f:
+            f.write(content)
+        
+        # Aggiungi a back_photos
+        back_record = {
+            "photo_id": photo.filename,
+            "has_face": False,
+        }
+        back_photos.append(back_record)
+        
+        # Salva su file
+        with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
+            back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
+        
+        logger.info(f"Back photo added: {photo.filename}")
+        return {"ok": True, "filename": photo.filename}
+    except Exception as e:
+        logger.error(f"Error adding back photo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/admin/back-photo/{filename:path}")
+async def admin_remove_back_photo(
+    filename: str,
+    password: str = Query(..., description="Password admin")
+):
+    """Rimuovi foto senza volti"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        # Rimuovi da back_photos
+        global back_photos
+        back_photos = [p for p in back_photos if p.get('photo_id') != filename]
+        
+        # Riscrivi file
+        with open(BACK_PHOTOS_PATH, 'w', encoding='utf-8') as f:
+            for record in back_photos:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        
+        logger.info(f"Back photo removed: {filename}")
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Error removing back photo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

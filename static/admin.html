@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - FaceSite</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            font-weight: 600;
+        }
+        
+        .tab:hover {
+            color: #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+        
+        .stat-card p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .stat-card.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+        
+        .stat-card.warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .stat-card.info {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        
+        .btn-success {
+            background: #22c55e;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #1eaf55;
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            transition: all 0.3s;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .file-label {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        .file-label:hover {
+            background: #5568d3;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #667eea;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+        
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        
+        .login-form {
+            max-width: 400px;
+            margin: 100px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .login-form input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        
+        .back-photos-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .back-photo-item {
+            position: relative;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .back-photo-item img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+        
+        .back-photo-item .remove-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(239, 68, 68, 0.9);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔐 Admin Panel</h1>
+        <p>Gestione FaceSite</p>
+    </div>
+    
+    <div id="loginScreen" class="login-form">
+        <h2>Accesso Admin</h2>
+        <input type="password" id="adminPassword" placeholder="Password admin" />
+        <button class="btn btn-primary" onclick="login()" style="width: 100%; margin-top: 10px;">Accedi</button>
+        <div id="loginError" class="alert alert-error"></div>
+    </div>
+    
+    <div id="adminPanel" style="display: none;">
+        <div class="container">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
+                <button class="tab" onclick="showTab('orders')">💳 Ordini</button>
+                <button class="tab" onclick="showTab('upload')">📤 Upload Foto</button>
+                <button class="tab" onclick="showTab('backPhotos')">📷 Foto Senza Volti</button>
+            </div>
+            
+            <!-- Dashboard -->
+            <div id="dashboard" class="tab-content active">
+                <h2>Dashboard</h2>
+                <div class="stats-grid" id="statsGrid">
+                    <div class="stat-card">
+                        <h3 id="totalOrders">-</h3>
+                        <p>Ordini Totali</p>
+                    </div>
+                    <div class="stat-card success">
+                        <h3 id="totalRevenue">-</h3>
+                        <p>Ricavi Totali</p>
+                    </div>
+                    <div class="stat-card warning">
+                        <h3 id="totalUsers">-</h3>
+                        <p>Utenti</p>
+                    </div>
+                    <div class="stat-card info">
+                        <h3 id="totalPhotos">-</h3>
+                        <p>Foto Totali</p>
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 30px;">Ordini Recenti</h3>
+                <div id="recentOrders" class="loading">Caricamento...</div>
+            </div>
+            
+            <!-- Ordini -->
+            <div id="orders" class="tab-content">
+                <h2>Ordini e Pagamenti</h2>
+                <div id="ordersList" class="loading">Caricamento...</div>
+            </div>
+            
+            <!-- Upload Foto -->
+            <div id="upload" class="tab-content">
+                <h2>Upload e Indicizzazione Foto</h2>
+                <p>Carica le foto che vuoi vendere. Verranno automaticamente indicizzate per il face matching.</p>
+                
+                <div class="upload-area" id="uploadArea" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                    <p style="font-size: 18px; margin-bottom: 10px;">📁 Trascina le foto qui o</p>
+                    <label for="photoUpload" class="file-label">Seleziona Foto</label>
+                    <input type="file" id="photoUpload" multiple accept="image/*" onchange="handleFileSelect(event)" />
+                </div>
+                
+                <div class="progress-bar" id="uploadProgress">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                
+                <div id="uploadStatus" class="alert"></div>
+                
+                <div id="uploadedFiles" style="margin-top: 20px;"></div>
+            </div>
+            
+            <!-- Foto Senza Volti -->
+            <div id="backPhotos" class="tab-content">
+                <h2>Foto Senza Volti (di Spalle)</h2>
+                <p>Queste foto vengono escluse dal face matching perché non contengono volti.</p>
+                
+                <div class="upload-area" style="margin-bottom: 20px;">
+                    <label for="backPhotoUpload" class="file-label">Aggiungi Foto Senza Volti</label>
+                    <input type="file" id="backPhotoUpload" multiple accept="image/*" onchange="handleBackPhotoUpload(event)" />
+                </div>
+                
+                <div id="backPhotosList" class="back-photos-list">
+                    <div class="loading">Caricamento...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Password admin - deve corrispondere a ADMIN_PASSWORD nel backend
+        // In produzione, cambia questa password!
+        const ADMIN_PASSWORD = 'admin123';
+        let isAuthenticated = false;
+        let adminPassword = null; // Password inserita dall'utente
+        
+        function login() {
+            const password = document.getElementById('adminPassword').value;
+            if(password === ADMIN_PASSWORD) {
+                isAuthenticated = true;
+                adminPassword = password; // Salva password per le chiamate API
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('adminPanel').style.display = 'block';
+                loadDashboard();
+            } else {
+                document.getElementById('loginError').textContent = 'Password errata';
+                document.getElementById('loginError').style.display = 'block';
+            }
+        }
+        
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+            
+            if(tabName === 'orders') loadOrders();
+            if(tabName === 'backPhotos') loadBackPhotos();
+        }
+        
+        async function loadDashboard() {
+            try {
+                const res = await fetch(`/admin/stats?password=${encodeURIComponent(adminPassword)}`);
+                const data = await res.json();
+                
+                document.getElementById('totalOrders').textContent = data.total_orders || 0;
+                document.getElementById('totalRevenue').textContent = '€' + ((data.total_revenue || 0) / 100).toFixed(2);
+                document.getElementById('totalUsers').textContent = data.total_users || 0;
+                document.getElementById('totalPhotos').textContent = data.total_photos || 0;
+                
+                // Ordini recenti
+                if(data.recent_orders && data.recent_orders.length > 0) {
+                    let html = '<table><tr><th>Data</th><th>Email</th><th>Foto</th><th>Importo</th></tr>';
+                    data.recent_orders.forEach(order => {
+                        html += `<tr>
+                            <td>${new Date(order.paid_at).toLocaleDateString('it-IT')}</td>
+                            <td>${order.email}</td>
+                            <td>${order.photo_count}</td>
+                            <td>€${(order.amount_cents / 100).toFixed(2)}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    document.getElementById('recentOrders').innerHTML = html;
+                } else {
+                    document.getElementById('recentOrders').innerHTML = '<p>Nessun ordine recente</p>';
+                }
+            } catch(e) {
+                console.error('Error loading dashboard:', e);
+            }
+        }
+        
+        async function loadOrders() {
+            try {
+                const res = await fetch(`/admin/orders?password=${encodeURIComponent(adminPassword)}`);
+                const data = await res.json();
+                
+                if(data.orders && data.orders.length > 0) {
+                    let html = '<table><tr><th>Data</th><th>Email</th><th>Foto</th><th>Importo</th><th>Token</th></tr>';
+                    data.orders.forEach(order => {
+                        html += `<tr>
+                            <td>${new Date(order.paid_at).toLocaleDateString('it-IT')}</td>
+                            <td>${order.email}</td>
+                            <td>${order.photo_count}</td>
+                            <td>€${(order.amount_cents / 100).toFixed(2)}</td>
+                            <td><code style="font-size: 11px;">${order.download_token.substring(0, 20)}...</code></td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    document.getElementById('ordersList').innerHTML = html;
+                } else {
+                    document.getElementById('ordersList').innerHTML = '<p>Nessun ordine</p>';
+                }
+            } catch(e) {
+                console.error('Error loading orders:', e);
+                document.getElementById('ordersList').innerHTML = '<p class="alert alert-error">Errore nel caricamento ordini</p>';
+            }
+        }
+        
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+        
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('dragover');
+        }
+        
+        function handleDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            uploadPhotos(Array.from(files));
+        }
+        
+        function handleFileSelect(e) {
+            const files = Array.from(e.target.files);
+            uploadPhotos(files);
+        }
+        
+        async function uploadPhotos(files) {
+            const progressBar = document.getElementById('uploadProgress');
+            const progressFill = document.getElementById('progressFill');
+            const statusDiv = document.getElementById('uploadStatus');
+            const uploadedDiv = document.getElementById('uploadedFiles');
+            
+            progressBar.style.display = 'block';
+            statusDiv.style.display = 'none';
+            uploadedDiv.innerHTML = '';
+            
+            let uploaded = 0;
+            const total = files.length;
+            
+            for(const file of files) {
+                const formData = new FormData();
+                formData.append('photo', file);
+                
+                try {
+                    formData.append('password', adminPassword);
+                    const res = await fetch('/admin/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await res.json();
+                    uploaded++;
+                    progressFill.style.width = (uploaded / total * 100) + '%';
+                    
+                    if(data.ok) {
+                        uploadedDiv.innerHTML += `<p>✅ ${file.name} - Indicizzata</p>`;
+                    } else {
+                        uploadedDiv.innerHTML += `<p>❌ ${file.name} - ${data.error || 'Errore'}</p>`;
+                    }
+                } catch(e) {
+                    uploadedDiv.innerHTML += `<p>❌ ${file.name} - Errore: ${e.message}</p>`;
+                }
+            }
+            
+            progressBar.style.display = 'none';
+            statusDiv.className = 'alert alert-success';
+            statusDiv.textContent = `Caricate ${uploaded} di ${total} foto`;
+            statusDiv.style.display = 'block';
+        }
+        
+        async function loadBackPhotos() {
+            try {
+                const res = await fetch(`/admin/back-photos?password=${encodeURIComponent(adminPassword)}`);
+                const data = await res.json();
+                
+                if(data.photos && data.photos.length > 0) {
+                    let html = '';
+                    data.photos.forEach(photo => {
+                        html += `<div class="back-photo-item">
+                            <img src="/photo/${encodeURIComponent(photo.filename)}?paid=false" alt="${photo.filename}" />
+                            <button class="remove-btn" onclick="removeBackPhoto('${photo.filename}')">×</button>
+                        </div>`;
+                    });
+                    document.getElementById('backPhotosList').innerHTML = html;
+                } else {
+                    document.getElementById('backPhotosList').innerHTML = '<p>Nessuna foto senza volti</p>';
+                }
+            } catch(e) {
+                console.error('Error loading back photos:', e);
+            }
+        }
+        
+        async function handleBackPhotoUpload(e) {
+            const files = Array.from(e.target.files);
+            for(const file of files) {
+                const formData = new FormData();
+                formData.append('photo', file);
+                
+                try {
+                    formData.append('password', adminPassword);
+                    await fetch('/admin/back-photo', {
+                        method: 'POST',
+                        body: formData
+                    });
+                } catch(e) {
+                    console.error('Error uploading back photo:', e);
+                }
+            }
+            loadBackPhotos();
+        }
+        
+        async function removeBackPhoto(filename) {
+            if(!confirm(`Rimuovere ${filename} dalle foto senza volti?`)) return;
+            
+            try {
+                await fetch(`/admin/back-photo/${encodeURIComponent(filename)}?password=${encodeURIComponent(adminPassword)}`, {
+                    method: 'DELETE'
+                });
+                loadBackPhotos();
+            } catch(e) {
+                console.error('Error removing back photo:', e);
+            }
+        }
+        
+        // Enter key per login
+        document.getElementById('adminPassword').addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') login();
+        });
+    </script>
+</body>
+</html>
+
