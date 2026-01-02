@@ -1608,54 +1608,71 @@
       userEmail = email;
       localStorage.setItem('userEmail', email);
       
-      try {
-        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
-        const data = await res.json();
-        
-        if(data.ok) {
-          // Carica foto pagate
-          if(data.paid_photos) {
-            paidPhotos = data.paid_photos;
+      // Prova fino a 3 volte (webhook potrebbe essere in ritardo)
+      for(let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+          const data = await res.json();
+          
+          if(data.ok) {
+            // Carica foto pagate
+            if(data.paid_photos && data.paid_photos.length > 0) {
+              paidPhotos = data.paid_photos;
+            }
+            
+            // Prepara foto da mostrare
+            let photosToShow = [];
+            
+            // Preferisci found_photos (hanno più info)
+            if(data.found_photos && data.found_photos.length > 0) {
+              photosToShow = data.found_photos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: p.status === 'paid'
+              }));
+              // Aggiungi foto pagate
+              const paidFromFound = data.found_photos
+                .filter(p => p.status === 'paid')
+                .map(p => p.photo_id);
+              paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
+            } 
+            // Se non ci sono found_photos, usa paid_photos
+            else if(data.paid_photos && data.paid_photos.length > 0) {
+              photosToShow = data.paid_photos.map(photoId => ({
+                photo_id: photoId,
+                score: 0,
+                has_face: true,
+                paid: true
+              }));
+            }
+            
+            if(photosToShow.length > 0) {
+              allPhotos = photosToShow;
+              showScreen('album');
+              await displayPhotos();
+              showStickyOfferBar(allPhotos.length);
+              applyTranslations();
+              return; // Successo, esci
+            }
           }
           
-          // Prepara foto da mostrare
-          let photosToShow = [];
-          if(data.found_photos && data.found_photos.length > 0) {
-            photosToShow = data.found_photos.map(p => ({
-              photo_id: p.photo_id,
-              score: 0,
-              has_face: true,
-              paid: p.status === 'paid'
-            }));
-            // Aggiungi foto pagate
-            const paidFromFound = data.found_photos
-              .filter(p => p.status === 'paid')
-              .map(p => p.photo_id);
-            paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
-          } else if(data.paid_photos && data.paid_photos.length > 0) {
-            photosToShow = data.paid_photos.map(photoId => ({
-              photo_id: photoId,
-              score: 0,
-              has_face: true,
-              paid: true
-            }));
+          // Se non ci sono foto e non è l'ultimo tentativo, aspetta e riprova
+          if(attempt < 2) {
+            console.log(`No photos found, retrying in 2 seconds... (attempt ${attempt + 1}/3)`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-          
-          if(photosToShow.length > 0) {
-            allPhotos = photosToShow;
-            showScreen('album');
-            await displayPhotos();
-            showStickyOfferBar(allPhotos.length);
-          } else {
-            showScreen('email');
+        } catch(e) {
+          console.error(`Error loading album after payment (attempt ${attempt + 1}):`, e);
+          if(attempt < 2) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-        } else {
-          showScreen('email');
         }
-      } catch(e) {
-        console.error("Error loading album after payment:", e);
-        showScreen('email');
       }
+      
+      // Se dopo 3 tentativi non ci sono foto, mostra email screen
+      console.warn("No paid photos found after 3 attempts");
+      showScreen('email');
       applyTranslations();
     }
     

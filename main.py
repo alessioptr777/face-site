@@ -2064,6 +2064,22 @@ async def checkout_success(
                 except Exception as e:
                     logger.error(f"Error retrying order from database: {e}")
         
+        # Se non abbiamo email ma abbiamo photo_ids, prova a recuperarla da Stripe
+        if not email and photo_ids and USE_STRIPE:
+            try:
+                stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
+                email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
+                if email:
+                    logger.info(f"Recovered email from Stripe session in success page: {email}")
+                    # Se abbiamo email e photo_ids ma non ordine nel DB, crealo ora
+                    if SQLITE_AVAILABLE and not download_token:
+                        logger.info(f"Creating order manually in success page: {email} - {len(photo_ids)} photos")
+                        download_token = await _create_order(email, stripe_session_id, stripe_session_id, photo_ids, 0)
+                        if download_token:
+                            logger.info(f"Order created successfully in success page: {download_token}")
+            except Exception as e:
+                logger.error(f"Error recovering email from Stripe in success page: {e}")
+        
         base_url = str(request.base_url).rstrip('/')
         download_url = f"{base_url}/my-photos/{download_token}" if download_token else None
         
@@ -2258,7 +2274,16 @@ async def stripe_webhook(request: Request):
         email = metadata.get('email') or session.get('customer_email') or session.get('customer_details', {}).get('email')
         photo_ids_str = metadata.get('photo_ids', '')
         
-        if session_id and photo_ids_str and email:
+        # Log per debug
+        logger.info(f"Webhook received: session_id={session_id}, email={email}, photo_ids={photo_ids_str}")
+        
+        if session_id and photo_ids_str:
+            # Se manca email, prova a recuperarla
+            if not email:
+                email = session.get('customer_email') or session.get('customer_details', {}).get('email')
+                logger.warning(f"Email not in metadata, recovered from session: {email}")
+            
+            if email:
             photo_ids = photo_ids_str.split(',')
             order_id = session.get('id')
             amount_cents = session.get('amount_total', 0)
@@ -2296,9 +2321,11 @@ async def stripe_webhook(request: Request):
             with open(order_file, 'w', encoding='utf-8') as f:
                 json.dump(order_data, f, ensure_ascii=False, indent=2)
             
-            logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
+                logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
+            else:
+                logger.error(f"Order failed: missing email. session_id={session_id}, photo_ids={photo_ids_str}")
         else:
-            logger.warning(f"Order completed but missing data: session_id={session_id}, email={email}, photo_ids={photo_ids_str}")
+            logger.error(f"Order failed: missing required data. session_id={session_id}, email={email}, photo_ids={photo_ids_str}")
     
     return {"ok": True}
 
