@@ -2480,6 +2480,52 @@
           allPhotos = photos;
           photosLoadedCount = 0; // Reset counter
           
+          // Carica anche le foto già acquistate e aggiungile all'album
+          if(userEmail) {
+            try {
+              const paidRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+              const paidData = await paidRes.json();
+              
+              if(paidData.ok && paidData.paid_photos && paidData.paid_photos.length > 0) {
+                // Aggiorna array foto pagate (IMPORTANTE: deve essere fatto prima di aggiungere le foto)
+                paidPhotos = [...paidData.paid_photos];
+                console.log(`Caricate ${paidPhotos.length} foto pagate per ${userEmail}`);
+                
+                // Aggiungi foto pagate che non sono già nell'album
+                const existingPhotoIds = new Set(photos.map(p => p.photo_id));
+                const paidPhotosToAdd = paidData.paid_photos
+                  .filter(photoId => !existingPhotoIds.has(photoId))
+                  .map(photoId => ({
+                    photo_id: photoId,
+                    score: 0,
+                    has_face: true,
+                    paid: true
+                  }));
+                
+                if(paidPhotosToAdd.length > 0) {
+                  console.log(`Aggiungo ${paidPhotosToAdd.length} foto già acquistate all'album`);
+                  allPhotos = [...allPhotos, ...paidPhotosToAdd];
+                }
+                
+                // Marca come pagate anche le foto trovate che sono già state acquistate
+                allPhotos.forEach(photo => {
+                  if(paidData.paid_photos.includes(photo.photo_id)) {
+                    photo.paid = true;
+                    // Assicurati che sia anche in paidPhotos
+                    if(!paidPhotos.includes(photo.photo_id)) {
+                      paidPhotos.push(photo.photo_id);
+                    }
+                  }
+                });
+                
+                console.log(`Totale foto nell'album: ${allPhotos.length} (di cui ${paidPhotos.length} pagate)`);
+              }
+            } catch(e) {
+              console.error('Errore caricamento foto pagate:', e);
+              // Continua comunque con le foto trovate
+            }
+          }
+          
           // NON aggiungere automaticamente al carrello - l'utente decide cosa aggiungere
           
           console.log("Mostro album...");
@@ -2504,10 +2550,49 @@
           
           // Mostra banner dopo che lo schermo è visibile
           setTimeout(() => {
-            showStickyOfferBar(photos.length);
+            showStickyOfferBar(allPhotos.length);
           }, 100);
         } else {
           console.warn("Nessuna foto trovata o risposta non valida:", data);
+          
+          // Controlla se ci sono foto già acquistate da mostrare
+          if(userEmail) {
+            try {
+              const paidRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+              const paidData = await paidRes.json();
+              
+              if(paidData.ok && paidData.paid_photos && paidData.paid_photos.length > 0) {
+                // Ci sono foto pagate - mostrale nell'album
+                paidPhotos = paidData.paid_photos;
+                allPhotos = paidData.paid_photos.map(photoId => ({
+                  photo_id: photoId,
+                  score: 0,
+                  has_face: true,
+                  paid: true
+                }));
+                
+                photosLoadedCount = 0;
+                
+                // Nascondi upload status
+                if(uploadStatus) uploadStatus.classList.remove('active');
+                if(captureBtn) {
+                  captureBtn.disabled = false;
+                  captureBtn.style.opacity = '1';
+                }
+                
+                // Mostra album con foto pagate
+                showScreen('album');
+                updateCart();
+                await displayPhotos();
+                showStickyOfferBar(allPhotos.length);
+                return; // Esci, abbiamo mostrato le foto pagate
+              }
+            } catch(e) {
+              console.error('Errore caricamento foto pagate:', e);
+            }
+          }
+          
+          // Nessuna foto trovata e nessuna foto pagata
           // Nascondi upload status
           if(uploadStatus) uploadStatus.classList.remove('active');
           if(captureBtn) {
