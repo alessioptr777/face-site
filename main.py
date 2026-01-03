@@ -457,10 +457,6 @@ async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] =
     
     try:
         email = _normalize_email(email)
-        if USE_POSTGRES:
-            now = datetime.now(timezone.utc)
-        else:
-            now = datetime.now(timezone.utc).isoformat()
         
         # Verifica se esiste
         exists = await _db_execute_one(
@@ -470,25 +466,59 @@ async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] =
         
         if exists:
             # Aggiorna
-            if selfie_embedding:
-                await _db_execute_write("""
-                    UPDATE users 
-                    SET selfie_embedding = ?, last_login_at = ?, last_selfie_at = ?
-                    WHERE email = ?
-                """, (selfie_embedding, now, now, email))
+            if USE_POSTGRES:
+                # PostgreSQL: usa NOW() per evitare problemi con timezone
+                if selfie_embedding:
+                    await _db_execute_write("""
+                        UPDATE users 
+                        SET selfie_embedding = $1, last_login_at = NOW(), last_selfie_at = NOW()
+                        WHERE email = $2
+                    """, (selfie_embedding, email))
+                else:
+                    # Aggiorna solo last_login_at (non sovrascrivere selfie_embedding esistente)
+                    await _db_execute_write("""
+                        UPDATE users 
+                        SET last_login_at = NOW()
+                        WHERE email = $1
+                    """, (email,))
             else:
-                # Aggiorna solo last_login_at (non sovrascrivere selfie_embedding esistente)
-                await _db_execute_write("""
-                    UPDATE users 
-                    SET last_login_at = ?
-                    WHERE email = ?
-                """, (now, email))
+                # SQLite: usa parametro
+                now = datetime.now(timezone.utc).isoformat()
+                if selfie_embedding:
+                    await _db_execute_write("""
+                        UPDATE users 
+                        SET selfie_embedding = ?, last_login_at = ?, last_selfie_at = ?
+                        WHERE email = ?
+                    """, (selfie_embedding, now, now, email))
+                else:
+                    # Aggiorna solo last_login_at (non sovrascrivere selfie_embedding esistente)
+                    await _db_execute_write("""
+                        UPDATE users 
+                        SET last_login_at = ?
+                        WHERE email = ?
+                    """, (now, email))
         else:
             # Crea nuovo utente (solo con email, selfie opzionale)
-            await _db_execute_write("""
-                INSERT INTO users (email, selfie_embedding, created_at, last_login_at, last_selfie_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (email, selfie_embedding, now, now, now if selfie_embedding else None))
+            if USE_POSTGRES:
+                # PostgreSQL: usa NOW() per evitare problemi con timezone
+                # created_at ha DEFAULT CURRENT_TIMESTAMP, quindi non serve passarlo
+                if selfie_embedding:
+                    await _db_execute_write("""
+                        INSERT INTO users (email, selfie_embedding, last_login_at, last_selfie_at)
+                        VALUES ($1, $2, NOW(), NOW())
+                    """, (email, selfie_embedding))
+                else:
+                    await _db_execute_write("""
+                        INSERT INTO users (email, last_login_at)
+                        VALUES ($1, NOW())
+                    """, (email,))
+            else:
+                # SQLite: usa parametro
+                now = datetime.now(timezone.utc).isoformat()
+                await _db_execute_write("""
+                    INSERT INTO users (email, selfie_embedding, created_at, last_login_at, last_selfie_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (email, selfie_embedding, now, now, now if selfie_embedding else None))
         
         return True
     except Exception as e:
@@ -502,12 +532,6 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
     
     try:
         email = _normalize_email(email)
-        if USE_POSTGRES:
-            now = datetime.now(timezone.utc)
-            expires_at = datetime.now(timezone.utc) + timedelta(days=30 if status == "paid" else 90)
-        else:
-            now = datetime.now(timezone.utc).isoformat()
-            expires_at = (datetime.now(timezone.utc) + timedelta(days=30 if status == "paid" else 90)).isoformat()
         
         # Verifica se esiste già
         exists = await _db_execute_one(
@@ -515,19 +539,39 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
             (email, photo_id)
         )
         
-        if exists:
-            # Aggiorna
-            await _db_execute_write("""
-                UPDATE user_photos 
-                SET found_at = ?, status = ?, expires_at = ?
-                WHERE email = ? AND photo_id = ?
-            """, (now, status, expires_at, email, photo_id))
+        if USE_POSTGRES:
+            # PostgreSQL: usa NOW() e INTERVAL per evitare problemi con timezone
+            days = 30 if status == "paid" else 90
+            if exists:
+                # Aggiorna
+                await _db_execute_write("""
+                    UPDATE user_photos 
+                    SET found_at = NOW(), status = $1, expires_at = NOW() + INTERVAL '%d days'
+                    WHERE email = $2 AND photo_id = $3
+                """ % days, (status, email, photo_id))
+            else:
+                # Inserisci nuovo
+                await _db_execute_write("""
+                    INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
+                    VALUES ($1, $2, NOW(), $3, NOW() + INTERVAL '%d days')
+                """ % days, (email, photo_id, status))
         else:
-            # Inserisci nuovo
-            await _db_execute_write("""
-                INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (email, photo_id, now, status, expires_at))
+            # SQLite: usa parametro
+            now = datetime.now(timezone.utc).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=30 if status == "paid" else 90)).isoformat()
+            if exists:
+                # Aggiorna
+                await _db_execute_write("""
+                    UPDATE user_photos 
+                    SET found_at = ?, status = ?, expires_at = ?
+                    WHERE email = ? AND photo_id = ?
+                """, (now, status, expires_at, email, photo_id))
+            else:
+                # Inserisci nuovo
+                await _db_execute_write("""
+                    INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (email, photo_id, now, status, expires_at))
         
         return True
     except Exception as e:
@@ -541,12 +585,6 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
     
     try:
         email = _normalize_email(email)
-        if USE_POSTGRES:
-            now = datetime.now(timezone.utc)
-            expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-        else:
-            now = datetime.now(timezone.utc).isoformat()
-            expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         
         # Verifica se esiste già
         exists = await _db_execute_one("""
@@ -554,19 +592,38 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
             WHERE email = ? AND photo_id = ?
         """, (email, photo_id))
         
-        if exists:
-            # Aggiorna record esistente
-            await _db_execute_write("""
-                UPDATE user_photos 
-                SET paid_at = ?, status = 'paid', expires_at = ?
-                WHERE email = ? AND photo_id = ?
-            """, (now, expires_at, email, photo_id))
+        if USE_POSTGRES:
+            # PostgreSQL: usa NOW() e INTERVAL per evitare problemi con timezone
+            if exists:
+                # Aggiorna record esistente
+                await _db_execute_write("""
+                    UPDATE user_photos 
+                    SET paid_at = NOW(), status = 'paid', expires_at = NOW() + INTERVAL '30 days'
+                    WHERE email = $1 AND photo_id = $2
+                """, (email, photo_id))
+            else:
+                # Crea nuovo record (foto pagata senza essere stata trovata prima)
+                await _db_execute_write("""
+                    INSERT INTO user_photos (email, photo_id, found_at, paid_at, status, expires_at)
+                    VALUES ($1, $2, NOW(), NOW(), 'paid', NOW() + INTERVAL '30 days')
+                """, (email, photo_id))
         else:
-            # Crea nuovo record (foto pagata senza essere stata trovata prima)
-            await _db_execute_write("""
-                INSERT INTO user_photos (email, photo_id, found_at, paid_at, status, expires_at)
-                VALUES (?, ?, ?, ?, 'paid', ?)
-            """, (email, photo_id, now, now, expires_at))
+            # SQLite: usa parametro
+            now = datetime.now(timezone.utc).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+            if exists:
+                # Aggiorna record esistente
+                await _db_execute_write("""
+                    UPDATE user_photos 
+                    SET paid_at = ?, status = 'paid', expires_at = ?
+                    WHERE email = ? AND photo_id = ?
+                """, (now, expires_at, email, photo_id))
+            else:
+                # Crea nuovo record (foto pagata senza essere stata trovata prima)
+                await _db_execute_write("""
+                    INSERT INTO user_photos (email, photo_id, found_at, paid_at, status, expires_at)
+                    VALUES (?, ?, ?, ?, 'paid', ?)
+                """, (email, photo_id, now, now, expires_at))
         
         logger.info(f"Photo marked as paid: {email} - {photo_id}")
         return True
@@ -677,17 +734,23 @@ async def _create_order(email: str, order_id: str, stripe_session_id: str, photo
     try:
         email = _normalize_email(email)
         logger.info(f"_create_order called: email={email}, order_id={order_id}, photo_count={len(photo_ids)}")
-        if USE_POSTGRES:
-            now = datetime.now(timezone.utc)
-        else:
-            now = datetime.now(timezone.utc).isoformat()
         download_token = secrets.token_urlsafe(32)
         logger.info(f"Generated download_token: {download_token[:20]}...")
         
-        await _db_execute_write("""
-            INSERT INTO orders (order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (order_id, email, stripe_session_id, json.dumps(photo_ids), amount_cents, now, download_token))
+        if USE_POSTGRES:
+            # PostgreSQL: usa NOW() per evitare problemi con timezone
+            # paid_at ha DEFAULT CURRENT_TIMESTAMP, ma lo passiamo esplicitamente per chiarezza
+            await _db_execute_write("""
+                INSERT INTO orders (order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token)
+                VALUES ($1, $2, $3, $4, $5, NOW(), $6)
+            """, (order_id, email, stripe_session_id, json.dumps(photo_ids), amount_cents, download_token))
+        else:
+            # SQLite: usa parametro
+            now = datetime.now(timezone.utc).isoformat()
+            await _db_execute_write("""
+                INSERT INTO orders (order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (order_id, email, stripe_session_id, json.dumps(photo_ids), amount_cents, now, download_token))
         logger.info("Order inserted into database")
         
         # Marca foto come pagate
@@ -795,17 +858,16 @@ async def _mark_followup_sent(email: str, photo_id: str, followup_type: str):
     
     try:
         if USE_POSTGRES:
-            now = datetime.now(timezone.utc)
-            # PostgreSQL usa ON CONFLICT
+            # PostgreSQL: usa NOW() per evitare problemi con timezone
             await _db_execute_write("""
                 INSERT INTO email_followups (email, photo_id, followup_type, sent_at)
-                VALUES (?, ?, ?, ?)
+                VALUES ($1, $2, $3, NOW())
                 ON CONFLICT (email, photo_id, followup_type) 
-                DO UPDATE SET sent_at = ?
-            """, (email, photo_id, followup_type, now, now))
+                DO UPDATE SET sent_at = NOW()
+            """, (email, photo_id, followup_type))
         else:
+            # SQLite: usa parametro
             now = datetime.now(timezone.utc).isoformat()
-            # SQLite usa INSERT OR REPLACE
             await _db_execute_write("""
                 INSERT OR REPLACE INTO email_followups (email, photo_id, followup_type, sent_at)
                 VALUES (?, ?, ?, ?)
