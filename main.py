@@ -4680,3 +4680,239 @@ async def admin_remove_back_photo(
     except Exception as e:
         logger.error(f"Error removing back photo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/packages")
+async def admin_packages(
+    password: str = Query(..., description="Password admin"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
+):
+    """Analisi pacchetti venduti: distribuzione, trend, confronto con offerte"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime, timedelta
+        from collections import defaultdict
+        
+        # Prezzi offerti (da main.py calculate_price)
+        OFFERED_PRICES = {
+            1: 2000,      # €20.00
+            2: 4000,      # €40.00
+            3: 3500,      # €35.00
+            4: 4000,      # €40.00
+            5: 4500,      # €45.00
+            (6, 11): 5000,  # €50.00 (6-11 foto)
+            (12, 999): 6000  # €60.00 (12+ foto)
+        }
+        
+        # Query base
+        query = "SELECT email, photo_ids, amount_cents, paid_at FROM orders WHERE 1=1"
+        params = []
+        
+        # Filtro per data se specificato
+        if start_date:
+            if USE_POSTGRES:
+                query += " AND paid_at >= $1"
+            else:
+                query += " AND paid_at >= ?"
+            params.append(start_date)
+            if end_date:
+                if USE_POSTGRES:
+                    query += " AND paid_at <= $2"
+                else:
+                    query += " AND paid_at <= ?"
+                params.append(end_date)
+        elif end_date:
+            if USE_POSTGRES:
+                query += " AND paid_at <= $1"
+            else:
+                query += " AND paid_at <= ?"
+            params.append(end_date)
+        
+        query += " ORDER BY paid_at DESC"
+        
+        rows = await _db_execute(query, tuple(params) if params else ())
+        
+        # Raggruppa per pacchetto
+        package_stats = defaultdict(lambda: {
+            'count': 0,
+            'total_revenue': 0,
+            'total_photos': 0,
+            'dates': []
+        })
+        
+        # Raggruppa per mese per trend
+        monthly_stats = defaultdict(lambda: {
+            'orders': 0,
+            'revenue': 0,
+            'photos': 0,
+            'packages': defaultdict(int)
+        })
+        
+        total_orders = 0
+        total_revenue = 0
+        
+        for row in rows:
+            photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+            photo_count = len(photo_ids)
+            amount_cents = row['amount_cents']
+            paid_at = row['paid_at']
+            
+            # Determina pacchetto
+            if photo_count == 1:
+                package_key = "1 photo"
+            elif photo_count == 2:
+                package_key = "2 photos"
+            elif photo_count == 3:
+                package_key = "3 photos"
+            elif photo_count == 4:
+                package_key = "4 photos"
+            elif photo_count == 5:
+                package_key = "5 photos"
+            elif 6 <= photo_count <= 11:
+                package_key = "6-11 photos"
+            else:
+                package_key = "12+ photos"
+            
+            # Aggiorna statistiche pacchetto
+            package_stats[package_key]['count'] += 1
+            package_stats[package_key]['total_revenue'] += amount_cents
+            package_stats[package_key]['total_photos'] += photo_count
+            package_stats[package_key]['dates'].append(paid_at)
+            
+            # Aggiorna statistiche mensili
+            if isinstance(paid_at, str):
+                try:
+                    paid_date = datetime.fromisoformat(paid_at.replace('Z', '+00:00'))
+                except:
+                    paid_date = datetime.now()
+            else:
+                paid_date = paid_at if hasattr(paid_at, 'year') else datetime.now()
+            
+            month_key = paid_date.strftime('%Y-%m')
+            monthly_stats[month_key]['orders'] += 1
+            monthly_stats[month_key]['revenue'] += amount_cents
+            monthly_stats[month_key]['photos'] += photo_count
+            monthly_stats[month_key]['packages'][package_key] += 1
+            
+            total_orders += 1
+            total_revenue += amount_cents
+        
+        # Prepara dati pacchetti
+        packages_data = []
+        for package_key in ["1 photo", "2 photos", "3 photos", "4 photos", "5 photos", "6-11 photos", "12+ photos"]:
+            if package_key in package_stats:
+                stats = package_stats[package_key]
+                avg_price = stats['total_revenue'] / stats['count'] if stats['count'] > 0 else 0
+                percentage = (stats['count'] / total_orders * 100) if total_orders > 0 else 0
+                
+                # Prezzo offerto per questo pacchetto
+                photo_count_num = int(package_key.split()[0]) if package_key.split()[0].isdigit() else None
+                if photo_count_num:
+                    if photo_count_num == 1:
+                        offered_price = OFFERED_PRICES[1]
+                    elif photo_count_num == 2:
+                        offered_price = OFFERED_PRICES[2]
+                    elif photo_count_num == 3:
+                        offered_price = OFFERED_PRICES[3]
+                    elif photo_count_num == 4:
+                        offered_price = OFFERED_PRICES[4]
+                    elif photo_count_num == 5:
+                        offered_price = OFFERED_PRICES[5]
+                    else:
+                        offered_price = None
+                elif "6-11" in package_key:
+                    offered_price = OFFERED_PRICES[(6, 11)]
+                else:
+                    offered_price = OFFERED_PRICES[(12, 999)]
+                
+                packages_data.append({
+                    'package': package_key,
+                    'sales': stats['count'],
+                    'revenue_cents': stats['total_revenue'],
+                    'revenue_euros': stats['total_revenue'] / 100,
+                    'avg_price_cents': avg_price,
+                    'avg_price_euros': avg_price / 100,
+                    'total_photos': stats['total_photos'],
+                    'percentage': round(percentage, 1),
+                    'offered_price_cents': offered_price,
+                    'offered_price_euros': offered_price / 100 if offered_price else None,
+                    'price_match': abs(avg_price - offered_price) < 10 if offered_price else None  # Tolleranza 10 centesimi
+                })
+        
+        # Ordina per vendite (decrescente)
+        packages_data.sort(key=lambda x: x['sales'], reverse=True)
+        
+        # Prepara dati mensili (ultimi 12 mesi)
+        monthly_data = []
+        current_date = datetime.now()
+        for i in range(11, -1, -1):  # Ultimi 12 mesi
+            month_date = current_date - timedelta(days=30 * i)
+            month_key = month_date.strftime('%Y-%m')
+            month_name = month_date.strftime('%B %Y')
+            
+            if month_key in monthly_stats:
+                stats = monthly_stats[month_key]
+                monthly_data.append({
+                    'month': month_key,
+                    'month_name': month_name,
+                    'orders': stats['orders'],
+                    'revenue_cents': stats['revenue'],
+                    'revenue_euros': stats['revenue'] / 100,
+                    'photos': stats['photos'],
+                    'packages': dict(stats['packages'])
+                })
+            else:
+                monthly_data.append({
+                    'month': month_key,
+                    'month_name': month_name,
+                    'orders': 0,
+                    'revenue_cents': 0,
+                    'revenue_euros': 0,
+                    'photos': 0,
+                    'packages': {}
+                })
+        
+        # Suggerimenti
+        suggestions = []
+        if packages_data:
+            most_sold = packages_data[0]
+            least_sold = min(packages_data, key=lambda x: x['sales'])
+            
+            if most_sold['sales'] > 0:
+                suggestions.append({
+                    'type': 'success',
+                    'message': f"Most sold package: {most_sold['package']} ({most_sold['sales']} sales, {most_sold['percentage']}%) - Consider promoting this more!"
+                })
+            
+            if least_sold['sales'] < 3 and total_orders > 20:
+                suggestions.append({
+                    'type': 'warning',
+                    'message': f"Underperforming package: {least_sold['package']} (only {least_sold['sales']} sales) - Consider adjusting price or removing it"
+                })
+            
+            # Controlla se i prezzi corrispondono
+            for pkg in packages_data:
+                if pkg['price_match'] is False:
+                    suggestions.append({
+                        'type': 'info',
+                        'message': f"{pkg['package']}: Average price €{pkg['avg_price_euros']:.2f} differs from offered €{pkg['offered_price_euros']:.2f} - Check pricing logic"
+                    })
+        
+        return {
+            "ok": True,
+            "total_orders": total_orders,
+            "total_revenue_cents": total_revenue,
+            "total_revenue_euros": total_revenue / 100,
+            "packages": packages_data,
+            "monthly_trend": monthly_data,
+            "suggestions": suggestions,
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting package analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
