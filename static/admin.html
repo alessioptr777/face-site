@@ -364,6 +364,48 @@
                 <div id="ordersList" class="loading">Caricamento...</div>
             </div>
             
+            <!-- Sales Analysis -->
+            <div id="sales" class="tab-content">
+                <h2>📈 Sales Analysis - Package Performance</h2>
+                <p>Analyze which photo packages sell best and compare with your offers</p>
+                
+                <!-- Date Filter -->
+                <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">Filter by Period</h3>
+                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Start Date:</label>
+                            <input type="date" id="salesStartDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">End Date:</label>
+                            <input type="date" id="salesEndDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: flex-end;">
+                            <button class="btn btn-primary" onclick="loadSalesAnalysis()">Apply Filter</button>
+                            <button class="btn" onclick="clearSalesFilter()" style="background: #e5e7eb; color: #333;">Clear</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Summary Cards -->
+                <div class="stats-grid" id="salesSummary" style="margin-bottom: 30px;">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+                
+                <!-- Package Sales Table -->
+                <h3 style="margin-top: 30px;">Package Sales Distribution</h3>
+                <div id="packagesTable" class="loading">Loading...</div>
+                
+                <!-- Monthly Trend -->
+                <h3 style="margin-top: 40px;">Monthly Trend (Last 12 Months)</h3>
+                <div id="monthlyTrend" class="loading">Loading...</div>
+                
+                <!-- Suggestions -->
+                <h3 style="margin-top: 40px;">💡 Suggestions</h3>
+                <div id="salesSuggestions"></div>
+            </div>
+            
             <!-- Upload Foto -->
             <div id="upload" class="tab-content">
                 <h2>Upload e Indicizzazione Foto</h2>
@@ -430,6 +472,7 @@
             document.getElementById(tabName).classList.add('active');
             
             if(tabName === 'orders') loadOrders();
+            if(tabName === 'sales') loadSalesAnalysis();
             if(tabName === 'backPhotos') loadBackPhotos();
         }
         
@@ -614,6 +657,137 @@
         document.getElementById('adminPassword').addEventListener('keypress', (e) => {
             if(e.key === 'Enter') login();
         });
+        
+        // Sales Analysis Functions
+        async function loadSalesAnalysis() {
+            const startDate = document.getElementById('salesStartDate').value;
+            const endDate = document.getElementById('salesEndDate').value;
+            
+            let url = `/admin/packages?password=${encodeURIComponent(adminPassword)}`;
+            if(startDate) url += `&start_date=${startDate}`;
+            if(endDate) url += `&end_date=${endDate}`;
+            
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                if(data.ok) {
+                    // Summary Cards
+                    const summaryDiv = document.getElementById('salesSummary');
+                    summaryDiv.innerHTML = `
+                        <div class="stat-card">
+                            <h3>${data.total_orders || 0}</h3>
+                            <p>Total Orders</p>
+                        </div>
+                        <div class="stat-card success">
+                            <h3>€${(data.total_revenue_euros || 0).toFixed(2)}</h3>
+                            <p>Total Revenue</p>
+                        </div>
+                        <div class="stat-card info">
+                            <h3>${data.packages.reduce((sum, p) => sum + p.total_photos, 0)}</h3>
+                            <p>Total Photos Sold</p>
+                        </div>
+                        <div class="stat-card warning">
+                            <h3>€${data.packages.length > 0 && data.total_orders > 0 ? (data.total_revenue_euros / data.total_orders).toFixed(2) : '0.00'}</h3>
+                            <p>Average Order Value</p>
+                        </div>
+                    `;
+                    
+                    // Packages Table
+                    const packagesDiv = document.getElementById('packagesTable');
+                    if(data.packages && data.packages.length > 0) {
+                        let html = `
+                            <table>
+                                <tr>
+                                    <th>Package</th>
+                                    <th>Sales</th>
+                                    <th>Revenue</th>
+                                    <th>Avg Price</th>
+                                    <th>Offered Price</th>
+                                    <th>Match</th>
+                                    <th>% of Total</th>
+                                </tr>
+                        `;
+                        
+                        data.packages.forEach(pkg => {
+                            const matchIcon = pkg.price_match === true ? '✅' : (pkg.price_match === false ? '⚠️' : '');
+                            const matchText = pkg.price_match === true ? 'Match' : (pkg.price_match === false ? 'Diff' : 'N/A');
+                            const highlight = pkg.sales === Math.max(...data.packages.map(p => p.sales)) ? 'style="background: #d1fae5;"' : '';
+                            
+                            html += `
+                                <tr ${highlight}>
+                                    <td><strong>${pkg.package}</strong></td>
+                                    <td>${pkg.sales}</td>
+                                    <td>€${pkg.revenue_euros.toFixed(2)}</td>
+                                    <td>€${pkg.avg_price_euros.toFixed(2)}</td>
+                                    <td>€${pkg.offered_price_euros ? pkg.offered_price_euros.toFixed(2) : 'N/A'}</td>
+                                    <td>${matchIcon} ${matchText}</td>
+                                    <td><strong>${pkg.percentage}%</strong></td>
+                                </tr>
+                            `;
+                        });
+                        
+                        html += '</table>';
+                        packagesDiv.innerHTML = html;
+                    } else {
+                        packagesDiv.innerHTML = '<p>No sales data available</p>';
+                    }
+                    
+                    // Monthly Trend
+                    const monthlyDiv = document.getElementById('monthlyTrend');
+                    if(data.monthly_trend && data.monthly_trend.length > 0) {
+                        let html = '<table><tr><th>Month</th><th>Orders</th><th>Revenue</th><th>Photos</th><th>Top Package</th></tr>';
+                        
+                        data.monthly_trend.forEach(month => {
+                            if(month.orders > 0) {
+                                const topPackage = Object.keys(month.packages).length > 0 
+                                    ? Object.entries(month.packages).sort((a, b) => b[1] - a[1])[0]
+                                    : null;
+                                
+                                html += `
+                                    <tr>
+                                        <td><strong>${month.month_name}</strong></td>
+                                        <td>${month.orders}</td>
+                                        <td>€${month.revenue_euros.toFixed(2)}</td>
+                                        <td>${month.photos}</td>
+                                        <td>${topPackage ? `${topPackage[0]} (${topPackage[1]})` : 'N/A'}</td>
+                                    </tr>
+                                `;
+                            }
+                        });
+                        
+                        html += '</table>';
+                        monthlyDiv.innerHTML = html;
+                    } else {
+                        monthlyDiv.innerHTML = '<p>No monthly trend data available</p>';
+                    }
+                    
+                    // Suggestions
+                    const suggestionsDiv = document.getElementById('salesSuggestions');
+                    if(data.suggestions && data.suggestions.length > 0) {
+                        let html = '';
+                        data.suggestions.forEach(sugg => {
+                            const alertClass = sugg.type === 'success' ? 'alert-success' : (sugg.type === 'warning' ? 'alert-error' : 'alert');
+                            html += `<div class="alert ${alertClass}" style="display: block; margin: 10px 0;">${sugg.message}</div>`;
+                        });
+                        suggestionsDiv.innerHTML = html;
+                    } else {
+                        suggestionsDiv.innerHTML = '<p>No suggestions at this time</p>';
+                    }
+                } else {
+                    document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Error loading sales data</p>';
+                }
+            } catch(e) {
+                console.error('Error loading sales analysis:', e);
+                document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Error loading sales analysis</p>';
+            }
+        }
+        
+        function clearSalesFilter() {
+            document.getElementById('salesStartDate').value = '';
+            document.getElementById('salesEndDate').value = '';
+            loadSalesAnalysis();
+        }
     </script>
 </body>
 </html>
