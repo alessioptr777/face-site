@@ -1707,12 +1707,7 @@ async def my_photos_by_email(
             
             photos_html += f"""
                 <div class="photo-item">
-                    <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;" oncontextmenu="return false;">
-                    <div class="ios-instructions" style="display: none; margin-top: 15px; padding: 15px; background: rgba(240, 249, 255, 0.9); border: 2px solid #0ea5e9; border-radius: 12px; color: #0369a1; text-align: center; font-size: 16px;">
-                        <p style="margin: 0 0 8px 0; font-weight: bold; font-size: 16px;">📱 To save this photo:</p>
-                        <p style="margin: 0; font-size: 15px; line-height: 1.5;">1. Touch and hold the image above</p>
-                        <p style="margin: 5px 0 0 0; font-size: 15px; line-height: 1.5;">2. Select "Save to Photos" from the menu</p>
-                    </div>
+                    <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;">
                     <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Download</button>
                 </div>
                 """
@@ -1839,9 +1834,6 @@ async def my_photos_by_email(
                     #ios-instructions-top {{
                         display: block !important;
                     }}
-                    .ios-instructions {{
-                        display: block !important;
-                    }}
                     .download-btn-desktop {{
                         display: none !important;
                     }}
@@ -1856,10 +1848,10 @@ async def my_photos_by_email(
                 
                 <!-- iOS Instructions at top (if iPhone) -->
                 <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255, 255, 255, 0.4); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-                    <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 20px; text-align: center;">📱 How to save photos:</p>
-                    <p style="margin: 0; font-size: 17px; line-height: 1.8; text-align: left;">1. Touch and hold on any image below</p>
+                    <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 20px; text-align: center;">📱 How to save your photos:</p>
+                    <p style="margin: 0; font-size: 17px; line-height: 1.8; text-align: left;">1. Touch and hold on any photo below</p>
                     <p style="margin: 8px 0 0 0; font-size: 17px; line-height: 1.8; text-align: left;">2. Select "Save to Photos" from the menu</p>
-                    <p style="margin: 12px 0 0 0; font-size: 15px; line-height: 1.6; text-align: center; opacity: 0.9; font-style: italic;">Each photo has instructions below it too</p>
+                    <p style="margin: 12px 0 0 0; font-size: 15px; line-height: 1.6; text-align: center; opacity: 0.9; font-style: italic;">Repeat for each photo you want to save</p>
                 </div>
                 
                 <!-- Buy more photos button at top -->
@@ -1885,32 +1877,25 @@ async def my_photos_by_email(
                 // Mostra/nascondi pulsante e istruzioni in base al dispositivo
                 function setupIOSInstructions() {{
                     const iosInstructionsTop = document.getElementById('ios-instructions-top');
-                    const iosInstructions = document.querySelectorAll('.ios-instructions');
                     const downloadBtns = document.querySelectorAll('.download-btn-desktop');
                     
                     console.log('Setting up iOS instructions...');
                     console.log('isIOS():', isIOS());
                     console.log('iosInstructionsTop found:', !!iosInstructionsTop);
-                    console.log('iosInstructions count:', iosInstructions.length);
                     
                     if (isIOS()) {{
-                        // Su iOS: mostra istruzioni (in alto e sotto ogni foto), nascondi pulsanti
+                        // Su iOS: mostra istruzioni in alto, nascondi pulsanti
                         if (iosInstructionsTop) {{
                             iosInstructionsTop.style.display = 'block';
                             console.log('iOS instructions top shown');
                         }}
-                        iosInstructions.forEach(el => {{
-                            el.style.display = 'block';
-                            console.log('iOS instruction shown');
-                        }});
                         downloadBtns.forEach(el => {{
                             el.style.display = 'none';
                             console.log('Download button hidden');
                         }});
                     }} else {{
-                        // Su Android/Desktop: mostra pulsanti, nascondi istruzioni
+                        // Su Android/Desktop: nascondi istruzioni, mostra pulsanti
                         if (iosInstructionsTop) iosInstructionsTop.style.display = 'none';
-                        iosInstructions.forEach(el => el.style.display = 'none');
                         downloadBtns.forEach(el => el.style.display = 'block');
                     }}
                 }}
@@ -2803,12 +2788,7 @@ async def checkout_success(
                 email_escaped = (email or "").replace("'", "\\'").replace('"', '\\"')
                 photos_html += f"""
                 <div class="photo-item">
-                    <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;" oncontextmenu="return false;">
-                    <div class="ios-instructions" style="display: none; margin-top: 15px; padding: 15px; background: rgba(240, 249, 255, 0.9); border: 2px solid #0ea5e9; border-radius: 12px; color: #0369a1; text-align: center; font-size: 16px;">
-                        <p style="margin: 0 0 8px 0; font-weight: bold; font-size: 16px;">📱 To save this photo:</p>
-                        <p style="margin: 0; font-size: 15px; line-height: 1.5;">1. Touch and hold the image above</p>
-                        <p style="margin: 5px 0 0 0; font-size: 15px; line-height: 1.5;">2. Select "Save to Photos" from the menu</p>
-                    </div>
+                    <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;">
                     <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Download</button>
                 </div>
                 """
@@ -2951,9 +2931,6 @@ async def checkout_success(
                     #ios-instructions-top {{
                         display: block !important;
                     }}
-                    .ios-instructions {{
-                        display: block !important;
-                    }}
                     .download-btn-desktop {{
                         display: none !important;
                     }}
@@ -2968,10 +2945,10 @@ async def checkout_success(
                 
                 <!-- iOS Instructions at top (if iPhone) -->
                 <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255, 255, 255, 0.4); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-                    <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 20px; text-align: center;">📱 How to save photos:</p>
-                    <p style="margin: 0; font-size: 17px; line-height: 1.8; text-align: left;">1. Touch and hold on any image below</p>
+                    <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 20px; text-align: center;">📱 How to save your photos:</p>
+                    <p style="margin: 0; font-size: 17px; line-height: 1.8; text-align: left;">1. Touch and hold on any photo below</p>
                     <p style="margin: 8px 0 0 0; font-size: 17px; line-height: 1.8; text-align: left;">2. Select "Save to Photos" from the menu</p>
-                    <p style="margin: 12px 0 0 0; font-size: 15px; line-height: 1.6; text-align: center; opacity: 0.9; font-style: italic;">Each photo has instructions below it too</p>
+                    <p style="margin: 12px 0 0 0; font-size: 15px; line-height: 1.6; text-align: center; opacity: 0.9; font-style: italic;">Repeat for each photo you want to save</p>
                 </div>
                 
                 <!-- Buy more photos button at top -->
@@ -2995,32 +2972,25 @@ async def checkout_success(
                 // Mostra/nascondi pulsante e istruzioni in base al dispositivo
                 function setupIOSInstructions() {{
                     const iosInstructionsTop = document.getElementById('ios-instructions-top');
-                    const iosInstructions = document.querySelectorAll('.ios-instructions');
                     const downloadBtns = document.querySelectorAll('.download-btn-desktop');
                     
                     console.log('Setting up iOS instructions...');
                     console.log('isIOS():', isIOS());
                     console.log('iosInstructionsTop found:', !!iosInstructionsTop);
-                    console.log('iosInstructions count:', iosInstructions.length);
                     
                     if (isIOS()) {{
-                        // Su iOS: mostra istruzioni (in alto e sotto ogni foto), nascondi pulsanti
+                        // Su iOS: mostra istruzioni in alto, nascondi pulsanti
                         if (iosInstructionsTop) {{
                             iosInstructionsTop.style.display = 'block';
                             console.log('iOS instructions top shown');
                         }}
-                        iosInstructions.forEach(el => {{
-                            el.style.display = 'block';
-                            console.log('iOS instruction shown');
-                        }});
                         downloadBtns.forEach(el => {{
                             el.style.display = 'none';
                             console.log('Download button hidden');
                         }});
                     }} else {{
-                        // Su Android/Desktop: mostra pulsanti, nascondi istruzioni
+                        // Su Android/Desktop: nascondi istruzioni, mostra pulsanti
                         if (iosInstructionsTop) iosInstructionsTop.style.display = 'none';
-                        iosInstructions.forEach(el => el.style.display = 'none');
                         downloadBtns.forEach(el => el.style.display = 'block');
                     }}
                 }}
