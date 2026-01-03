@@ -3013,23 +3013,16 @@
       
       albumGrid.innerHTML = '';
       
-      // OTTIMIZZAZIONE: Virtual scrolling - renderizza solo le prime foto visibili
-      // Per 200 foto, renderizzare tutto il DOM sarebbe troppo lento
-      const INITIAL_RENDER_COUNT = 50; // Renderizza solo le prime 50 foto
-      const PRELOAD_COUNT = 20; // Preload delle prime 20 immagini
-      const PHOTOS_TO_RENDER = Math.min(INITIAL_RENDER_COUNT, allPhotos.length);
+      // Lazy loading ottimizzato: preload delle prime foto visibili
+      // Con ~10-12 foto per utente, non serve virtual scrolling
+      const PRELOAD_COUNT = Math.min(6, allPhotos.length); // Preload prime 6 foto (quelle visibili subito)
       
       // Nascondi overlay dopo che le prime 6 foto sono caricate (per percepire velocità)
       let firstPhotosLoaded = 0;
       const hideOverlayAfter = 6;
       
-      // Renderizza solo le prime foto (virtual scrolling)
-      const photosToRender = allPhotos.slice(0, PHOTOS_TO_RENDER);
-      const remainingPhotos = allPhotos.slice(PHOTOS_TO_RENDER);
-      
-      console.log(`Rendering ${photosToRender.length} foto iniziali su ${allPhotos.length} totali (virtual scrolling)`);
-      
-      photosToRender.forEach((photo, index) => {
+      // Renderizza tutte le foto (con lazy loading per quelle non visibili)
+      allPhotos.forEach((photo, index) => {
         const div = document.createElement('div');
         div.className = 'album-photo';
 
@@ -3042,7 +3035,7 @@
         const skeleton = document.createElement('div');
         skeleton.className = 'photo-skeleton';
         
-        // Per le prime immagini, carica subito con priorità alta
+        // Per le prime immagini visibili, carica subito con priorità alta
         if(index < PRELOAD_COUNT) {
           img.dataset.loaded = 'true';
           const imgElement = new Image();
