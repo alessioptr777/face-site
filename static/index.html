@@ -1066,8 +1066,6 @@
       <p class="email-error" id="emailError">Invalid email address</p>
         </div>
     <button class="btn-primary" id="emailContinueBtn">Continue</button>
-    <button class="btn-secondary" id="myPhotosBtn" style="margin-top: 15px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2);">📸 Already purchased photos</button>
-    <button class="btn-secondary" id="testAlbumBtn" style="margin-top: 15px; background: rgba(0, 255, 0, 0.1); border: 2px solid rgba(0, 255, 0, 0.3); color: #4ade80;" onclick="loadTestAlbum()">🧪 Test Album (salta camera)</button>
       </div>
 
   <!-- Welcome Screen -->
@@ -1404,45 +1402,68 @@
       }
       
       // 2. Se c'è email nell'URL (da "Buy more photos"), controlla stato utente
+      // OTTIMIZZAZIONE: Mostra subito lo schermo email, poi controlla stato in background
       if(emailParam) {
         userEmail = emailParam;
         localStorage.setItem('userEmail', emailParam);
         
-        const userState = await checkUserState(emailParam);
-        
-        // Se ha foto trovate (non pagate), mostra album
-        if(userState.shown) {
-          return; // Album già mostrato
+        // Pre-compila email subito (UX migliore)
+        const emailInput = document.getElementById('emailInput');
+        if(emailInput) {
+          emailInput.value = emailParam;
         }
         
-        // Se ha foto pagate, redirecta
-        if(userState.redirect) {
-          return; // Redirect già fatto
-        }
-        
-        // Se non ha nulla, continua con flusso normale
+        // Controlla stato in background (non blocca UI)
+        checkUserState(emailParam).then(userState => {
+          // Se ha foto trovate (non pagate), mostra album
+          if(userState.shown) {
+            return; // Album già mostrato
+          }
+          
+          // Se ha foto pagate, redirecta
+          if(userState.redirect) {
+            return; // Redirect già fatto
+          }
+          
+          // Se non ha nulla, rimane sullo schermo email (già mostrato)
+        }).catch(err => {
+          console.error('Error checking user state in background:', err);
+          // In caso di errore, rimane sullo schermo email
+        });
       }
       
-      // 3. NUOVO: Controlla se utente ha acquisti (rientro)
+      // 3. NUOVO: Controlla se utente ha già usato il sito (rientro)
+      // OTTIMIZZAZIONE: Mostra subito lo schermo email, poi controlla stato in background
       const savedEmail = localStorage.getItem('userEmail');
       if(savedEmail && !emailParam) {
-        try {
-          const res = await fetch(`/user/photos?email=${encodeURIComponent(savedEmail)}`);
-          const data = await res.json();
-          
-          // Se ha foto pagate, redirecta a /my-photos
-          if(data.ok && data.paid_photos && data.paid_photos.length > 0) {
-            console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
-            window.location.href = `/my-photos?email=${encodeURIComponent(savedEmail)}`;
-            return;
-          }
-        } catch(e) {
-          console.error("Error checking paid photos on init:", e);
-          // Continua con flusso normale se errore
+        // Pre-compila email subito (UX migliore)
+        userEmail = savedEmail;
+        const emailInput = document.getElementById('emailInput');
+        if(emailInput) {
+          emailInput.value = savedEmail;
         }
+        
+        // Controlla stato in background (non blocca UI)
+        checkUserState(savedEmail).then(userState => {
+          // Se ha foto pagate, redirecta a /my-photos
+          if(userState.redirect) {
+            return; // Redirect già fatto
+          }
+          
+          // Se ha foto trovate (non pagate), mostra album
+          if(userState.shown) {
+            return; // Album già mostrato
+          }
+          
+          // Se non ha nulla, rimane sullo schermo email (già mostrato)
+        }).catch(err => {
+          console.error('Error checking user state in background:', err);
+          // In caso di errore, rimane sullo schermo email
+        });
       }
       
       // 4. FLUSSO BASE: email → selfie (no language selection)
+      // Mostra subito lo schermo email (non aspetta chiamate API)
       showScreen('email');
     }
     
@@ -1711,43 +1732,6 @@
       }
     }
     
-    // Pulsante "Le mie foto già acquistate"
-    const myPhotosBtn = document.getElementById('myPhotosBtn');
-    if(myPhotosBtn) {
-      myPhotosBtn.addEventListener('click', async () => {
-        const email = emailInput.value.trim();
-        
-        // Validazione email
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if(!email || !emailRegex.test(email)) {
-          emailError.classList.add('show');
-          emailInput.style.borderColor = '#ff4444';
-        return;
-      }
-
-        // Salva email
-        userEmail = email;
-        localStorage.setItem('userEmail', email);
-        emailError.classList.remove('show');
-        emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-        
-        // Mostra loading
-        myPhotosBtn.disabled = true;
-        const originalText = myPhotosBtn.textContent;
-        myPhotosBtn.textContent = '⏳ Caricamento...';
-        
-        // Controlla se ha foto pagate
-        const hasPaidPhotos = await checkEmailForPaidPhotos(email);
-        
-        // Ripristina pulsante
-        myPhotosBtn.disabled = false;
-        myPhotosBtn.textContent = originalText;
-        
-        if(!hasPaidPhotos) {
-          alert('Non hai ancora foto acquistate con questa email. Cerca le tue foto per iniziare!');
-        }
-      });
-    }
     
     // Enter key su input email
     emailInput.addEventListener('keypress', (e) => {
