@@ -1427,6 +1427,7 @@
       const urlParams = new URLSearchParams(window.location.search);
       const emailParam = urlParams.get('email');
       const refreshParam = urlParams.get('refresh');
+      const viewAlbumParam = urlParams.get('view_album'); // Nuovo parametro per forzare visualizzazione album
       
       if(refreshParam === 'paid' && emailParam) {
         // FLUSSO POST-PAGAMENTO: carica album direttamente
@@ -1446,23 +1447,40 @@
           emailInput.value = emailParam;
         }
         
-        // Controlla stato in background (non blocca UI)
-        checkUserState(emailParam).then(userState => {
-          // Se ha foto trovate (non pagate), mostra album
-          if(userState.shown) {
-            return; // Album già mostrato
-          }
-          
-          // Se ha foto pagate, redirecta
-          if(userState.redirect) {
-            return; // Redirect già fatto
-          }
-          
-          // Se non ha nulla, rimane sullo schermo email (già mostrato)
-        }).catch(err => {
-          console.error('Error checking user state in background:', err);
-          // In caso di errore, rimane sullo schermo email
-        });
+        // Se view_album=true, forza visualizzazione album anche se ha foto pagate
+        if(viewAlbumParam === 'true') {
+          checkUserState(emailParam).then(userState => {
+            // Se ha foto trovate (non pagate), mostra album
+            if(userState.shown) {
+              return; // Album già mostrato
+            }
+            // Se non ha foto trovate, mostra selfie
+            if(!userState.hasFound) {
+              showScreen('selfie');
+              startCamera();
+            }
+          }).catch(err => {
+            console.error('Error checking user state in background:', err);
+          });
+        } else {
+          // Comportamento normale: controlla stato in background (non blocca UI)
+          checkUserState(emailParam).then(userState => {
+            // Se ha foto trovate (non pagate), mostra album
+            if(userState.shown) {
+              return; // Album già mostrato
+            }
+            
+            // Se ha foto pagate, redirecta
+            if(userState.redirect) {
+              return; // Redirect già fatto
+            }
+            
+            // Se non ha nulla, rimane sullo schermo email (già mostrato)
+          }).catch(err => {
+            console.error('Error checking user state in background:', err);
+            // In caso di errore, rimane sullo schermo email
+          });
+        }
       }
       
       // 3. NUOVO: Controlla se utente ha già usato il sito (rientro)
