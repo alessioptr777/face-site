@@ -390,11 +390,17 @@ async def _init_database():
 async def _db_execute(query: str, params: tuple = ()):
     """Esegue una query e restituisce i risultati (adatta per PostgreSQL o SQLite)"""
     if USE_POSTGRES:
-        # Converti ? in $1, $2, ... per PostgreSQL
-        pg_query = query
-        param_count = query.count('?')
-        for i in range(1, param_count + 1):
-            pg_query = pg_query.replace('?', f'${i}', 1)
+        # Se la query contiene già $1, $2, etc., non convertire (è già formattata per PostgreSQL)
+        # Altrimenti, converti ? in $1, $2, ... per PostgreSQL
+        if '$' in query and any(f'${i}' in query for i in range(1, 10)):
+            # Query già formattata per PostgreSQL, usa direttamente
+            pg_query = query
+        else:
+            # Converti ? in $1, $2, ... per PostgreSQL
+            pg_query = query
+            param_count = query.count('?')
+            for i in range(1, param_count + 1):
+                pg_query = pg_query.replace('?', f'${i}', 1)
         
         conn = await asyncpg.connect(DATABASE_URL)
         try:
