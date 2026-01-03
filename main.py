@@ -2188,19 +2188,29 @@ async def get_user_photos(
                             # Usa i photo_ids dagli ordini come paid_photos
                             paid_photos = list(all_paid_photo_ids)
                             
-                            # OPZIONALE: Marca automaticamente le foto come pagate (fix silenzioso)
-                            # Questo assicura che la prossima volta funzioni anche senza questo fallback
-                            fixed_count = 0
-                            for photo_id in all_paid_photo_ids:
-                                try:
-                                    success = await _mark_photo_paid(email, photo_id)
-                                    if success:
-                                        fixed_count += 1
-                                except Exception as e:
-                                    logger.error(f"Error auto-fixing photo {photo_id}: {e}")
+                            # AUTO-FIX: Marca automaticamente le foto come pagate (solo quelle non già pagate)
+                            # Questo assicura che la prossima volta funzioni direttamente senza fallback
+                            # Verifica quali foto non sono ancora marcate come pagate
+                            existing_paid = set()
+                            if found_photos:
+                                existing_paid = {p['photo_id'] for p in found_photos if p.get('status') == 'paid'}
                             
-                            if fixed_count > 0:
-                                logger.info(f"Auto-fixed {fixed_count} photos for {email} based on orders")
+                            photos_to_fix = all_paid_photo_ids - existing_paid
+                            if photos_to_fix:
+                                logger.info(f"Auto-fixing {len(photos_to_fix)} photos that are not yet marked as paid")
+                                fixed_count = 0
+                                for photo_id in photos_to_fix:
+                                    try:
+                                        success = await _mark_photo_paid(email, photo_id)
+                                        if success:
+                                            fixed_count += 1
+                                    except Exception as e:
+                                        logger.error(f"Error auto-fixing photo {photo_id}: {e}")
+                                
+                                if fixed_count > 0:
+                                    logger.info(f"Auto-fixed {fixed_count} photos for {email} based on orders")
+                            else:
+                                logger.info(f"All photos from orders are already marked as paid - no fix needed")
                 except Exception as e:
                     logger.error(f"Error checking orders as fallback: {e}", exc_info=True)
         
