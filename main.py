@@ -386,271 +386,309 @@ async def _init_database():
     else:
         logger.warning("No database available - user tracking disabled")
 
+# Helper functions per database (PostgreSQL o SQLite)
+async def _db_execute(query: str, params: tuple = ()):
+    """Esegue una query e restituisce i risultati (adatta per PostgreSQL o SQLite)"""
+    if USE_POSTGRES:
+        # Converti ? in $1, $2, ... per PostgreSQL
+        pg_query = query
+        param_count = query.count('?')
+        for i in range(1, param_count + 1):
+            pg_query = pg_query.replace('?', f'${i}', 1)
+        
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            rows = await conn.fetch(pg_query, *params)
+            return [dict(row) for row in rows]
+        finally:
+            await conn.close()
+    elif SQLITE_AVAILABLE:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute(query, params)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    return []
+
+async def _db_execute_one(query: str, params: tuple = ()):
+    """Esegue una query e restituisce un solo risultato"""
+    rows = await _db_execute(query, params)
+    return rows[0] if rows else None
+
+async def _db_execute_write(query: str, params: tuple = ()):
+    """Esegue una query di scrittura (INSERT, UPDATE, DELETE)"""
+    if USE_POSTGRES:
+        # Converti ? in $1, $2, ... per PostgreSQL
+        pg_query = query
+        param_count = query.count('?')
+        for i in range(1, param_count + 1):
+            pg_query = pg_query.replace('?', f'${i}', 1)
+        
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            await conn.execute(pg_query, *params)
+        finally:
+            await conn.close()
+    elif SQLITE_AVAILABLE:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(query, params)
+            await conn.commit()
+
 async def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     """Recupera un utente per email"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return None
     
     try:
         email = _normalize_email(email)
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                "SELECT * FROM users WHERE email = ?",
-                (email,)
-            )
-            row = await cursor.fetchone()
-            if row:
-                return dict(row)
+        row = await _db_execute_one(
+            "SELECT * FROM users WHERE email = ?",
+            (email,)
+        )
+        return row
     except Exception as e:
         logger.error(f"Error getting user: {e}")
     return None
 
 async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] = None) -> bool:
     """Crea o aggiorna un utente (salva solo con email, selfie opzionale)"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return False
     
     try:
         email = _normalize_email(email)
-        now = datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(DB_PATH) as conn:
-            # Verifica se esiste
-            cursor = await conn.execute(
-                "SELECT email FROM users WHERE email = ?",
-                (email,)
-            )
-            exists = await cursor.fetchone()
-            
-            if exists:
-                # Aggiorna
-                if selfie_embedding:
-                    await conn.execute("""
-                        UPDATE users 
-                        SET selfie_embedding = ?, last_login_at = ?, last_selfie_at = ?
-                        WHERE email = ?
-                    """, (selfie_embedding, now, now, email))
-                else:
-                    # Aggiorna solo last_login_at (non sovrascrivere selfie_embedding esistente)
-                    await conn.execute("""
-                        UPDATE users 
-                        SET last_login_at = ?
-                        WHERE email = ?
-                    """, (now, email))
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+        
+        # Verifica se esiste
+        exists = await _db_execute_one(
+            "SELECT email FROM users WHERE email = ?",
+            (email,)
+        )
+        
+        if exists:
+            # Aggiorna
+            if selfie_embedding:
+                await _db_execute_write("""
+                    UPDATE users 
+                    SET selfie_embedding = ?, last_login_at = ?, last_selfie_at = ?
+                    WHERE email = ?
+                """, (selfie_embedding, now, now, email))
             else:
-                # Crea nuovo utente (solo con email, selfie opzionale)
-                await conn.execute("""
-                    INSERT INTO users (email, selfie_embedding, created_at, last_login_at, last_selfie_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (email, selfie_embedding, now, now, now if selfie_embedding else None))
-            
-            await conn.commit()
-            return True
+                # Aggiorna solo last_login_at (non sovrascrivere selfie_embedding esistente)
+                await _db_execute_write("""
+                    UPDATE users 
+                    SET last_login_at = ?
+                    WHERE email = ?
+                """, (now, email))
+        else:
+            # Crea nuovo utente (solo con email, selfie opzionale)
+            await _db_execute_write("""
+                INSERT INTO users (email, selfie_embedding, created_at, last_login_at, last_selfie_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (email, selfie_embedding, now, now, now if selfie_embedding else None))
+        
+        return True
     except Exception as e:
         logger.error(f"Error creating/updating user: {e}")
     return False
 
 async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> bool:
     """Aggiunge una foto trovata per un utente"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return False
     
     try:
         email = _normalize_email(email)
-        now = datetime.now(timezone.utc).isoformat()
-        
-        # Calcola expires_at
-        if status == "paid":
-            expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=30 if status == "paid" else 90)
         else:
-            expires_at = (datetime.now(timezone.utc) + timedelta(days=90)).isoformat()
+            now = datetime.now(timezone.utc).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=30 if status == "paid" else 90)).isoformat()
         
-        async with aiosqlite.connect(DB_PATH) as conn:
-            # Verifica se esiste già
-            cursor = await conn.execute(
-                "SELECT id FROM user_photos WHERE email = ? AND photo_id = ?",
-                (email, photo_id)
-            )
-            exists = await cursor.fetchone()
-            
-            if exists:
-                # Aggiorna
-                await conn.execute("""
-                    UPDATE user_photos 
-                    SET found_at = ?, status = ?, expires_at = ?
-                    WHERE email = ? AND photo_id = ?
-                """, (now, status, expires_at, email, photo_id))
-            else:
-                # Inserisci nuovo
-                await conn.execute("""
-                    INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (email, photo_id, now, status, expires_at))
-            
-            await conn.commit()
-            return True
+        # Verifica se esiste già
+        exists = await _db_execute_one(
+            "SELECT id FROM user_photos WHERE email = ? AND photo_id = ?",
+            (email, photo_id)
+        )
+        
+        if exists:
+            # Aggiorna
+            await _db_execute_write("""
+                UPDATE user_photos 
+                SET found_at = ?, status = ?, expires_at = ?
+                WHERE email = ? AND photo_id = ?
+            """, (now, status, expires_at, email, photo_id))
+        else:
+            # Inserisci nuovo
+            await _db_execute_write("""
+                INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (email, photo_id, now, status, expires_at))
+        
+        return True
     except Exception as e:
         logger.error(f"Error adding user photo: {e}")
     return False
 
 async def _mark_photo_paid(email: str, photo_id: str) -> bool:
     """Marca una foto come pagata (crea record se non esiste)"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return False
     
     try:
         email = _normalize_email(email)
-        now = datetime.now(timezone.utc).isoformat()
-        expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         
-        async with aiosqlite.connect(DB_PATH) as conn:
-            # Verifica se esiste già
-            cursor = await conn.execute("""
-                SELECT id FROM user_photos 
+        # Verifica se esiste già
+        exists = await _db_execute_one("""
+            SELECT id FROM user_photos 
+            WHERE email = ? AND photo_id = ?
+        """, (email, photo_id))
+        
+        if exists:
+            # Aggiorna record esistente
+            await _db_execute_write("""
+                UPDATE user_photos 
+                SET paid_at = ?, status = 'paid', expires_at = ?
                 WHERE email = ? AND photo_id = ?
-            """, (email, photo_id))
-            exists = await cursor.fetchone()
-            
-            if exists:
-                # Aggiorna record esistente
-                await conn.execute("""
-                    UPDATE user_photos 
-                    SET paid_at = ?, status = 'paid', expires_at = ?
-                    WHERE email = ? AND photo_id = ?
-                """, (now, expires_at, email, photo_id))
-            else:
-                # Crea nuovo record (foto pagata senza essere stata trovata prima)
-                await conn.execute("""
-                    INSERT INTO user_photos (email, photo_id, found_at, paid_at, status, expires_at)
-                    VALUES (?, ?, ?, ?, 'paid', ?)
-                """, (email, photo_id, now, now, expires_at))
-            
-            await conn.commit()
-            logger.info(f"Photo marked as paid: {email} - {photo_id}")
-            return True
+            """, (now, expires_at, email, photo_id))
+        else:
+            # Crea nuovo record (foto pagata senza essere stata trovata prima)
+            await _db_execute_write("""
+                INSERT INTO user_photos (email, photo_id, found_at, paid_at, status, expires_at)
+                VALUES (?, ?, ?, ?, 'paid', ?)
+            """, (email, photo_id, now, now, expires_at))
+        
+        logger.info(f"Photo marked as paid: {email} - {photo_id}")
+        return True
     except Exception as e:
         logger.error(f"Error marking photo paid: {e}")
     return False
 
 async def _get_user_paid_photos(email: str) -> List[str]:
     """Recupera lista foto pagate per un utente (non scadute)"""
-    if not SQLITE_AVAILABLE:
-        logger.warning(f"SQLite not available, cannot get paid photos for {email}")
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
+        logger.warning(f"Database not available, cannot get paid photos for {email}")
         return []
     
     try:
         email = _normalize_email(email)
-        now = datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(DB_PATH) as conn:
-            # Prima verifica tutte le foto per questo utente (per debug)
-            debug_cursor = await conn.execute("""
-                SELECT photo_id, status, expires_at FROM user_photos 
-                WHERE email = ?
-            """, (email,))
-            all_rows = await debug_cursor.fetchall()
-            logger.info(f"All photos for {email}: {len(all_rows)} total")
-            for row in all_rows:
-                logger.info(f"  - {row[0]}: status={row[1]}, expires_at={row[2]}")
-            
-            # Poi recupera solo quelle pagate e non scadute
-            cursor = await conn.execute("""
-                SELECT photo_id FROM user_photos 
-                WHERE email = ? AND status = 'paid' AND expires_at > ?
-            """, (email, now))
-            rows = await cursor.fetchall()
-            photo_ids = [row[0] for row in rows]
-            logger.info(f"Paid photos (not expired) for {email}: {len(photo_ids)} photos - {photo_ids}")
-            return photo_ids
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+        
+        # Prima verifica tutte le foto per questo utente (per debug)
+        all_rows = await _db_execute("""
+            SELECT photo_id, status, expires_at FROM user_photos 
+            WHERE email = ?
+        """, (email,))
+        logger.info(f"All photos for {email}: {len(all_rows)} total")
+        for row in all_rows:
+            logger.info(f"  - {row['photo_id']}: status={row['status']}, expires_at={row['expires_at']}")
+        
+        # Poi recupera solo quelle pagate e non scadute
+        rows = await _db_execute("""
+            SELECT photo_id FROM user_photos 
+            WHERE email = ? AND status = 'paid' AND expires_at > ?
+        """, (email, now))
+        photo_ids = [row['photo_id'] for row in rows]
+        logger.info(f"Paid photos (not expired) for {email}: {len(photo_ids)} photos - {photo_ids}")
+        return photo_ids
     except Exception as e:
         logger.error(f"Error getting paid photos for {email}: {e}", exc_info=True)
     return []
 
 async def _get_user_found_photos(email: str) -> List[Dict[str, Any]]:
     """Recupera tutte le foto trovate per un utente"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return []
     
     try:
         email = _normalize_email(email)
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute("""
-                SELECT photo_id, found_at, paid_at, expires_at, status 
-                FROM user_photos 
-                WHERE email = ?
-                ORDER BY found_at DESC
-            """, (email,))
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+        rows = await _db_execute("""
+            SELECT photo_id, found_at, paid_at, expires_at, status 
+            FROM user_photos 
+            WHERE email = ?
+            ORDER BY found_at DESC
+        """, (email,))
+        return rows
     except Exception as e:
         logger.error(f"Error getting found photos: {e}")
     return []
 
 async def _match_selfie_embedding(selfie_embedding: bytes, threshold: float = 0.7) -> Optional[str]:
     """Confronta selfie embedding con quelli salvati, ritorna email se match"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return None
     
     try:
-        async with aiosqlite.connect(DB_PATH) as conn:
-            cursor = await conn.execute(
-                "SELECT email, selfie_embedding FROM users WHERE selfie_embedding IS NOT NULL"
-            )
-            rows = await cursor.fetchall()
+        rows = await _db_execute(
+            "SELECT email, selfie_embedding FROM users WHERE selfie_embedding IS NOT NULL"
+        )
+        
+        selfie_emb = np.frombuffer(selfie_embedding, dtype=np.float32)
+        selfie_emb = _normalize(selfie_emb)
+        
+        best_match = None
+        best_score = 0.0
+        
+        for row in rows:
+            saved_emb = np.frombuffer(row['selfie_embedding'], dtype=np.float32)
+            saved_emb = _normalize(saved_emb)
             
-            selfie_emb = np.frombuffer(selfie_embedding, dtype=np.float32)
-            selfie_emb = _normalize(selfie_emb)
+            # Calcola cosine similarity
+            score = np.dot(selfie_emb, saved_emb)
             
-            best_match = None
-            best_score = 0.0
-            
-            for row in rows:
-                saved_emb = np.frombuffer(row[1], dtype=np.float32)
-                saved_emb = _normalize(saved_emb)
-                
-                # Calcola cosine similarity
-                score = np.dot(selfie_emb, saved_emb)
-                
-                if score > best_score and score >= threshold:
-                    best_score = score
-                    best_match = row[0]
-            
-            if best_match:
-                logger.info(f"Selfie matched with user: {best_match} (score: {best_score:.4f})")
-                return best_match
+            if score > best_score and score >= threshold:
+                best_score = score
+                best_match = row['email']
+        
+        if best_match:
+            logger.info(f"Selfie matched with user: {best_match} (score: {best_score:.4f})")
+            return best_match
     except Exception as e:
         logger.error(f"Error matching selfie: {e}")
     return None
 
 async def _create_order(email: str, order_id: str, stripe_session_id: str, photo_ids: List[str], amount_cents: int) -> Optional[str]:
     """Crea un ordine e ritorna download token"""
-    if not SQLITE_AVAILABLE:
-        logger.error("SQLite not available, cannot create order")
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
+        logger.error("Database not available, cannot create order")
         return None
     
     try:
         email = _normalize_email(email)
         logger.info(f"_create_order called: email={email}, order_id={order_id}, photo_count={len(photo_ids)}")
-        now = datetime.now(timezone.utc).isoformat()
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+        else:
+            now = datetime.now(timezone.utc).isoformat()
         download_token = secrets.token_urlsafe(32)
         logger.info(f"Generated download_token: {download_token[:20]}...")
         
-        async with aiosqlite.connect(DB_PATH) as conn:
-            logger.info(f"Connected to database: {DB_PATH}")
-            await conn.execute("""
-                INSERT INTO orders (order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (order_id, email, stripe_session_id, json.dumps(photo_ids), amount_cents, now, download_token))
-            logger.info("Order inserted into database")
-            
-            # Marca foto come pagate
-            for photo_id in photo_ids:
-                await _mark_photo_paid(email, photo_id)
-            logger.info(f"Marked {len(photo_ids)} photos as paid")
-            
-            await conn.commit()
-            logger.info("Order committed successfully")
-            return download_token
+        await _db_execute_write("""
+            INSERT INTO orders (order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (order_id, email, stripe_session_id, json.dumps(photo_ids), amount_cents, now, download_token))
+        logger.info("Order inserted into database")
+        
+        # Marca foto come pagate
+        for photo_id in photo_ids:
+            await _mark_photo_paid(email, photo_id)
+        logger.info(f"Marked {len(photo_ids)} photos as paid")
+        
+        logger.info("Order committed successfully")
+        return download_token
     except Exception as e:
         logger.error(f"Error creating order: {e}", exc_info=True)
         logger.error(f"Exception type: {type(e).__name__}")
@@ -658,36 +696,59 @@ async def _create_order(email: str, order_id: str, stripe_session_id: str, photo
 
 async def _get_order_by_token(token: str) -> Optional[Dict[str, Any]]:
     """Recupera ordine per download token"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return None
     
     try:
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                "SELECT * FROM orders WHERE download_token = ?",
-                (token,)
-            )
-            row = await cursor.fetchone()
-            if row:
-                order = dict(row)
-                order['photo_ids'] = json.loads(order['photo_ids'])
-                return order
+        row = await _db_execute_one(
+            "SELECT * FROM orders WHERE download_token = ?",
+            (token,)
+        )
+        if row:
+            order = dict(row)
+            order['photo_ids'] = json.loads(order['photo_ids'])
+            return order
     except Exception as e:
         logger.error(f"Error getting order: {e}")
     return None
 
 async def _get_photos_for_followup() -> List[Dict[str, Any]]:
     """Recupera foto che necessitano follow-up email"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return []
     
     try:
         now = datetime.now(timezone.utc)
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            # Foto non pagate trovate 7, 30, 60 giorni fa
-            cursor = await conn.execute("""
+        if USE_POSTGRES:
+            # PostgreSQL usa EXTRACT(EPOCH FROM ...) per differenze di date
+            query = """
+                SELECT email, photo_id, found_at, 
+                       CASE 
+                           WHEN EXTRACT(EPOCH FROM (? - found_at)) / 86400 BETWEEN 6 AND 8 THEN '7days'
+                           WHEN EXTRACT(EPOCH FROM (? - found_at)) / 86400 BETWEEN 29 AND 31 THEN '30days'
+                           WHEN EXTRACT(EPOCH FROM (? - found_at)) / 86400 BETWEEN 59 AND 61 THEN '60days'
+                       END as followup_type
+                FROM user_photos
+                WHERE status = 'found'
+                AND (EXTRACT(EPOCH FROM (? - found_at)) / 86400 BETWEEN 6 AND 8
+                     OR EXTRACT(EPOCH FROM (? - found_at)) / 86400 BETWEEN 29 AND 31
+                     OR EXTRACT(EPOCH FROM (? - found_at)) / 86400 BETWEEN 59 AND 61)
+                AND NOT EXISTS (
+                    SELECT 1 FROM email_followups 
+                    WHERE email_followups.email = user_photos.email 
+                    AND email_followups.photo_id = user_photos.photo_id
+                    AND email_followups.followup_type = 
+                        CASE 
+                            WHEN EXTRACT(EPOCH FROM (? - user_photos.found_at)) / 86400 BETWEEN 6 AND 8 THEN '7days'
+                            WHEN EXTRACT(EPOCH FROM (? - user_photos.found_at)) / 86400 BETWEEN 29 AND 31 THEN '30days'
+                            WHEN EXTRACT(EPOCH FROM (? - user_photos.found_at)) / 86400 BETWEEN 59 AND 61 THEN '60days'
+                        END
+                )
+            """
+            params = (now,) * 8
+        else:
+            # SQLite usa julianday
+            query = """
                 SELECT email, photo_id, found_at, 
                        CASE 
                            WHEN julianday(?) - julianday(found_at) BETWEEN 6 AND 8 THEN '7days'
@@ -710,26 +771,37 @@ async def _get_photos_for_followup() -> List[Dict[str, Any]]:
                             WHEN julianday(?) - julianday(user_photos.found_at) BETWEEN 59 AND 61 THEN '60days'
                         END
                 )
-            """, (now.isoformat(),) * 8)
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows if row['followup_type']]
+            """
+            params = (now.isoformat(),) * 8
+        
+        rows = await _db_execute(query, params)
+        return [row for row in rows if row.get('followup_type')]
     except Exception as e:
         logger.error(f"Error getting photos for followup: {e}")
     return []
 
 async def _mark_followup_sent(email: str, photo_id: str, followup_type: str):
     """Marca follow-up email come inviata"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return
     
     try:
-        now = datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute("""
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+            # PostgreSQL usa ON CONFLICT
+            await _db_execute_write("""
+                INSERT INTO email_followups (email, photo_id, followup_type, sent_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (email, photo_id, followup_type) 
+                DO UPDATE SET sent_at = ?
+            """, (email, photo_id, followup_type, now, now))
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+            # SQLite usa INSERT OR REPLACE
+            await _db_execute_write("""
                 INSERT OR REPLACE INTO email_followups (email, photo_id, followup_type, sent_at)
                 VALUES (?, ?, ?, ?)
             """, (email, photo_id, followup_type, now))
-            await conn.commit()
     except Exception as e:
         logger.error(f"Error marking followup sent: {e}")
 
@@ -775,35 +847,38 @@ async def _send_followup_emails():
 
 async def _cleanup_expired_photos():
     """Elimina foto scadute dal database e dal filesystem"""
-    if not SQLITE_AVAILABLE:
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return
     
     try:
-        now = datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(DB_PATH) as conn:
-            # Trova foto scadute
-            cursor = await conn.execute("""
-                SELECT email, photo_id, status FROM user_photos
-                WHERE expires_at < ? AND status != 'deleted'
-            """, (now,))
-            expired = await cursor.fetchall()
+        if USE_POSTGRES:
+            now = datetime.now(timezone.utc)
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+        
+        # Trova foto scadute
+        expired = await _db_execute("""
+            SELECT email, photo_id, status FROM user_photos
+            WHERE expires_at < ? AND status != 'deleted'
+        """, (now,))
+        
+        deleted_count = 0
+        for row in expired:
+            email = row['email']
+            photo_id = row['photo_id']
+            # Marca come deleted nel database
+            await _db_execute_write("""
+                UPDATE user_photos SET status = 'deleted' 
+                WHERE email = ? AND photo_id = ?
+            """, (email, photo_id))
             
-            deleted_count = 0
-            for row in expired:
-                email, photo_id, status = row
-                # Marca come deleted nel database
-                await conn.execute("""
-                    UPDATE user_photos SET status = 'deleted' 
-                    WHERE email = ? AND photo_id = ?
-                """, (email, photo_id))
-                
-                # Elimina file fisico (se locale, non Cloudinary)
-                if not USE_CLOUDINARY:
-                    photo_path = PHOTOS_DIR / photo_id
-                    if photo_path.exists():
-                        try:
-                            photo_path.unlink()
-                            deleted_count += 1
+            # Elimina file fisico (se locale, non Cloudinary)
+            if not USE_CLOUDINARY:
+                photo_path = PHOTOS_DIR / photo_id
+                if photo_path.exists():
+                    try:
+                        photo_path.unlink()
+                        deleted_count += 1
                             logger.info(f"Deleted expired photo: {photo_id}")
                         except Exception as e:
                             logger.error(f"Error deleting photo file {photo_id}: {e}")
@@ -1428,68 +1503,66 @@ def debug_paths():
 @app.get("/debug/orders")
 async def debug_orders(email: Optional[str] = Query(None, description="Filtra per email")):
     """Endpoint di debug per vedere ordini e foto nel database"""
-    if not SQLITE_AVAILABLE:
-        return {"error": "SQLite not available", "orders": [], "user_photos": []}
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
+        return {"error": "Database not available", "orders": [], "user_photos": []}
     
     try:
         if email:
             email = _normalize_email(email)
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            
-            # Recupera tutti gli ordini
-            if email:
-                orders_cursor = await conn.execute(
-                    "SELECT order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token FROM orders WHERE email = ? ORDER BY paid_at DESC LIMIT 50",
-                    (email,)
-                )
-            else:
-                orders_cursor = await conn.execute(
-                    "SELECT order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token FROM orders ORDER BY paid_at DESC LIMIT 50"
-                )
-            orders_rows = await orders_cursor.fetchall()
-            orders = []
-            for row in orders_rows:
-                orders.append({
-                    "order_id": row['order_id'],
-                    "email": row['email'],
-                    "stripe_session_id": row['stripe_session_id'],
-                    "photo_ids": json.loads(row['photo_ids']) if row['photo_ids'] else [],
-                    "amount_cents": row['amount_cents'],
-                    "paid_at": row['paid_at'],
-                    "download_token": row['download_token'][:20] + "..." if row['download_token'] else None
-                })
-            
-            # Recupera tutte le foto utente
-            if email:
-                photos_cursor = await conn.execute(
-                    "SELECT email, photo_id, status, found_at, paid_at, expires_at FROM user_photos WHERE email = ? ORDER BY paid_at DESC, found_at DESC LIMIT 100",
-                    (email,)
-                )
-            else:
-                photos_cursor = await conn.execute(
-                    "SELECT email, photo_id, status, found_at, paid_at, expires_at FROM user_photos ORDER BY paid_at DESC, found_at DESC LIMIT 100"
-                )
-            photos_rows = await photos_cursor.fetchall()
-            user_photos = []
-            for row in photos_rows:
-                user_photos.append({
-                    "email": row['email'],
-                    "photo_id": row['photo_id'],
-                    "status": row['status'],
-                    "found_at": row['found_at'],
-                    "paid_at": row['paid_at'],
-                    "expires_at": row['expires_at']
-                })
-            
-            return {
-                "ok": True,
-                "email_filter": email,
-                "orders_count": len(orders),
-                "orders": orders,
-                "user_photos_count": len(user_photos),
-                "user_photos": user_photos
-            }
+        
+        # Recupera tutti gli ordini
+        if email:
+            orders_rows = await _db_execute(
+                "SELECT order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token FROM orders WHERE email = ? ORDER BY paid_at DESC LIMIT 50",
+                (email,)
+            )
+        else:
+            orders_rows = await _db_execute(
+                "SELECT order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token FROM orders ORDER BY paid_at DESC LIMIT 50"
+            )
+        
+        orders = []
+        for row in orders_rows:
+            orders.append({
+                "order_id": row['order_id'],
+                "email": row['email'],
+                "stripe_session_id": row['stripe_session_id'],
+                "photo_ids": json.loads(row['photo_ids']) if row['photo_ids'] else [],
+                "amount_cents": row['amount_cents'],
+                "paid_at": str(row['paid_at']),
+                "download_token": row['download_token'][:20] + "..." if row['download_token'] else None
+            })
+        
+        # Recupera tutte le foto utente
+        if email:
+            photos_rows = await _db_execute(
+                "SELECT email, photo_id, status, found_at, paid_at, expires_at FROM user_photos WHERE email = ? ORDER BY paid_at DESC, found_at DESC LIMIT 100",
+                (email,)
+            )
+        else:
+            photos_rows = await _db_execute(
+                "SELECT email, photo_id, status, found_at, paid_at, expires_at FROM user_photos ORDER BY paid_at DESC, found_at DESC LIMIT 100"
+            )
+        
+        user_photos = []
+        for row in photos_rows:
+            user_photos.append({
+                "email": row['email'],
+                "photo_id": row['photo_id'],
+                "status": row['status'],
+                "found_at": str(row['found_at']),
+                "paid_at": str(row['paid_at']) if row['paid_at'] else None,
+                "expires_at": str(row['expires_at']) if row['expires_at'] else None
+            })
+        
+        return {
+            "ok": True,
+            "email_filter": email,
+            "orders_count": len(orders),
+            "orders": orders,
+            "user_photos_count": len(user_photos),
+            "user_photos": user_photos
+        }
     except Exception as e:
         logger.error(f"Error in debug_orders: {e}", exc_info=True)
         return {"error": str(e), "orders": [], "user_photos": []}
@@ -1497,41 +1570,37 @@ async def debug_orders(email: Optional[str] = Query(None, description="Filtra pe
 @app.post("/debug/fix-paid-photos")
 async def fix_paid_photos(email: str = Query(..., description="Email utente")):
     """Endpoint per correggere manualmente le foto pagate basandosi sugli ordini"""
-    if not SQLITE_AVAILABLE:
-        return {"error": "SQLite not available"}
+    if not USE_POSTGRES and not SQLITE_AVAILABLE:
+        return {"error": "Database not available"}
     
     try:
         email = _normalize_email(email)
         logger.info(f"Fixing paid photos for {email}")
         
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            
-            # Recupera tutti gli ordini per questa email
-            orders_cursor = await conn.execute(
-                "SELECT order_id, photo_ids FROM orders WHERE email = ?",
-                (email,)
-            )
-            orders_rows = await orders_cursor.fetchall()
-            
-            if not orders_rows:
-                return {"ok": False, "message": f"No orders found for {email}"}
-            
-            # Raccogli tutti i photo_ids dagli ordini
-            all_paid_photo_ids = set()
-            for row in orders_rows:
-                photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                all_paid_photo_ids.update(photo_ids)
-            
-            logger.info(f"Found {len(orders_rows)} orders with {len(all_paid_photo_ids)} unique paid photos")
-            
-            # Marca tutte queste foto come pagate
-            fixed_count = 0
-            for photo_id in all_paid_photo_ids:
-                success = await _mark_photo_paid(email, photo_id)
-                if success:
-                    fixed_count += 1
-                    logger.info(f"Fixed photo: {photo_id}")
+        # Recupera tutti gli ordini per questa email
+        orders_rows = await _db_execute(
+            "SELECT order_id, photo_ids FROM orders WHERE email = ?",
+            (email,)
+        )
+        
+        if not orders_rows:
+            return {"ok": False, "message": f"No orders found for {email}"}
+        
+        # Raccogli tutti i photo_ids dagli ordini
+        all_paid_photo_ids = set()
+        for row in orders_rows:
+            photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+            all_paid_photo_ids.update(photo_ids)
+        
+        logger.info(f"Found {len(orders_rows)} orders with {len(all_paid_photo_ids)} unique paid photos")
+        
+        # Marca tutte queste foto come pagate
+        fixed_count = 0
+        for photo_id in all_paid_photo_ids:
+            success = await _mark_photo_paid(email, photo_id)
+            if success:
+                fixed_count += 1
+                logger.info(f"Fixed photo: {photo_id}")
                 else:
                     logger.warning(f"Failed to fix photo: {photo_id}")
             
@@ -1875,16 +1944,14 @@ async def get_user_photos(
         else:
             logger.warning(f"No paid photos found for {email} - checking if there are any orders...")
             # Debug: controlla se ci sono ordini per questa email
-            if SQLITE_AVAILABLE:
+            if USE_POSTGRES or SQLITE_AVAILABLE:
                 try:
-                    async with aiosqlite.connect(DB_PATH) as conn:
-                        cursor = await conn.execute(
-                            "SELECT COUNT(*) as count FROM orders WHERE email = ?",
-                            (email,)
-                        )
-                        row = await cursor.fetchone()
-                        order_count = row[0] if row else 0
-                        logger.info(f"Orders found for {email}: {order_count}")
+                    row = await _db_execute_one(
+                        "SELECT COUNT(*) as count FROM orders WHERE email = ?",
+                        (email,)
+                    )
+                    order_count = row['count'] if row else 0
+                    logger.info(f"Orders found for {email}: {order_count}")
                 except Exception as e:
                     logger.error(f"Error checking orders: {e}")
         
@@ -2965,20 +3032,17 @@ async def checkout_success(
         stripe_session_id = session_id
         
         # Prova prima dal database (più affidabile)
-        if SQLITE_AVAILABLE:
+        if USE_POSTGRES or SQLITE_AVAILABLE:
             try:
-                async with aiosqlite.connect(DB_PATH) as conn:
-                    conn.row_factory = aiosqlite.Row
-                    cursor = await conn.execute(
-                        "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
-                        (stripe_session_id,)
-                    )
-                    row = await cursor.fetchone()
-                    if row:
-                        download_token = row['download_token']
-                        photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                        email = row['email']
-                        logger.info(f"Order found in database: {stripe_session_id} - {len(photo_ids)} photos for {email}")
+                row = await _db_execute_one(
+                    "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
+                    (stripe_session_id,)
+                )
+                if row:
+                    download_token = row['download_token']
+                    photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                    email = row['email']
+                    logger.info(f"Order found in database: {stripe_session_id} - {len(photo_ids)} photos for {email}")
             except Exception as e:
                 logger.error(f"Error getting order from database: {e}")
         
@@ -3014,15 +3078,12 @@ async def checkout_success(
             # Aspetta 2 secondi e riprova dal database
             import asyncio
             await asyncio.sleep(2)
-            if SQLITE_AVAILABLE:
+            if USE_POSTGRES or SQLITE_AVAILABLE:
                 try:
-                    async with aiosqlite.connect(DB_PATH) as conn:
-                        conn.row_factory = aiosqlite.Row
-                        cursor = await conn.execute(
-                            "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
-                            (stripe_session_id,)
-                        )
-                        row = await cursor.fetchone()
+                    row = await _db_execute_one(
+                        "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
+                        (stripe_session_id,)
+                    )
                         if row:
                             download_token = row['download_token']
                             photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
@@ -4067,40 +4128,34 @@ async def admin_stats(password: str = Query(..., description="Password admin")):
         total_users = 0
         recent_orders = []
         
-        if SQLITE_AVAILABLE:
-            async with aiosqlite.connect(DB_PATH) as conn:
-                conn.row_factory = aiosqlite.Row
-                
-                # Ordini totali e ricavi
-                cursor = await conn.execute("SELECT COUNT(*) as count, SUM(amount_cents) as total FROM orders")
-                row = await cursor.fetchone()
-                if row:
-                    total_orders = row['count'] or 0
-                    total_revenue = row['total'] or 0
-                
-                # Utenti totali
-                cursor = await conn.execute("SELECT COUNT(DISTINCT email) as count FROM users")
-                row = await cursor.fetchone()
-                if row:
-                    total_users = row['count'] or 0
-                
-                # Ordini recenti (ultimi 10)
-                cursor = await conn.execute("""
-                    SELECT email, photo_ids, amount_cents, paid_at, download_token
-                    FROM orders
-                    ORDER BY paid_at DESC
-                    LIMIT 10
-                """)
-                rows = await cursor.fetchall()
-                for row in rows:
-                    photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                    recent_orders.append({
-                        'email': row['email'],
-                        'photo_count': len(photo_ids),
-                        'amount_cents': row['amount_cents'],
-                        'paid_at': row['paid_at'],
-                        'download_token': row['download_token']
-                    })
+        if USE_POSTGRES or SQLITE_AVAILABLE:
+            # Ordini totali e ricavi
+            row = await _db_execute_one("SELECT COUNT(*) as count, SUM(amount_cents) as total FROM orders")
+            if row:
+                total_orders = row['count'] or 0
+                total_revenue = row['total'] or 0
+            
+            # Utenti totali
+            row = await _db_execute_one("SELECT COUNT(DISTINCT email) as count FROM users")
+            if row:
+                total_users = row['count'] or 0
+            
+            # Ordini recenti (ultimi 10)
+            rows = await _db_execute("""
+                SELECT email, photo_ids, amount_cents, paid_at, download_token
+                FROM orders
+                ORDER BY paid_at DESC
+                LIMIT 10
+            """)
+            for row in rows:
+                photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                recent_orders.append({
+                    'email': row['email'],
+                    'photo_count': len(photo_ids),
+                    'amount_cents': row['amount_cents'],
+                    'paid_at': str(row['paid_at']),
+                    'download_token': row['download_token']
+                })
         
         # Foto totali
         total_photos = len(list(PHOTOS_DIR.glob("*.jpg"))) + len(list(PHOTOS_DIR.glob("*.jpeg"))) + len(list(PHOTOS_DIR.glob("*.png")))
@@ -4125,14 +4180,23 @@ async def admin_orders(password: str = Query(..., description="Password admin"))
     
     try:
         orders = []
-        if SQLITE_AVAILABLE:
-            async with aiosqlite.connect(DB_PATH) as conn:
-                conn.row_factory = aiosqlite.Row
-                cursor = await conn.execute("""
-                    SELECT email, photo_ids, amount_cents, paid_at, download_token, order_id
-                    FROM orders
-                    ORDER BY paid_at DESC
-                """)
+        if USE_POSTGRES or SQLITE_AVAILABLE:
+            rows = await _db_execute("""
+                SELECT email, photo_ids, amount_cents, paid_at, download_token, order_id
+                FROM orders
+                ORDER BY paid_at DESC
+            """)
+            for row in rows:
+                photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                orders.append({
+                    'email': row['email'],
+                    'photo_ids': photo_ids,
+                    'photo_count': len(photo_ids),
+                    'amount_cents': row['amount_cents'],
+                    'paid_at': str(row['paid_at']),
+                    'download_token': row['download_token'],
+                    'order_id': row['order_id']
+                })
                 rows = await cursor.fetchall()
                 for row in rows:
                     photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
