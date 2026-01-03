@@ -1187,13 +1187,13 @@
       <button class="add-person-btn" id="addPersonBtn">+</button>
     </div>
     <div class="add-people-buttons">
-      <button class="btn-primary" id="addPersonConfirmBtn">Sì, aggiungi un'altra persona</button>
-      <button class="btn-retake" id="skipAddPersonBtn">Non ora, vai all'album</button>
+      <button class="btn-primary" id="addPersonConfirmBtn">Yes, add another person</button>
+      <button class="btn-retake" id="skipAddPersonBtn">Not now, go to album</button>
     </div>
     <!-- Loading indicator -->
     <div id="loadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
       <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-      <p style="color: var(--text-muted); margin-top: 15px;">Caricamento foto in corso...</p>
+      <p style="color: var(--text-muted); margin-top: 15px;">Loading photos...</p>
     </div>
   </div>
 
@@ -1313,7 +1313,7 @@
   <div class="paid-countdown-banner" id="paidCountdownBanner" style="display: none;">
     <div class="paid-countdown-content">
       <span class="paid-countdown-icon">⏰</span>
-      <span class="paid-countdown-text" id="paidCountdownText">Le tue foto pagate scadranno tra <strong id="paidCountdownDays">30</strong> giorni</span>
+      <span class="paid-countdown-text" id="paidCountdownText">Your paid photos will expire in <strong id="paidCountdownDays">30</strong> days</span>
     </div>
   </div>
 
@@ -1324,7 +1324,7 @@
       <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px;" id="photoCounter">1/1</div>
       <button id="lightboxPrev" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">←</button>
       <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
-      <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;">📥 Scarica</button>
+      <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;">📥 Download</button>
       <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none;" alt="Foto">
     </div>
   </div>
@@ -1341,7 +1341,7 @@
           <span>Totale:</span>
           <span id="cartTotal">€0.00</span>
         </div>
-        <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled>💳 Vai al Pagamento</button>
+        <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled>💳 Checkout</button>
         <button class="btn-retake" id="closeCartBtn" style="width: 100%;">Chiudi</button>
       </div>
     </div>
@@ -1462,7 +1462,7 @@
             showScreen('album');
             const albumGrid = document.getElementById('albumGrid');
             if(albumGrid) {
-              albumGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: white;">Errore nel caricamento. Riprova più tardi.</div>';
+              albumGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: white;">Loading error. Please try again later.</div>';
             }
           });
           return; // Esci subito, non mostrare schermo email
@@ -1744,11 +1744,11 @@
                 icon.style.cssText = 'font-size: 64px; margin-bottom: 20px;';
                 
                 const title = document.createElement('h2');
-                title.textContent = 'Hai comprato tutte le foto disponibili!';
+                title.textContent = 'You\'ve purchased all available photos!';
                 title.style.cssText = 'color: white; font-size: 24px; font-weight: 700; margin-bottom: 12px;';
                 
                 const subtitle = document.createElement('p');
-                subtitle.textContent = 'Non ci sono più foto acquistabili al momento.';
+                subtitle.textContent = 'There are no more photos available for purchase at the moment.';
                 subtitle.style.cssText = 'color: rgba(255, 255, 255, 0.8); font-size: 16px; line-height: 1.6;';
                 
                 messageDiv.appendChild(icon);
@@ -1797,8 +1797,8 @@
       if(!email || !emailRegex.test(email)) {
         emailError.classList.add('show');
         emailInput.style.borderColor = '#ff4444';
-          return;
-        }
+        return;
+      }
 
       // Salva email
       userEmail = email;
@@ -1974,11 +1974,11 @@
           showStickyOfferBar(allPhotos.length);
           applyTranslations();
         } else {
-          alert('Nessuna foto trovata per il test. Verifica che ci siano foto nella cartella photos.');
+          alert('No photos found for test. Make sure there are photos in the photos folder.');
         }
       } catch(e) {
         console.error('Errore caricamento test album:', e);
-        alert('Errore durante il caricamento del test album: ' + e.message);
+        alert('Error loading test album: ' + e.message);
       } finally {
         if(testBtn) {
           testBtn.disabled = false;
@@ -2299,15 +2299,15 @@
           captureBtn.disabled = true;
         }
         
-        let errorMsg = "Errore accesso camera.";
+        let errorMsg = "Camera access error.";
         if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          errorMsg = "Permesso camera negato. Abilita l'accesso alla fotocamera nelle impostazioni del browser.";
+          errorMsg = "Camera permission denied. Enable camera access in browser settings.";
         } else if(err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          errorMsg = "Nessuna fotocamera trovata.";
+          errorMsg = "No camera found.";
         } else if(err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-          errorMsg = "La fotocamera è già in uso da un'altra app.";
+          errorMsg = "Camera is already in use by another app.";
         } else {
-          errorMsg = "Errore accesso camera: " + err.message;
+          errorMsg = "Camera access error: " + err.message;
         }
         
         // Mostra messaggio nel placeholder
@@ -2330,7 +2330,7 @@
             height: video?.videoHeight,
             readyState: video?.readyState
           });
-          alert("La fotocamera non è ancora pronta. Attendi un attimo e riprova.");
+          alert("Camera is not ready yet. Please wait a moment and try again.");
       return;
     }
 
@@ -2386,8 +2386,8 @@
         // Converti canvas in blob
     canvas.toBlob((blob) => {
           if(!blob) {
-            console.error("Errore: blob non creato");
-            alert("Errore nella cattura della foto. Riprova.");
+            console.error("Error: blob not created");
+            alert("Error capturing photo. Please try again.");
         return;
       }
           
@@ -2410,7 +2410,7 @@
         
       } catch(err) {
         console.error("Errore nella cattura selfie:", err);
-        alert("Errore nella cattura della foto: " + err.message);
+        alert("Error capturing photo: " + err.message);
       }
     }
 
@@ -2444,11 +2444,11 @@
     async function matchPhotos() {
       if(!capturedBlob) {
         console.error("capturedBlob è null!");
-        alert("Errore: selfie non trovato. Per favore scatta di nuovo.");
+        alert("Error: selfie not found. Please take it again.");
         showScreen('selfie');
         startCamera();
-        return;
-      }
+      return;
+    }
 
       // Mostra area upload status (torna allo schermo selfie se siamo in confirm)
       showScreen('selfie');
@@ -2476,7 +2476,7 @@
         if(uploadPercentage) uploadPercentage.textContent = '30%';
         if(uploadStatusText) uploadStatusText.textContent = 'Sending selfie to server...';
         
-        const fd = new FormData();
+      const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
         
         // Simula progress durante upload (XMLHttpRequest per avere progress reale)
@@ -2561,11 +2561,11 @@
           console.error("❌ Errore HTTP:", res.status, res.statusText);
           console.error("Response text completo:", res.responseText);
           
-          let errorMsg = "Errore durante l'elaborazione. Riprova tra qualche istante.";
+          let errorMsg = "Error during processing. Please try again in a moment.";
           
           // Traduci messaggio in base alla lingua
-          if(currentLang === 'en') {
-            errorMsg = "Error during processing. Please try again in a moment.";
+          if(currentLang === 'it') {
+            errorMsg = "Errore durante l'elaborazione. Riprova tra qualche istante.";
           } else if(currentLang === 'fr') {
             errorMsg = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
           } else if(currentLang === 'de') {
@@ -2594,14 +2594,14 @@
             
             // Messaggi specifici per diversi status code
             if(res.status === 500) {
-              errorMsg = "Errore del server. Riprova tra qualche istante.";
-              if(currentLang === 'en') errorMsg = "Server error. Please try again in a moment.";
+              errorMsg = "Server error. Please try again in a moment.";
+              if(currentLang === 'it') errorMsg = "Errore del server. Riprova tra qualche istante.";
               else if(currentLang === 'fr') errorMsg = "Erreur serveur. Veuillez réessayer dans un instant.";
               else if(currentLang === 'de') errorMsg = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
               else if(currentLang === 'es') errorMsg = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
             } else if(res.status === 503) {
-              errorMsg = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
-              if(currentLang === 'en') errorMsg = "Service temporarily unavailable. Please try again in a moment.";
+              errorMsg = "Service temporarily unavailable. Please try again in a moment.";
+              if(currentLang === 'it') errorMsg = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
               else if(currentLang === 'fr') errorMsg = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
               else if(currentLang === 'de') errorMsg = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
               else if(currentLang === 'es') errorMsg = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
@@ -2818,19 +2818,19 @@
         } else if(err.status) {
           // Errore HTTP con status code
           if(err.status === 500) {
-            errorMessage = "Errore del server. Riprova tra qualche istante.";
-            if(currentLang === 'en') errorMessage = "Server error. Please try again in a moment.";
+            errorMessage = "Server error. Please try again in a moment.";
+            if(currentLang === 'it') errorMessage = "Errore del server. Riprova tra qualche istante.";
             else if(currentLang === 'fr') errorMessage = "Erreur serveur. Veuillez réessayer dans un instant.";
             else if(currentLang === 'de') errorMessage = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
             else if(currentLang === 'es') errorMessage = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
           } else if(err.status === 503) {
             errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
-            if(currentLang === 'en') errorMessage = "Service temporarily unavailable. Please try again in a moment.";
+            if(currentLang === 'it') errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
             else if(currentLang === 'fr') errorMessage = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
             else if(currentLang === 'de') errorMessage = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
             else if(currentLang === 'es') errorMessage = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
           } else {
-            errorMessage = `Errore ${err.status}: ${err.statusText || 'Errore del server'}`;
+            errorMessage = `Error ${err.status}: ${err.statusText || 'Server error'}`;
           }
         } else if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
           // Errore di rete (fetch API)
@@ -2839,10 +2839,10 @@
           // Errore di rete esplicito
           errorMessage = 'Connection error. Check your internet connection and try again.';
         } else {
-          // Altro tipo di errore (parsing, ecc.)
-          errorMessage = "Errore durante l'elaborazione. Riprova tra qualche istante.";
-          if(currentLang === 'en') {
-            errorMessage = "Error during processing. Please try again in a moment.";
+          // Other error type (parsing, etc.)
+          errorMessage = "Error during processing. Please try again in a moment.";
+          if(currentLang === 'it') {
+            errorMessage = "Errore durante l'elaborazione. Riprova tra qualche istante.";
           } else if(currentLang === 'fr') {
             errorMessage = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
           } else if(currentLang === 'de') {
@@ -3138,7 +3138,7 @@
           // Aggiungi solo testo semplice "già acquistata"
           const paidText = document.createElement('div');
           paidText.className = 'photo-paid-text';
-          paidText.textContent = 'già acquistata';
+          paidText.textContent = 'already purchased';
           paidText.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; z-index: 10; pointer-events: none;';
           div.appendChild(paidText);
           
@@ -3434,17 +3434,17 @@
       try {
         // Verifica che la foto sia pagata
         if(!paidPhotos.includes(photoId)) {
-          alert("Questa foto non è stata ancora pagata");
-          return;
-        }
-        
+          alert("This photo has not been paid yet");
+      return;
+    }
+
         // Passa SEMPRE email per verifica backend (obbligatorio per foto pagate)
         if(!userEmail) {
           userEmail = localStorage.getItem('userEmail');
         }
         
         if(!userEmail) {
-          alert("Email non trovata. Per favore, accedi di nuovo.");
+          alert("Email not found. Please log in again.");
         return;
       }
 
@@ -3481,10 +3481,10 @@
             }
           } catch(fetchError) {
             console.error('Errore fetch:', fetchError);
-            alert('Errore nel caricamento della foto. Riprova.');
-            return;
-          }
-          
+            alert('Error loading photo. Please try again.');
+        return;
+      }
+
           // Fallback: apri l'immagine direttamente usando l'URL
           // Su iOS Safari, questo permette all'utente di fare long-press e salvare
           const imgWindow = window.open(photoUrl, '_blank');
@@ -3492,11 +3492,11 @@
           if(imgWindow) {
             // Mostra istruzioni dopo un breve delay
             setTimeout(() => {
-              alert('📱 Tocca e tieni premuto sull\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
+              alert('📱 Touch and hold the image, then select "Save to Photos" to save it to your gallery.');
             }, 800);
           } else {
             // Se popup bloccato, mostra istruzioni alternative
-            alert('📱 Popup bloccato. Per salvare la foto:\n1. Tocca e tieni premuto sull\'immagine\n2. Seleziona "Salva in Foto"\n\nOppure apri questa pagina in Safari.');
+            alert('📱 Popup blocked. To save the photo:\n1. Touch and hold the image\n2. Select "Save to Photos"\n\nOr open this page in Safari.');
           }
         }
         // Su Android: download diretto (salva automaticamente nella galleria)
@@ -3548,7 +3548,7 @@
         // Previeni l'aggiunta di foto pagate al carrello
         if(paidPhotos.includes(photoId)) {
           console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
-          alert("Questa foto è già stata acquistata. Puoi scaricarla cliccando su 'Scarica'.");
+          alert("This photo has already been purchased. You can download it by clicking 'Download'.");
           return;
         }
         
@@ -3586,7 +3586,7 @@
           }
           // Ricarica le foto per aggiornare i pulsanti
           await displayPhotos();
-          alert(data.error || "Questa foto è già stata acquistata.");
+          alert(data.error || "This photo has already been purchased.");
           return;
         }
         
@@ -3722,9 +3722,9 @@
       if(!userEmail) {
         alert("Email is required");
         showScreen('email');
-        return;
-      }
-      
+      return;
+    }
+
       // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout
       if(paidPhotos.length > 0) {
         const paidPhotoIdsSet = new Set(paidPhotos);
@@ -3755,8 +3755,8 @@
             
             // Se carrello vuoto dopo filtro, avvisa
             if(currentCart.photo_ids.length === 0) {
-              alert("Tutte le foto selezionate sono già state acquistate. Puoi scaricarle dalla pagina 'Le mie foto'.");
-              return;
+              alert("All selected photos have already been purchased. You can download them from the 'My Photos' page.");
+        return;
             }
           }
         }
@@ -3810,7 +3810,7 @@
         }
       } catch(err) {
         console.error("Checkout error:", err);
-        alert("Errore durante il pagamento: " + err.message + "\n\nControlla la console per i dettagli.");
+        alert("Error during payment: " + err.message + "\n\nCheck the console for details.");
         if(checkoutBtn) {
           checkoutBtn.disabled = false;
           checkoutBtn.textContent = "💳 Vai al Pagamento";
@@ -3821,7 +3821,7 @@
     async function checkoutAllPhotos() {
       // Checkout per TUTTE le foto: ignora il carrello e usa tutte le foto trovate
       if(!allPhotos || allPhotos.length === 0) {
-        alert("Nessuna foto disponibile!");
+        alert("No photos available!");
     return;
   }
 
@@ -3861,7 +3861,7 @@
         if(data.checkout_url) {
           window.location.href = data.checkout_url;
         } else {
-          alert("Errore durante il checkout. Riprova.");
+          alert("Error during checkout. Please try again.");
         }
       } catch(err) {
         console.error("Errore checkout tutte le foto:", err);
@@ -3909,7 +3909,7 @@
     if(lightboxImage) {
       lightboxImage.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        alert('⚠️ Acquista la foto per scaricarla!');
+        alert('⚠️ Purchase the photo to download it!');
       });
       
       lightboxImage.addEventListener('dragstart', (e) => {
@@ -3921,7 +3921,7 @@
     // Boot
     window.addEventListener('load', () => {
       if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Questo browser non supporta la camera.");
+        alert("This browser does not support the camera.");
       }
     });
   </script>

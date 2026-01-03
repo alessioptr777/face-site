@@ -2269,7 +2269,7 @@ async def my_photos_by_email(
                 <div class="container">
                     <h1>📧 Email richiesta</h1>
                     <p>Per accedere alle tue foto, inserisci la tua email.</p>
-                    <a href="/">Torna alla home</a>
+                    <a href="/">Back to home</a>
                 </div>
             </body>
             </html>
@@ -2325,11 +2325,11 @@ async def my_photos_by_email(
         
         # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
-            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Torna all&apos;album</a>'
-            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Torna all&apos;album</a>'
+            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
+            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
         else:
-            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Torna all&apos;album</a>'
-            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Torna all&apos;album</a>'
+            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
+            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
         
         # Usa lo stesso HTML template di checkout/success
         html_content = f"""
@@ -2705,7 +2705,7 @@ async def my_photos_page(
                 <div class="container">
                     <h1>❌ Link non valido</h1>
                     <p>Il link che hai utilizzato non è valido o è scaduto.</p>
-                    <a href="/">Torna alla home</a>
+                    <a href="/">Back to home</a>
                 </div>
             </body>
             </html>
@@ -3430,11 +3430,11 @@ async def checkout_success(
         
         # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
-            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Torna all&apos;album</a>'
-            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Torna all&apos;album</a>'
+            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
+            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
         else:
-            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Torna all&apos;album</a>'
-            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Torna all&apos;album</a>'
+            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
+            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
         
         # Pagina con foto mostrate direttamente
         html_content = f"""
@@ -4071,7 +4071,7 @@ async def test_download_page(
                 <body style="font-family: Arial; padding: 50px; text-align: center;">
                     <h1>❌ Nessuna foto disponibile</h1>
                     <p>Carica almeno una foto per testare il download.</p>
-                    <a href="/">Torna alla home</a>
+                    <a href="/">Back to home</a>
                 </body>
                 </html>
                 """)
@@ -4171,7 +4171,7 @@ async def test_download_page(
                     <button id="download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" class="download-btn" style="display: none;">📥 Scarica</button>
                 </div>
                 <p style="margin-top: 30px;">
-                    <a href="/" style="color: #667eea; text-decoration: none;">← Torna alla home</a>
+                    <a href="/" style="color: #667eea; text-decoration: none;">← Back to home</a>
                 </p>
             </div>
             <script>
