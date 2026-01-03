@@ -1436,34 +1436,44 @@
       }
       
       // 2. Se c'è email nell'URL (da "Buy more photos"), controlla stato utente
-      // OTTIMIZZAZIONE: Mostra subito lo schermo email, poi controlla stato in background
       if(emailParam) {
         userEmail = emailParam;
         localStorage.setItem('userEmail', emailParam);
         
-        // Pre-compila email subito (UX migliore)
-        const emailInput = document.getElementById('emailInput');
-        if(emailInput) {
-          emailInput.value = emailParam;
-        }
-        
-        // Se view_album=true, forza visualizzazione album anche se ha foto pagate
+        // Se view_album=true, vai DIRETTAMENTE all'album (salta email e selfie)
         if(viewAlbumParam === 'true') {
+          // Mostra loading mentre carica
+          const loadingOverlay = document.getElementById('albumLoadingOverlay');
+          if(loadingOverlay) {
+            loadingOverlay.classList.add('active');
+          }
+          
+          // Vai direttamente all'album senza mostrare email/selfie
           checkUserState(emailParam, true).then(userState => {
-            // Se ha foto trovate (non pagate), mostra album
+            // Se ha foto trovate, album già mostrato
             if(userState.shown) {
-              return; // Album già mostrato
+              return;
             }
-            // Se non ha foto trovate, mostra selfie
+            // Se non ha foto trovate, mostra selfie per cercare nuove foto
             if(!userState.hasFound) {
               showScreen('selfie');
               startCamera();
             }
           }).catch(err => {
-            console.error('Error checking user state in background:', err);
+            console.error('Error checking user state:', err);
+            // In caso di errore, mostra selfie
+            showScreen('selfie');
+            startCamera();
           });
+          return; // Esci subito, non mostrare schermo email
         } else {
-          // Comportamento normale: controlla stato in background (non blocca UI)
+          // Comportamento normale: mostra email e controlla stato in background
+          const emailInput = document.getElementById('emailInput');
+          if(emailInput) {
+            emailInput.value = emailParam;
+          }
+          
+          // Controlla stato in background (non blocca UI)
           checkUserState(emailParam).then(userState => {
             // Se ha foto trovate (non pagate), mostra album
             if(userState.shown) {
