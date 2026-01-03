@@ -1600,13 +1600,13 @@ async def fix_paid_photos(email: str = Query(..., description="Email utente")):
             if success:
                 fixed_count += 1
                 logger.info(f"Fixed photo: {photo_id}")
-                else:
-                    logger.warning(f"Failed to fix photo: {photo_id}")
-            
-            return {
-                "ok": True,
-                "message": f"Fixed {fixed_count} photos for {email}",
-                "orders_count": len(orders_rows),
+            else:
+                logger.warning(f"Failed to fix photo: {photo_id}")
+        
+        return {
+            "ok": True,
+            "message": f"Fixed {fixed_count} photos for {email}",
+            "orders_count": len(orders_rows),
                 "photos_fixed": fixed_count,
                 "photo_ids": list(all_paid_photo_ids)
             }
