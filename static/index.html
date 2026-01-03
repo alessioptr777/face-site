@@ -1483,35 +1483,8 @@
         }
       }
       
-      // 3. NUOVO: Controlla se utente ha già usato il sito (rientro)
-      // OTTIMIZZAZIONE: Mostra subito lo schermo email, poi controlla stato in background
-      const savedEmail = localStorage.getItem('userEmail');
-      if(savedEmail && !emailParam) {
-        // Pre-compila email se salvata (UX migliore - utente non deve riscriverla)
-        userEmail = savedEmail;
-        const emailInput = document.getElementById('emailInput');
-        if(emailInput) {
-          emailInput.value = savedEmail;
-        }
-        
-        // Controlla stato in background (non blocca UI)
-        checkUserState(savedEmail).then(userState => {
-          // Se ha foto pagate, redirecta a /my-photos
-          if(userState.redirect) {
-            return; // Redirect già fatto
-          }
-          
-          // Se ha foto trovate (non pagate), mostra album
-          if(userState.shown) {
-            return; // Album già mostrato
-          }
-          
-          // Se non ha nulla, rimane sullo schermo email (già mostrato con email pre-compilata)
-        }).catch(err => {
-          console.error('Error checking user state in background:', err);
-          // In caso di errore, rimane sullo schermo email
-        });
-      }
+      // 3. Email sempre vuota - utente deve sempre inserirla e cliccare Continue
+      // (rimosso auto-check e pre-compilazione per semplicità)
       
       // 4. FLUSSO BASE: email → selfie (no language selection)
       // Mostra subito lo schermo email (non aspetta chiamate API)
