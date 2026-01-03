@@ -534,27 +534,33 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
         email = _normalize_email(email)
         
         # Verifica se esiste già
-        exists = await _db_execute_one(
-            "SELECT id FROM user_photos WHERE email = ? AND photo_id = ?",
-            (email, photo_id)
-        )
+        if USE_POSTGRES:
+            exists = await _db_execute_one(
+                "SELECT id FROM user_photos WHERE email = $1 AND photo_id = $2",
+                (email, photo_id)
+            )
+        else:
+            exists = await _db_execute_one(
+                "SELECT id FROM user_photos WHERE email = ? AND photo_id = ?",
+                (email, photo_id)
+            )
         
         if USE_POSTGRES:
             # PostgreSQL: usa NOW() e INTERVAL per evitare problemi con timezone
             days = 30 if status == "paid" else 90
             if exists:
-                # Aggiorna
-                await _db_execute_write("""
+                # Aggiorna - usa f-string per INTERVAL
+                await _db_execute_write(f"""
                     UPDATE user_photos 
-                    SET found_at = NOW(), status = $1, expires_at = NOW() + INTERVAL '%d days'
+                    SET found_at = NOW(), status = $1, expires_at = NOW() + INTERVAL '{days} days'
                     WHERE email = $2 AND photo_id = $3
-                """ % days, (status, email, photo_id))
+                """, (status, email, photo_id))
             else:
-                # Inserisci nuovo
-                await _db_execute_write("""
+                # Inserisci nuovo - usa f-string per INTERVAL
+                await _db_execute_write(f"""
                     INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
-                    VALUES ($1, $2, NOW(), $3, NOW() + INTERVAL '%d days')
-                """ % days, (email, photo_id, status))
+                    VALUES ($1, $2, NOW(), $3, NOW() + INTERVAL '{days} days')
+                """, (email, photo_id, status))
         else:
             # SQLite: usa parametro
             now = datetime.now(timezone.utc).isoformat()
@@ -587,10 +593,16 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
         email = _normalize_email(email)
         
         # Verifica se esiste già
-        exists = await _db_execute_one("""
-            SELECT id FROM user_photos 
-            WHERE email = ? AND photo_id = ?
-        """, (email, photo_id))
+        if USE_POSTGRES:
+            exists = await _db_execute_one("""
+                SELECT id FROM user_photos 
+                WHERE email = $1 AND photo_id = $2
+            """, (email, photo_id))
+        else:
+            exists = await _db_execute_one("""
+                SELECT id FROM user_photos 
+                WHERE email = ? AND photo_id = ?
+            """, (email, photo_id))
         
         if USE_POSTGRES:
             # PostgreSQL: usa NOW() e INTERVAL per evitare problemi con timezone
