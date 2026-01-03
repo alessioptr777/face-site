@@ -443,19 +443,33 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
 async def _get_user_paid_photos(email: str) -> List[str]:
     """Recupera lista foto pagate per un utente (non scadute)"""
     if not SQLITE_AVAILABLE:
+        logger.warning(f"SQLite not available, cannot get paid photos for {email}")
         return []
     
     try:
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(DB_PATH) as conn:
+            # Prima verifica tutte le foto per questo utente (per debug)
+            debug_cursor = await conn.execute("""
+                SELECT photo_id, status, expires_at FROM user_photos 
+                WHERE email = ?
+            """, (email,))
+            all_rows = await debug_cursor.fetchall()
+            logger.info(f"All photos for {email}: {len(all_rows)} total")
+            for row in all_rows:
+                logger.info(f"  - {row[0]}: status={row[1]}, expires_at={row[2]}")
+            
+            # Poi recupera solo quelle pagate e non scadute
             cursor = await conn.execute("""
                 SELECT photo_id FROM user_photos 
                 WHERE email = ? AND status = 'paid' AND expires_at > ?
             """, (email, now))
             rows = await cursor.fetchall()
-            return [row[0] for row in rows]
+            photo_ids = [row[0] for row in rows]
+            logger.info(f"Paid photos (not expired) for {email}: {len(photo_ids)} photos - {photo_ids}")
+            return photo_ids
     except Exception as e:
-        logger.error(f"Error getting paid photos: {e}")
+        logger.error(f"Error getting paid photos for {email}: {e}", exc_info=True)
     return []
 
 async def _get_user_found_photos(email: str) -> List[Dict[str, Any]]:
@@ -1622,6 +1636,10 @@ async def get_user_photos(
         found_photos = await _get_user_found_photos(email)
         paid_photos = await _get_user_paid_photos(email)
         
+        logger.info(f"User photos request for {email}: found={len(found_photos)}, paid={len(paid_photos)}")
+        if paid_photos:
+            logger.info(f"Paid photos for {email}: {paid_photos}")
+        
         return {
             "ok": True,
             "email": email,
@@ -2631,8 +2649,17 @@ async def create_checkout(
         
         logger.info("Creating Stripe checkout session...")
         # Crea checkout session Stripe
+        # Nota: Per disabilitare completamente Stripe Link, devi anche disabilitarlo nella Dashboard Stripe:
+        # Dashboard → Settings → Payment methods → Link → Disable
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
+            payment_method_options={
+                'link': {
+                    'enabled': False  # Disabilita Stripe Link per questa sessione
+                }
+            },
+            # Alternativa: non includere customer_email se non necessario (Link usa email per autofill)
+            # customer_email=email,  # Commentato per ridurre probabilità che Stripe mostri Link
             line_items=[{
                 'price_data': {
                     'currency': 'eur',
@@ -2645,7 +2672,8 @@ async def create_checkout(
                 'quantity': 1,
             }],
             mode='payment',
-            customer_email=email,  # Aggiungi email cliente a Stripe
+            # customer_email rimosso: Stripe Link usa l'email per autofill, rimuovendola riduciamo la probabilità che Link appaia
+            # L'email viene comunque salvata nel metadata per il webhook
             success_url=f'{base_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}&cart_session={session_id}',
             cancel_url=f'{base_url}/checkout/cancel?session_id={session_id}',
             metadata={
