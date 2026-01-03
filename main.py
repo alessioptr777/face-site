@@ -3351,12 +3351,21 @@ async def checkout_success(
                 email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
                 if email:
                     logger.info(f"Recovered email from Stripe session in success page: {email}")
-                    # Se abbiamo email e photo_ids ma non ordine nel DB, crealo ora
-                    if SQLITE_AVAILABLE and not download_token:
+                    # Se abbiamo email e photo_ids ma non ordine nel DB, crealo ora (PostgreSQL o SQLite)
+                    if (USE_POSTGRES or SQLITE_AVAILABLE) and not download_token:
                         logger.info(f"Creating order manually in success page: {email} - {len(photo_ids)} photos")
-                        download_token = await _create_order(email, stripe_session_id, stripe_session_id, photo_ids, 0)
+                        # Recupera amount da Stripe session se disponibile
+                        amount_cents = 0
+                        try:
+                            if stripe_session.get('amount_total'):
+                                amount_cents = stripe_session.get('amount_total')
+                        except:
+                            pass
+                        download_token = await _create_order(email, stripe_session_id, stripe_session_id, photo_ids, amount_cents)
                         if download_token:
                             logger.info(f"Order created successfully in success page: {download_token}")
+                        else:
+                            logger.error(f"Failed to create order in success page for {email}")
             except Exception as e:
                 logger.error(f"Error recovering email from Stripe in success page: {e}")
         
