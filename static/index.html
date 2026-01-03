@@ -1057,44 +1057,16 @@
   </style>
 </head>
 <body>
-  <!-- Language Selection Screen -->
-  <div class="screen language-screen active" id="languageScreen">
-    <h1 class="language-title" data-i18n="language.title">Choose your language</h1>
-    <p class="language-subtitle" data-i18n="language.subtitle">Select your preferred language</p>
-    <div class="language-grid">
-      <div class="language-option" data-lang="en">
-        <div class="language-flag">🇬🇧</div>
-        <div class="language-name">English</div>
-      </div>
-      <div class="language-option" data-lang="it">
-        <div class="language-flag">🇮🇹</div>
-        <div class="language-name">Italiano</div>
-      </div>
-      <div class="language-option" data-lang="fr">
-        <div class="language-flag">🇫🇷</div>
-        <div class="language-name">Français</div>
-      </div>
-      <div class="language-option" data-lang="de">
-        <div class="language-flag">🇩🇪</div>
-        <div class="language-name">Deutsch</div>
-      </div>
-      <div class="language-option" data-lang="es">
-        <div class="language-flag">🇪🇸</div>
-        <div class="language-name">Español</div>
-      </div>
-    </div>
-  </div>
-
   <!-- Email Screen -->
   <div class="screen email-screen" id="emailScreen">
-    <h1 class="email-title" data-i18n="email.title">Inserisci la tua email</h1>
-    <p class="email-subtitle" data-i18n="email.subtitle">La tua email è obbligatoria per salvare e recuperare le tue foto</p>
+    <h1 class="email-title">Enter your email</h1>
+    <p class="email-subtitle">Your email is required to save and recover your photos</p>
     <div class="email-input-container">
-      <input type="email" class="email-input" id="emailInput" placeholder="tua@email.com" data-i18n-placeholder="email.placeholder">
-      <p class="email-error" id="emailError" data-i18n="email.error">Email non valida</p>
+      <input type="email" class="email-input" id="emailInput" placeholder="your@email.com">
+      <p class="email-error" id="emailError">Invalid email address</p>
         </div>
-    <button class="btn-primary" id="emailContinueBtn" data-i18n="email.continue">Continua</button>
-    <button class="btn-secondary" id="myPhotosBtn" style="margin-top: 15px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2);" data-i18n="email.myPhotos">📸 Foto già acquistate</button>
+    <button class="btn-primary" id="emailContinueBtn">Continue</button>
+    <button class="btn-secondary" id="myPhotosBtn" style="margin-top: 15px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2);">📸 Already purchased photos</button>
     <button class="btn-secondary" id="testAlbumBtn" style="margin-top: 15px; background: rgba(0, 255, 0, 0.1); border: 2px solid rgba(0, 255, 0, 0.3); color: #4ade80;" onclick="loadTestAlbum()">🧪 Test Album (salta camera)</button>
       </div>
 
@@ -1108,12 +1080,12 @@
         <circle cx="70" cy="35" r="4"/>
       </svg>
         </div>
-    <h1 class="welcome-title" data-i18n="welcome.title">Find your photos!</h1>
-    <p class="welcome-text" data-i18n="welcome.text">
+    <h1 class="welcome-title">Find your photos!</h1>
+    <p class="welcome-text">
       In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.
     </p>
-    <button class="btn-primary" id="welcomeContinueBtn" data-i18n="welcome.continue">Continue</button>
-    <p class="welcome-privacy" data-i18n="welcome.privacy">
+    <button class="btn-primary" id="welcomeContinueBtn">Continue</button>
+    <p class="welcome-privacy">
       We operate in full respect of Privacy and use your face exclusively to find photos that feature you.
     </p>
       </div>
@@ -1121,15 +1093,15 @@
   <!-- Selfie Screen -->
   <div class="screen selfie-screen" id="selfieScreen">
     <div class="selfie-header">
-      <h2 data-i18n="selfie.title">Take your selfie</h2>
+      <h2>Take your selfie</h2>
     </div>
     <div class="selfie-preview">
       <div class="selfie-video">
         <video id="video" autoplay playsinline muted webkit-playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
         <div id="videoPlaceholder" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
-          <p style="font-size: 14px;" data-i18n="selfie.error">Camera not available</p>
-          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;" data-i18n="selfie.retry">Retry</button>
+          <p style="font-size: 14px;">Camera not available</p>
+          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;">Retry</button>
         </div>
       </div>
       <div class="selfie-controls">
@@ -1138,39 +1110,39 @@
             <circle cx="12" cy="12" r="10"/>
           </svg>
         </button>
-        <button class="btn-retake" id="switchCameraBtn" style="display:none;">Cambia camera</button>
+        <button class="btn-retake" id="switchCameraBtn" style="display:none;">Switch camera</button>
       </div>
     </div>
     <!-- Upload Status Area - sempre visibile quando attiva -->
     <div class="upload-status" id="uploadStatus">
       <div class="upload-status-text">
         <span class="upload-spinner"></span>
-        <span id="uploadStatusText">Caricamento in corso...</span>
+        <span id="uploadStatusText">Loading photos...</span>
       </div>
       <div class="upload-progress-container">
         <div class="upload-progress-bar" id="uploadProgressBar"></div>
       </div>
       <div class="upload-percentage" id="uploadPercentage">0%</div>
-    </div>
-  </div>
+        </div>
+      </div>
 
   <!-- Confirm Selfie Screen -->
   <div class="screen confirm-screen" id="confirmScreen">
-    <h2 class="confirm-title" data-i18n="confirm.title">Confirm selfie</h2>
+    <h2 class="confirm-title">Confirm selfie</h2>
     <div class="confirm-preview">
       <img id="confirmPreview" alt="Selfie preview">
     </div>
-    <p class="confirm-privacy" data-i18n="confirm.privacy">
+    <p class="confirm-privacy">
       By selecting "Confirm" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.
     </p>
     <div class="confirm-buttons">
-      <button class="btn-confirm" id="confirmBtn" data-i18n="confirm.confirm">Confirm</button>
-      <button class="btn-retake" id="retakeBtn" data-i18n="confirm.retake">Take again</button>
+      <button class="btn-confirm" id="confirmBtn">Confirm</button>
+      <button class="btn-retake" id="retakeBtn">Take again</button>
     </div>
     <!-- Loading indicator per ricerca foto -->
     <div id="confirmLoadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
       <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-      <p style="color: var(--text-muted); margin-top: 15px;" data-i18n="upload.loading">Loading photos...</p>
+      <p style="color: var(--text-muted); margin-top: 15px;">Loading photos...</p>
     </div>
   </div>
 
@@ -1209,74 +1181,74 @@
       </div>
       <div class="profile-info">
         <h3>Tenerife Stars Pictures</h3>
-        <p data-i18n="album.sessionBy">Your photo session was taken by Metaproos</p>
+        <p>Your photo session was taken by Metaproos</p>
       </div>
     </div>
     <div class="album-tabs">
-      <button class="album-tab active" id="myContentTab" data-i18n="album.myContent">My content</button>
-      <button class="album-tab" id="pricesTab" data-i18n="album.priceList">Price list ↗</button>
+      <button class="album-tab active" id="myContentTab">My content</button>
+      <button class="album-tab" id="pricesTab">Price list ↗</button>
     </div>
     <div class="album-photo-count" id="albumPhotoCount" style="display: none;">
-      <span data-i18n="album.found" data-i18n-params='{"count": 0}'>You found <span id="photoCountNumber">0</span> photos</span>
+      <span>You found <span id="photoCountNumber">0</span> photos</span>
     </div>
     
     <!-- Listino Prezzi -->
     <div class="prices-list" id="pricesList">
-      <h2 class="prices-title" data-i18n="prices.title">Price List</h2>
-      <p class="prices-subtitle" data-i18n="prices.subtitle">Choose the offer you prefer</p>
+      <h2 class="prices-title">Price List</h2>
+      <p class="prices-subtitle">Choose the offer you prefer</p>
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">1 <span data-i18n="prices.photo">photo</span></div>
-          <div class="price-item-desc" data-i18n="prices.single">Single photo</div>
+          <div class="price-item-count">1 <span>photo</span></div>
+          <div class="price-item-desc">Single photo</div>
         </div>
         <div class="price-item-value">€1</div>
       </div>
 
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">2 <span data-i18n="prices.photo">photos</span></div>
-          <div class="price-item-desc" data-i18n="prices.double">Double</div>
+          <div class="price-item-count">2 <span>photos</span></div>
+          <div class="price-item-desc">Double</div>
         </div>
         <div class="price-item-value">€40</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">3 <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeDiscount">Discount</span></div>
-          <div class="price-item-desc" data-i18n="prices.special">Special offer</div>
+          <div class="price-item-count">3 <span>photos</span> <span class="price-item-badge">Discount</span></div>
+          <div class="price-item-desc">Special offer</div>
       </div>
         <div class="price-item-value">€35</div>
     </div>
 
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">4 <span data-i18n="prices.photo">photos</span></div>
-          <div class="price-item-desc" data-i18n="prices.package">Package</div>
+          <div class="price-item-count">4 <span>photos</span></div>
+          <div class="price-item-desc">Package</div>
         </div>
         <div class="price-item-value">€40</div>
       </div>
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">5 <span data-i18n="prices.photo">photos</span></div>
-          <div class="price-item-desc" data-i18n="prices.package">Package</div>
+          <div class="price-item-count">5 <span >photos</span></div>
+          <div class="price-item-desc" >Package</div>
         </div>
         <div class="price-item-value">€45</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">6-11 <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeBest">Best</span></div>
-          <div class="price-item-desc" data-i18n="prices.complete">Complete package</div>
+          <div class="price-item-count">6-11 <span >photos</span> <span class="price-item-badge" >Best</span></div>
+          <div class="price-item-desc" >Complete package</div>
         </div>
         <div class="price-item-value">€50</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">12+ <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeTop">Top</span></div>
-          <div class="price-item-desc" data-i18n="prices.best">All photos at the best price</div>
+          <div class="price-item-count">12+ <span >photos</span> <span class="price-item-badge" >Top</span></div>
+          <div class="price-item-desc" >All photos at the best price</div>
         </div>
         <div class="price-item-value">€60</div>
       </div>
@@ -1372,168 +1344,9 @@
 
   <script>
     // ========== SISTEMA TRADUZIONI ==========
-    const translations = {
-      en: {
-        language: { title: "Choose your language", subtitle: "Select your preferred language" },
-        email: { title: "Enter your email", subtitle: "Your email is required to save and recover your photos", placeholder: "your@email.com", continue: "Continue", error: "Invalid email address", required: "Email is required for checkout", myPhotos: "📸 Already purchased photos" },
-        welcome: { title: "Find your photos!", text: "In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.", continue: "Continue", privacy: "We operate in full respect of Privacy and use your face exclusively to find photos that feature you." },
-        selfie: { title: "Take your selfie", error: "Camera not available", retry: "Retry" },
-        confirm: { title: "Confirm selfie", privacy: "By selecting \"Confirm\" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.", confirm: "Confirm", retake: "Take again" },
-        upload: { loading: "Loading photos...", sending: "Sending selfie to server...", analyzing: "Analyzing photos...", found: "Found {count} photos!" },
-        album: { myContent: "My content", priceList: "Price list ↗", found: "You found {count} photos", buyAll: "Buy all photos at", digital: "in digital format", sessionBy: "Your photo session was taken by Metaproos" },
-        prices: { title: "Price List", subtitle: "Choose the offer you prefer", photo: "photos", single: "Single photo", double: "Double", special: "Special offer", package: "Package", complete: "Complete package", best: "All photos at the best price", badgeDiscount: "Discount", badgeBest: "Best", badgeTop: "Top" },
-        cart: { title: "Cart", empty: "Cart is empty", total: "Total:", checkout: "Go to Payment", close: "Close" },
-        sticky: { buy1: "Buy your photo", buyFew: "Buy all {count} photos", buyMany: "Buy all {count} photos and save", buyAll: "Buy all {count} photos at the best price", buy: "Buy" },
-        errors: { noPhotos: "No photos found. Try again.", connection: "Connection error. Check your internet connection and try again.", camera: "Camera error", cameraNotReady: "Camera not ready yet. Wait a moment and try again." }
-      },
-      it: {
-        language: { title: "Scegli la tua lingua", subtitle: "Seleziona la lingua preferita" },
-        email: { title: "Inserisci la tua email", subtitle: "La tua email è obbligatoria per salvare e recuperare le tue foto", placeholder: "tua@email.com", continue: "Continua", error: "Email non valida", required: "L'email è obbligatoria per il checkout", myPhotos: "📸 Foto già acquistate" },
-        welcome: { title: "Trova le tue foto!", text: "Nel prossimo passaggio ti sarà chiesto di abilitare la fotocamera, per permettere al nostro sistema di consegnare le tue foto dell'evento.", continue: "Continua", privacy: "Operiamo nel totale rispetto della Privacy ed utilizziamo il tuo viso esclusivamente per trovare le foto che ti ritraggono." },
-        selfie: { title: "Scatta il tuo selfie", error: "La fotocamera non è disponibile", retry: "Riprova" },
-        confirm: { title: "Conferma selfie", privacy: "Selezionando \"Conferma\" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da Privacy Policy.", confirm: "Conferma", retake: "Scatta di nuovo" },
-        upload: { loading: "Caricamento foto in corso...", sending: "Invio selfie al server...", analyzing: "Analisi foto in corso...", found: "Trovate {count} foto!" },
-        album: { myContent: "I miei contenuti", priceList: "Listino prezzi ↗", found: "Hai trovato {count} foto", buyAll: "Acquista tutte le foto a", digital: "in formato digitale", sessionBy: "La tua sessione fotografica è stata realizzata da Metaproos" },
-        prices: { title: "Listino Prezzi", subtitle: "Scegli l'offerta che preferisci", photo: "foto", single: "Foto singola", double: "Doppia", special: "Offerta speciale", package: "Pacchetto", complete: "Pacchetto completo", best: "Tutte le foto al prezzo migliore", badgeDiscount: "Sconto", badgeBest: "Migliore", badgeTop: "Top" },
-        cart: { title: "Carrello", empty: "Il carrello è vuoto", total: "Totale:", checkout: "Vai al Pagamento", close: "Chiudi" },
-        sticky: { buy1: "Acquista la tua foto", buyFew: "Acquista tutte le {count} foto", buyMany: "Acquista tutte le {count} foto e risparmia", buyAll: "Acquista tutte le {count} foto al prezzo migliore", buy: "Acquista" },
-        errors: { noPhotos: "Nessuna foto trovata. Riprova.", connection: "Errore di connessione. Controlla la tua connessione internet e riprova.", camera: "Errore accesso camera", cameraNotReady: "La fotocamera non è ancora pronta. Attendi un attimo e riprova." }
-      },
-      fr: {
-        language: { title: "Choisissez votre langue", subtitle: "Sélectionnez votre langue préférée" },
-        email: { title: "Entrez votre email", subtitle: "Votre email est requis pour enregistrer et récupérer vos photos", placeholder: "votre@email.com", continue: "Continuer", error: "Adresse email invalide", required: "L'email est requise pour le paiement", myPhotos: "📸 Photos déjà achetées" },
-        welcome: { title: "Trouvez vos photos!", text: "Dans la prochaine étape, il vous sera demandé d'activer la caméra pour permettre à notre système de vous livrer les photos de l'événement.", continue: "Continuer", privacy: "Nous opérons dans le plein respect de la vie privée et utilisons votre visage exclusivement pour trouver les photos qui vous représentent." },
-        selfie: { title: "Prenez votre selfie", error: "Caméra non disponible", retry: "Réessayer" },
-        confirm: { title: "Confirmer le selfie", privacy: "En sélectionnant \"Confirmer\", vous acceptez le traitement des données biométriques aux fins de Détection et Reconnaissance conformément à la Politique de Confidentialité.", confirm: "Confirmer", retake: "Reprendre" },
-        upload: { loading: "Chargement des photos...", sending: "Envoi du selfie au serveur...", analyzing: "Analyse des photos...", found: "{count} photos trouvées!" },
-        album: { myContent: "Mes contenus", priceList: "Liste des prix ↗", found: "Vous avez trouvé {count} photos", buyAll: "Acheter toutes les photos à", digital: "en format numérique", sessionBy: "Votre séance photo a été réalisée par Metaproos" },
-        prices: { title: "Liste des Prix", subtitle: "Choisissez l'offre que vous préférez", photo: "photos", single: "Photo unique", double: "Double", special: "Offre spéciale", package: "Forfait", complete: "Forfait complet", best: "Toutes les photos au meilleur prix", badgeDiscount: "Réduction", badgeBest: "Meilleur", badgeTop: "Top" },
-        cart: { title: "Panier", empty: "Le panier est vide", total: "Total:", checkout: "Aller au Paiement", close: "Fermer" },
-        sticky: { buy1: "Achetez votre photo", buyFew: "Achetez toutes les {count} photos", buyMany: "Achetez toutes les {count} photos et économisez", buyAll: "Achetez toutes les {count} photos au meilleur prix", buy: "Acheter" },
-        errors: { noPhotos: "Aucune photo trouvée. Réessayez.", connection: "Erreur de connexion. Vérifiez votre connexion internet et réessayez.", camera: "Erreur d'accès à la caméra", cameraNotReady: "La caméra n'est pas encore prête. Attendez un instant et réessayez." }
-      },
-      de: {
-        language: { title: "Wählen Sie Ihre Sprache", subtitle: "Wählen Sie Ihre bevorzugte Sprache" },
-        email: { title: "Geben Sie Ihre E-Mail ein", subtitle: "Ihre E-Mail ist erforderlich, um Ihre Fotos zu speichern und wiederherzustellen", placeholder: "ihre@email.com", continue: "Weiter", error: "Ungültige E-Mail-Adresse", required: "E-Mail ist für den Checkout erforderlich", myPhotos: "📸 Bereits gekaufte Fotos" },
-        welcome: { title: "Finden Sie Ihre Fotos!", text: "Im nächsten Schritt werden Sie aufgefordert, die Kamera zu aktivieren, damit unser System Ihnen Ihre Event-Fotos liefern kann.", continue: "Weiter", privacy: "Wir arbeiten im vollsten Respekt der Privatsphäre und verwenden Ihr Gesicht ausschließlich, um Fotos zu finden, auf denen Sie abgebildet sind." },
-        selfie: { title: "Machen Sie Ihr Selfie", error: "Kamera nicht verfügbar", retry: "Erneut versuchen" },
-        confirm: { title: "Selfie bestätigen", privacy: "Durch Auswahl von \"Bestätigen\" stimmen Sie der Verarbeitung biometrischer Daten zu den Zwecken der Erkennung und Identifizierung gemäß Datenschutzrichtlinie zu.", confirm: "Bestätigen", retake: "Erneut aufnehmen" },
-        upload: { loading: "Fotos werden geladen...", sending: "Selfie wird an Server gesendet...", analyzing: "Fotos werden analysiert...", found: "{count} Fotos gefunden!" },
-        album: { myContent: "Meine Inhalte", priceList: "Preisliste ↗", found: "Sie haben {count} Fotos gefunden", buyAll: "Alle Fotos kaufen für", digital: "im digitalen Format", sessionBy: "Ihre Fotosession wurde von Metaproos durchgeführt" },
-        prices: { title: "Preisliste", subtitle: "Wählen Sie das Angebot, das Sie bevorzugen", photo: "Fotos", single: "Einzelfoto", double: "Doppel", special: "Sonderangebot", package: "Paket", complete: "Vollständiges Paket", best: "Alle Fotos zum besten Preis", badgeDiscount: "Rabatt", badgeBest: "Beste", badgeTop: "Top" },
-        cart: { title: "Warenkorb", empty: "Der Warenkorb ist leer", total: "Gesamt:", checkout: "Zur Zahlung", close: "Schließen" },
-        sticky: { buy1: "Kaufen Sie Ihr Foto", buyFew: "Kaufen Sie alle {count} Fotos", buyMany: "Kaufen Sie alle {count} Fotos und sparen", buyAll: "Kaufen Sie alle {count} Fotos zum besten Preis", buy: "Kaufen" },
-        errors: { noPhotos: "Keine Fotos gefunden. Versuchen Sie es erneut.", connection: "Verbindungsfehler. Überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.", camera: "Kamerafehler", cameraNotReady: "Die Kamera ist noch nicht bereit. Warten Sie einen Moment und versuchen Sie es erneut." }
-      },
-      es: {
-        language: { title: "Elige tu idioma", subtitle: "Selecciona tu idioma preferido" },
-        email: { title: "Ingresa tu email", subtitle: "Tu email es obligatorio para guardar y recuperar tus fotos", placeholder: "tu@email.com", continue: "Continuar", error: "Email inválido", required: "El email es obligatorio para el checkout", myPhotos: "📸 Fotos ya compradas" },
-        welcome: { title: "¡Encuentra tus fotos!", text: "En el siguiente paso se te pedirá que habilites la cámara, para permitir que nuestro sistema te entregue las fotos del evento.", continue: "Continuar", privacy: "Operamos con total respeto a la Privacidad y utilizamos tu rostro exclusivamente para encontrar fotos en las que apareces." },
-        selfie: { title: "Toma tu selfie", error: "Cámara no disponible", retry: "Reintentar" },
-        confirm: { title: "Confirmar selfie", privacy: "Al seleccionar \"Confirmar\" consientes el tratamiento de datos biométricos para los fines de Detección y Reconocimiento según la Política de Privacidad.", confirm: "Confirmar", retake: "Tomar de nuevo" },
-        upload: { loading: "Cargando fotos...", sending: "Enviando selfie al servidor...", analyzing: "Analizando fotos...", found: "¡{count} fotos encontradas!" },
-        album: { myContent: "Mis contenidos", priceList: "Lista de precios ↗", found: "Has encontrado {count} fotos", buyAll: "Comprar todas las fotos por", digital: "en formato digital", sessionBy: "Tu sesión de fotos fue realizada por Metaproos" },
-        prices: { title: "Lista de Precios", subtitle: "Elige la oferta que prefieras", photo: "fotos", single: "Foto única", double: "Doble", special: "Oferta especial", package: "Paquete", complete: "Paquete completo", best: "Todas las fotos al mejor precio", badgeDiscount: "Descuento", badgeBest: "Mejor", badgeTop: "Top" },
-        cart: { title: "Carrito", empty: "El carrito está vacío", total: "Total:", checkout: "Ir al Pago", close: "Cerrar" },
-        sticky: { buy1: "Compra tu foto", buyFew: "Compra todas las {count} fotos", buyMany: "Compra todas las {count} fotos y ahorra", buyAll: "Compra todas las {count} fotos al mejor precio", buy: "Comprar" },
-        errors: { noPhotos: "No se encontraron fotos. Inténtalo de nuevo.", connection: "Error de conexión. Verifica tu conexión a internet e inténtalo de nuevo.", camera: "Error de acceso a la cámara", cameraNotReady: "La cámara aún no está lista. Espera un momento e inténtalo de nuevo." }
-      }
-    };
-
-    // Lingua corrente (default: inglese)
-    let currentLang = localStorage.getItem('selectedLanguage') || 'en';
-
-    // Funzione per ottenere traduzione
-    function t(key, params = {}) {
-      const keys = key.split('.');
-      let value = translations[currentLang];
-      for(const k of keys) {
-        value = value?.[k];
-      }
-      if(!value) {
-        // Fallback a inglese
-        value = translations.en;
-        for(const k of keys) {
-          value = value?.[k];
-        }
-      }
-      // Sostituisci parametri {count}, etc.
-      if(typeof value === 'string' && params) {
-        return value.replace(/\{(\w+)\}/g, (match, key) => params[key] || match);
-      }
-      return value || key;
-    }
-
-    // Applica traduzioni a tutti gli elementi con data-i18n
-    function applyTranslations() {
-      document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        const text = t(key);
-        if(text) {
-          el.textContent = text;
-        }
-      });
-      
-      // Traduzioni dinamiche per elementi senza data-i18n
-      updateDynamicTexts();
-    }
-
-    // Aggiorna testi dinamici
-    function updateDynamicTexts() {
-      // Welcome screen
-      const welcomeTitle = document.querySelector('.welcome-title');
-      const welcomeText = document.querySelector('.welcome-text');
-      const welcomePrivacy = document.querySelector('.welcome-privacy');
-      const welcomeBtn = document.getElementById('welcomeContinueBtn');
-      if(welcomeTitle) welcomeTitle.textContent = t('welcome.title');
-      if(welcomeText) welcomeText.textContent = t('welcome.text');
-      if(welcomePrivacy) welcomePrivacy.textContent = t('welcome.privacy');
-      if(welcomeBtn) welcomeBtn.textContent = t('welcome.continue');
-      
-      // Selfie screen
-      const selfieHeader = document.querySelector('.selfie-header h2');
-      if(selfieHeader) selfieHeader.textContent = t('selfie.title');
-      
-      // Confirm screen
-      const confirmTitle = document.querySelector('.confirm-title');
-      const confirmPrivacy = document.querySelector('.confirm-privacy');
-      const confirmBtn = document.getElementById('confirmBtn');
-      const retakeBtn = document.getElementById('retakeBtn');
-      if(confirmTitle) confirmTitle.textContent = t('confirm.title');
-      if(confirmPrivacy) confirmPrivacy.textContent = t('confirm.privacy');
-      if(confirmBtn) confirmBtn.textContent = t('confirm.confirm');
-      if(retakeBtn) retakeBtn.textContent = t('confirm.retake');
-      
-      // Album tabs
-      const myContentTab = document.getElementById('myContentTab');
-      const pricesTab = document.getElementById('pricesTab');
-      if(myContentTab) myContentTab.textContent = t('album.myContent');
-      if(pricesTab) pricesTab.textContent = t('album.priceList');
-      
-      // Buy all button rimosso - ora si usa solo il banner sticky
-      
-      // Cart modal
-      const cartTitle = document.querySelector('#cartModal h3');
-      const cartEmpty = document.querySelector('#cartItems p');
-      const cartTotal = document.querySelector('#cartModal [data-i18n="cart.total"]');
-      const checkoutBtn = document.getElementById('checkoutBtn');
-      const closeCartBtn = document.getElementById('closeCartBtn');
-      if(cartTitle) cartTitle.innerHTML = `🛒 ${t('cart.title')}`;
-      if(cartEmpty) cartEmpty.textContent = t('cart.empty');
-      if(cartTotal) cartTotal.textContent = t('cart.total');
-      if(checkoutBtn) checkoutBtn.textContent = `💳 ${t('cart.checkout')}`;
-      if(closeCartBtn) closeCartBtn.textContent = t('cart.close');
-      
-      // Upload status text
-      const uploadStatusText = document.getElementById('uploadStatusText');
-      if(uploadStatusText && !uploadStatusText.dataset.i18nApplied) {
-        uploadStatusText.textContent = t('upload.loading');
-        uploadStatusText.dataset.i18nApplied = 'true';
-      }
-    }
 
     // Variabili globali
-    let currentScreen = 'language';
+    let currentScreen = 'email';
     let stream = null;
     let useFront = true;
     let capturedBlob = null;
@@ -1579,13 +1392,7 @@
     // Separazione netta tra flusso base e flusso post-pagamento
     
     async function initApp() {
-      // 1. Carica lingua salvata
-      const savedLang = localStorage.getItem('selectedLanguage');
-      if(savedLang) {
-        currentLang = savedLang;
-      }
-      
-      // 2. Controlla se è ritorno dopo pagamento (parametri URL)
+      // 1. Controlla se è ritorno dopo pagamento (parametri URL)
       const urlParams = new URLSearchParams(window.location.search);
       const emailParam = urlParams.get('email');
       const refreshParam = urlParams.get('refresh');
@@ -1615,13 +1422,8 @@
         }
       }
       
-      // 4. FLUSSO BASE: lingua → email → selfie
-      if(savedLang) {
-        showScreen('email');
-      } else {
-        showScreen('language');
-      }
-      applyTranslations();
+      // 4. FLUSSO BASE: email → selfie (no language selection)
+      showScreen('email');
     }
     
     // Funzione separata per caricare album dopo pagamento
@@ -1673,7 +1475,6 @@
               showScreen('album');
               await displayPhotos();
               showStickyOfferBar(allPhotos.length);
-              applyTranslations();
               return; // Successo, esci
             }
           }
@@ -1694,30 +1495,14 @@
       // Se dopo 3 tentativi non ci sono foto, mostra email screen
       console.warn("No paid photos found after 3 attempts");
       showScreen('email');
-      applyTranslations();
-    }
-    
-    // Event listeners per selezione lingua (semplificato)
-    function setupLanguageListeners() {
-      document.querySelectorAll('.language-option').forEach(option => {
-        option.addEventListener('click', () => {
-          const lang = option.getAttribute('data-lang');
-          currentLang = lang;
-          localStorage.setItem('selectedLanguage', lang);
-          applyTranslations();
-          showScreen('email');
-        });
-      });
     }
     
     // Avvia inizializzazione quando DOM è pronto
     if(document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
-        setupLanguageListeners();
         initApp();
       });
     } else {
-      setupLanguageListeners();
       initApp();
     }
     
@@ -1726,60 +1511,76 @@
     const emailError = document.getElementById('emailError');
     const emailContinueBtn = document.getElementById('emailContinueBtn');
     
-    // Funzione per controllare se l'email ha foto pagate
-    async function checkEmailForPaidPhotos(email) {
+    // Funzione per controllare lo stato dell'utente e mostrare contenuto appropriato
+    async function checkUserState(email) {
       try {
+        // 1. Salva l'utente solo con email
+        try {
+          await fetch(`/user/register?email=${encodeURIComponent(email)}`, {
+            method: 'POST'
+          });
+          console.log('User registered/updated with email:', email);
+        } catch(e) {
+          console.error('Error registering user:', e);
+          // Continua comunque
+        }
+        
+        // 2. Controlla foto dell'utente
         const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
         const data = await res.json();
         
-        if(data.ok && data.paid_photos && data.paid_photos.length > 0) {
-          // L'utente ha foto pagate - mostra direttamente l'album
+        if(!data.ok) {
+          return { hasPaid: false, hasFound: false }; // Nessuna foto
+        }
+        
+        const hasPaid = data.paid_photos && data.paid_photos.length > 0;
+        const hasFound = data.found_photos && data.found_photos.length > 0;
+        
+        // 3. Se ha foto pagate → redirect a /my-photos
+        if(hasPaid) {
+          console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
+          window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+          return { hasPaid: true, hasFound: hasFound, redirect: true };
+        }
+        
+        // 4. Se ha foto trovate (ma non pagate) → mostra album con quelle foto
+        if(hasFound) {
+          console.log(`User has ${data.found_photos.length} found photos (not paid), showing album`);
           userEmail = email;
           localStorage.setItem('userEmail', email);
           
-          // Carica foto pagate
-          paidPhotos = data.paid_photos;
-          
           // Prepara foto da mostrare
-          let photosToShow = [];
+          allPhotos = data.found_photos.map(p => ({
+            photo_id: p.photo_id,
+            score: 0,
+            has_face: true,
+            paid: p.status === 'paid'
+          }));
           
-          // Preferisci found_photos (hanno più info)
-          if(data.found_photos && data.found_photos.length > 0) {
-            photosToShow = data.found_photos.map(p => ({
-              photo_id: p.photo_id,
-              score: 0,
-              has_face: true,
-              paid: p.status === 'paid'
-            }));
-            // Aggiungi foto pagate
-            const paidFromFound = data.found_photos
-              .filter(p => p.status === 'paid')
-              .map(p => p.photo_id);
-            paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
-          } 
-          // Se non ci sono found_photos, usa paid_photos
-          else if(data.paid_photos && data.paid_photos.length > 0) {
-            photosToShow = data.paid_photos.map(photoId => ({
-              photo_id: photoId,
-              score: 0,
-              has_face: true,
-              paid: true
-            }));
+          // Carica foto pagate se ci sono
+          if(data.paid_photos && data.paid_photos.length > 0) {
+            paidPhotos = [...data.paid_photos];
+            // Marca come pagate
+            allPhotos.forEach(photo => {
+              if(paidPhotos.includes(photo.photo_id)) {
+                photo.paid = true;
+              }
+            });
           }
           
-          if(photosToShow.length > 0) {
-            allPhotos = photosToShow;
-            showScreen('album');
-            await displayPhotos();
-            showStickyOfferBar(allPhotos.length);
-            applyTranslations();
-            return true; // Foto trovate e mostrate
-          }
+          // Mostra album
+          showScreen('album');
+          await displayPhotos();
+          showStickyOfferBar(allPhotos.length);
+          
+          return { hasPaid: false, hasFound: true, shown: true };
         }
-        return false; // Nessuna foto pagata trovata
+        
+        // 5. Non ha nulla → flusso normale
+        return { hasPaid: false, hasFound: false };
       } catch(e) {
-        console.error('Errore controllo foto pagate:', e);
-        return false;
+        console.error('Error checking user state:', e);
+        return { hasPaid: false, hasFound: false };
       }
     }
     
@@ -1800,15 +1601,14 @@
       emailError.classList.remove('show');
       emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
       
-      // Controlla se ha foto pagate prima di andare al selfie
-      const hasPaidPhotos = await checkEmailForPaidPhotos(email);
+      // Controlla stato utente (salva utente, controlla foto)
+      const userState = await checkUserState(email);
       
-      if(!hasPaidPhotos) {
-        // Non ha foto pagate, vai al selfie per cercare nuove foto
+      // Se non ha foto o non è stato mostrato nulla, vai al selfie
+      if(!userState.shown && !userState.redirect) {
         showScreen('selfie');
         await startCamera();
       }
-      // Se hasPaidPhotos è true, l'album è già stato mostrato da checkEmailForPaidPhotos
     });
     
     // Funzione per caricare album di test (salta camera)
@@ -1820,9 +1620,9 @@
       if(!email || !emailRegex.test(email)) {
         emailError.classList.add('show');
         emailInput.style.borderColor = '#ff4444';
-        return;
-      }
-      
+          return;
+        }
+
       // Salva email
       userEmail = email;
       localStorage.setItem('userEmail', email);
@@ -1902,8 +1702,8 @@
         if(!email || !emailRegex.test(email)) {
           emailError.classList.add('show');
           emailInput.style.borderColor = '#ff4444';
-          return;
-        }
+        return;
+      }
 
         // Salva email
         userEmail = email;
@@ -1979,8 +1779,8 @@
               await displayPhotos();
               showStickyOfferBar(allPhotos.length);
               showScreen('album');
-              return;
-            }
+        return;
+      }
           }
         } catch(e) {
           console.error("Error checking user:", e);
@@ -2101,7 +1901,7 @@
       try {
         // Verifica supporto camera
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          alert(t('errors.camera'));
+          alert('Camera error');
           return;
         }
 
@@ -2373,7 +2173,7 @@
       
       // Mostra upload status e disabilita pulsante
       if(uploadStatus) uploadStatus.classList.add('active');
-      if(uploadStatusText) uploadStatusText.textContent = t('upload.loading');
+      if(uploadStatusText) uploadStatusText.textContent = 'Loading photos...';
       if(uploadProgressBar) uploadProgressBar.style.width = '10%';
       if(uploadPercentage) uploadPercentage.textContent = '10%';
       if(captureBtn) {
@@ -2387,7 +2187,7 @@
         // Aggiorna progress
         if(uploadProgressBar) uploadProgressBar.style.width = '30%';
         if(uploadPercentage) uploadPercentage.textContent = '30%';
-        if(uploadStatusText) uploadStatusText.textContent = t('upload.sending');
+        if(uploadStatusText) uploadStatusText.textContent = 'Sending selfie to server...';
         
         const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
@@ -2454,7 +2254,7 @@
         // Aggiorna progress
         if(uploadProgressBar) uploadProgressBar.style.width = '80%';
         if(uploadPercentage) uploadPercentage.textContent = '80%';
-        if(uploadStatusText) uploadStatusText.textContent = t('upload.analyzing');
+        if(uploadStatusText) uploadStatusText.textContent = 'Analyzing photos...';
         
         await uploadPromise;
         
@@ -2520,7 +2320,7 @@
               else if(currentLang === 'es') errorMsg = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
             } else if(res.status === 0 || res.statusText === '') {
               // Status 0 o vuoto spesso indica un problema di rete
-              errorMsg = t('errors.connection');
+              errorMsg = 'Connection error. Check your internet connection and try again.';
             } else {
               errorMsg = `Errore ${res.status}: ${res.statusText || 'Errore sconosciuto'}`;
             }
@@ -2575,7 +2375,7 @@
         
         if(data.ok && photos.length > 0) {
           console.log(`Trovate ${photos.length} foto`);
-          if(uploadStatusText) uploadStatusText.textContent = t('upload.found', { count: photos.length });
+          if(uploadStatusText) uploadStatusText.textContent = `Found ${photos.length} photos!`;
           
           allPhotos = photos;
           photosLoadedCount = 0; // Reset counter
@@ -2703,12 +2503,12 @@
           // NON tornare alla welcome se siamo già nell'album
           // Solo se siamo ancora nella schermata selfie/confirm
           if(currentScreen !== 'album') {
-            alert(t('errors.noPhotos'));
+            alert('No photos found. Try again.');
             showScreen('selfie');
             startCamera();
           } else {
             // Se siamo già nell'album, mostra solo un messaggio
-            alert(t('errors.noPhotos'));
+            alert('No photos found. Try again.');
           }
         }
       } catch(err) {
@@ -2725,12 +2525,12 @@
         }
         
         // Determina il tipo di errore e mostra messaggio appropriato
-        let errorMessage = t('errors.connection'); // Default
+        let errorMessage = 'Connection error. Check your internet connection and try again.'; // Default
         
         // Controlla il tipo di errore specifico
         if(err.type === 'network') {
           // Errore di rete reale (XMLHttpRequest error event)
-          errorMessage = t('errors.connection');
+          errorMessage = 'Connection error. Check your internet connection and try again.';
         } else if(err.type === 'timeout') {
           // Timeout della richiesta
           errorMessage = "La richiesta ha impiegato troppo tempo. Riprova.";
@@ -2764,10 +2564,10 @@
           }
         } else if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
           // Errore di rete (fetch API)
-          errorMessage = t('errors.connection');
+          errorMessage = 'Connection error. Check your internet connection and try again.';
         } else if(err.message && err.message.includes('Network error')) {
           // Errore di rete esplicito
-          errorMessage = t('errors.connection');
+          errorMessage = 'Connection error. Check your internet connection and try again.';
         } else {
           // Altro tipo di errore (parsing, ecc.)
           errorMessage = "Errore durante l'elaborazione. Riprova tra qualche istante.";
@@ -2954,7 +2754,7 @@
     async function displayPhotos() {
       if(!allPhotos || allPhotos.length === 0) {
         console.warn("displayPhotos chiamato ma non ci sono foto!");
-        alert(t('errors.noPhotos'));
+        alert('No photos found. Try again.');
         showScreen('selfie');
         startCamera();
         return;
@@ -2979,7 +2779,7 @@
       // Mostra overlay di caricamento
       if(loadingOverlay) {
         loadingOverlay.classList.add('active');
-        if(loadingText) loadingText.textContent = t('upload.loading');
+        if(loadingText) loadingText.textContent = 'Loading photos...';
       }
       
       // Disabilita interazioni
@@ -3135,8 +2935,8 @@
       // Mostra banner conteggio foto sopra la griglia
       if(photoCountBanner && photoCountNumber) {
         photoCountNumber.textContent = photoCount;
-        const foundText = t('album.found', { count: photoCount });
-        photoCountBanner.innerHTML = foundText.replace('{count}', photoCount);
+        const foundText = `You found ${photoCount} photos`;
+        photoCountBanner.innerHTML = foundText;
         photoCountBanner.style.display = 'block';
       }
       
@@ -3147,13 +2947,13 @@
       // Messaggio personalizzato in base al numero di foto (tradotto)
       let message = "";
       if(photoCount === 1) {
-        message = t('sticky.buy1');
+        message = 'Buy your photo';
       } else if(photoCount <= 5) {
-        message = t('sticky.buyFew', { count: photoCount });
+        message = `Buy all ${photoCount} photos`;
       } else if(photoCount <= 11) {
-        message = t('sticky.buyMany', { count: photoCount });
+        message = `Buy all ${photoCount} photos and save`;
       } else {
-        message = t('sticky.buyAll', { count: photoCount });
+        message = `Buy all ${photoCount} photos at the best price`;
       }
       
       if(stickyText) {
@@ -3165,7 +2965,7 @@
       }
       
       if(stickyBuyBtn) {
-        stickyBuyBtn.textContent = t('sticky.buy');
+        stickyBuyBtn.textContent = 'Buy';
       }
       
       // Event listener per pulsante acquista (se non già presente)
@@ -3249,7 +3049,7 @@
         photoLightbox.classList.add('active');
       };
       img.onerror = () => {
-        alert(t('errors.connection'));
+        alert('Connection error. Check your internet connection and try again.');
       };
       
       // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
@@ -3435,7 +3235,7 @@
         }
       } catch(e) {
         console.error("Error downloading photo:", e);
-        alert(t('errors.download') || "Errore durante il download della foto. Riprova.");
+        alert("Error downloading photo. Please try again.");
       }
     }
 
@@ -3602,12 +3402,12 @@
     async function checkout() {
       // Checkout normale: usa il carrello corrente
       if(!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
-        alert(t('cart.empty'));
+        alert('Cart is empty');
         return;
       }
       
       if(!userEmail) {
-        alert(t('email.required') || "Email is required");
+        alert("Email is required");
         showScreen('email');
         return;
       }
@@ -3672,9 +3472,9 @@
       // Checkout per TUTTE le foto: ignora il carrello e usa tutte le foto trovate
       if(!allPhotos || allPhotos.length === 0) {
         alert("Nessuna foto disponibile!");
-        return;
-      }
-      
+    return;
+  }
+
       // Crea un carrello temporaneo con TUTTE le foto
       const allPhotoIds = allPhotos.map(photo => photo.photo_id);
       const totalCount = allPhotoIds.length;
@@ -3697,7 +3497,7 @@
         
         // Verifica email
         if(!userEmail) {
-          alert(t('email.required') || "Email is required");
+          alert("Email is required");
           showScreen('email');
     return;
   }

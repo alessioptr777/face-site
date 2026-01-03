@@ -318,7 +318,7 @@ async def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     return None
 
 async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] = None) -> bool:
-    """Crea o aggiorna un utente"""
+    """Crea o aggiorna un utente (salva solo con email, selfie opzionale)"""
     if not SQLITE_AVAILABLE:
         return False
     
@@ -341,17 +341,18 @@ async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] =
                         WHERE email = ?
                     """, (selfie_embedding, now, now, email))
                 else:
+                    # Aggiorna solo last_login_at (non sovrascrivere selfie_embedding esistente)
                     await conn.execute("""
                         UPDATE users 
                         SET last_login_at = ?
                         WHERE email = ?
                     """, (now, email))
             else:
-                # Crea nuovo
+                # Crea nuovo utente (solo con email, selfie opzionale)
                 await conn.execute("""
                     INSERT INTO users (email, selfie_embedding, created_at, last_login_at, last_selfie_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, (email, selfie_embedding, now, now, now))
+                """, (email, selfie_embedding, now, now, now if selfie_embedding else None))
             
             await conn.commit()
             return True
@@ -1580,6 +1581,36 @@ async def check_user(
         raise
     except Exception as e:
         logger.error(f"Error checking user: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.post("/user/register")
+async def register_user_by_email(
+    email: str = Query(..., description="Email utente")
+):
+    """Registra un utente solo con email (senza selfie)"""
+    try:
+        # Valida email
+        import re
+        if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+            raise HTTPException(status_code=400, detail="Invalid email format")
+        
+        # Salva/aggiorna utente (solo con email)
+        success = await _create_or_update_user(email, None)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Error saving user")
+        
+        logger.info(f"User registered/updated: {email}")
+        
+        return {
+            "ok": True,
+            "email": email,
+            "message": "User registered successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering user: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/user/photos")
