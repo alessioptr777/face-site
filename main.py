@@ -2163,21 +2163,49 @@ async def get_user_photos(
         paid_photos = await _get_user_paid_photos(email)
         
         logger.info(f"User photos request for {email}: found={len(found_photos)}, paid={len(paid_photos)}")
-        if paid_photos:
-            logger.info(f"Paid photos for {email}: {paid_photos}")
-        else:
-            logger.warning(f"No paid photos found for {email} - checking if there are any orders...")
-            # Debug: controlla se ci sono ordini per questa email
+        
+        # FALLBACK: Se non ci sono foto pagate ma ci sono ordini, estrai i photo_ids dagli ordini
+        if not paid_photos or len(paid_photos) == 0:
+            logger.warning(f"No paid photos found for {email} - checking orders as fallback...")
             if USE_POSTGRES or SQLITE_AVAILABLE:
                 try:
-                    row = await _db_execute_one(
-                        "SELECT COUNT(*) as count FROM orders WHERE email = ?",
+                    # Recupera tutti gli ordini per questa email
+                    orders_rows = await _db_execute(
+                        "SELECT photo_ids FROM orders WHERE email = ? ORDER BY paid_at DESC",
                         (email,)
                     )
-                    order_count = row['count'] if row else 0
-                    logger.info(f"Orders found for {email}: {order_count}")
+                    
+                    if orders_rows:
+                        logger.info(f"Found {len(orders_rows)} orders for {email} - extracting photo_ids")
+                        # Raccogli tutti i photo_ids dagli ordini
+                        all_paid_photo_ids = set()
+                        for row in orders_rows:
+                            photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                            all_paid_photo_ids.update(photo_ids)
+                        
+                        if all_paid_photo_ids:
+                            logger.info(f"Extracted {len(all_paid_photo_ids)} paid photo_ids from orders: {list(all_paid_photo_ids)}")
+                            # Usa i photo_ids dagli ordini come paid_photos
+                            paid_photos = list(all_paid_photo_ids)
+                            
+                            # OPZIONALE: Marca automaticamente le foto come pagate (fix silenzioso)
+                            # Questo assicura che la prossima volta funzioni anche senza questo fallback
+                            fixed_count = 0
+                            for photo_id in all_paid_photo_ids:
+                                try:
+                                    success = await _mark_photo_paid(email, photo_id)
+                                    if success:
+                                        fixed_count += 1
+                                except Exception as e:
+                                    logger.error(f"Error auto-fixing photo {photo_id}: {e}")
+                            
+                            if fixed_count > 0:
+                                logger.info(f"Auto-fixed {fixed_count} photos for {email} based on orders")
                 except Exception as e:
-                    logger.error(f"Error checking orders: {e}")
+                    logger.error(f"Error checking orders as fallback: {e}", exc_info=True)
+        
+        if paid_photos:
+            logger.info(f"Paid photos for {email}: {paid_photos}")
         
         return {
             "ok": True,
