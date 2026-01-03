@@ -1450,20 +1450,20 @@
           
           // Vai direttamente all'album senza mostrare email/selfie
           checkUserState(emailParam, true).then(userState => {
-            // Se ha foto trovate, album già mostrato
+            // Se ha foto trovate o messaggio mostrato, album già mostrato
             if(userState.shown) {
               return;
             }
-            // Se non ha foto trovate, mostra selfie per cercare nuove foto
-            if(!userState.hasFound) {
-              showScreen('selfie');
-              startCamera();
-            }
+            // Se non ha foto trovate, il messaggio è già mostrato da checkUserState
+            // Non serve fare nulla qui
           }).catch(err => {
             console.error('Error checking user state:', err);
-            // In caso di errore, mostra selfie
-            showScreen('selfie');
-            startCamera();
+            // In caso di errore, mostra messaggio nell'album
+            showScreen('album');
+            const albumGrid = document.getElementById('albumGrid');
+            if(albumGrid) {
+              albumGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: white;">Errore nel caricamento. Riprova più tardi.</div>';
+            }
           });
           return; // Esci subito, non mostrare schermo email
         } else {
