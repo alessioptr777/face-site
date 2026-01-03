@@ -1664,106 +1664,89 @@
       emailError.classList.remove('show');
       emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
       
-      // APPROCCIO IBRIDO: Mostra SUBITO selfie e avvia camera, poi controlla API in background
-      // Se l'utente ha già foto pagate/trovate, interrompe selfie e mostra loading
-      selfieCompleted = false; // Reset flag
-      showScreen('selfie');
-      startCamera(); // Avvia subito, non aspettare
+      // Mostra loading e disabilita pulsante
+      const emailLoading = document.getElementById('emailLoading');
+      emailContinueBtn.disabled = true;
+      emailContinueBtn.style.opacity = '0.6';
+      if(emailLoading) {
+        emailLoading.style.display = 'flex';
+      }
       
-      // Controlla stato utente in background (non blocca selfie)
-      (async () => {
+      try {
+        // 1. Salva l'utente solo con email
         try {
-          // 1. Salva l'utente solo con email (non bloccare)
-          fetch(`/user/register?email=${encodeURIComponent(email)}`, {
+          await fetch(`/user/register?email=${encodeURIComponent(email)}`, {
             method: 'POST'
-          }).catch(e => console.error('Error registering user:', e));
-          
-          // 2. Controlla foto dell'utente
-          const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
-          const data = await res.json();
-          
-          console.log('User photos response:', data);
-          
-          // Se il selfie è già stato completato, non interrompere
-          if(selfieCompleted) {
-            console.log('Selfie already completed, not interrupting');
-          return;
+          });
+          console.log('User registered/updated with email:', email);
+        } catch(e) {
+          console.error('Error registering user:', e);
+          // Continua comunque
         }
-
-          if(data.ok) {
-            const hasPaid = data.paid_photos && data.paid_photos.length > 0;
-            const hasFound = data.found_photos && data.found_photos.length > 0;
-            
-            console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos)`);
-            
-            // PRIORITÀ: Se ha foto pagate (anche solo una) → interrompi selfie, mostra loading, poi redirect a /my-photos
-            if(hasPaid) {
-              console.log(`User has ${data.paid_photos.length} paid photos but no found photos, interrupting selfie to redirect`);
-              
-              // Interrompi camera
-              if(stream) {
-                stream.getTracks().forEach(track => track.stop());
-              }
-              
-              // Mostra loading
-              showScreen('email');
-              const emailLoading = document.getElementById('emailLoading');
-              if(emailLoading) {
-                emailLoading.style.display = 'flex';
-              }
-              
-              // Piccolo delay per mostrare loading, poi redirect
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-        return;
-      }
-            
-            // Se ha solo foto trovate (non pagate) → interrompi selfie, mostra loading, poi album
-            if(hasFound && !hasPaid) {
-              console.log(`User has ${data.found_photos.length} found photos (not paid), interrupting selfie to show album`);
-              
-              // Interrompi camera
-              if(stream) {
-                stream.getTracks().forEach(track => track.stop());
-              }
-              
-              // Mostra loading
-              showScreen('email');
-              const emailLoading = document.getElementById('emailLoading');
-              if(emailLoading) {
-                emailLoading.style.display = 'flex';
-              }
-              
-              // Piccolo delay per mostrare loading
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Prepara foto da mostrare
-              allPhotos = data.found_photos.map(p => ({
-                photo_id: p.photo_id,
-                score: 0,
-                has_face: true,
-                paid: p.status === 'paid'
-              }));
-              
-              // Nascondi loading e mostra album
-              if(emailLoading) {
-                emailLoading.style.display = 'none';
-              }
-              showScreen('album');
-              await displayPhotos();
-              showStickyOfferBar(allPhotos.length);
-        return;
-      }
+        
+        // 2. Controlla foto dell'utente PRIMA di mostrare selfie
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        
+        console.log('User photos response:', data);
+        
+        // Nascondi loading
+        if(emailLoading) {
+          emailLoading.style.display = 'none';
+        }
+        emailContinueBtn.disabled = false;
+        emailContinueBtn.style.opacity = '1';
+        
+        if(data.ok) {
+          const hasPaid = data.paid_photos && data.paid_photos.length > 0;
+          const hasFound = data.found_photos && data.found_photos.length > 0;
+          
+          console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos)`);
+          
+          // PRIORITÀ: Se ha foto pagate (anche solo una) → redirect IMMEDIATO a /my-photos
+          if(hasPaid) {
+            console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
+            window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+            return; // Esci subito, il redirect è in corso
           }
           
-          // Se non ha nulla, continua con selfie (già mostrato)
-          console.log('No paid/found photos, continuing with selfie');
-        } catch(e) {
-          console.error('Error checking user state in background:', e);
-          // In caso di errore, continua con selfie (già mostrato)
+          // Se ha solo foto trovate (non pagate) → mostra album
+          if(hasFound) {
+            console.log(`User has ${data.found_photos.length} found photos (not paid), showing album`);
+            
+            // Prepara foto da mostrare
+            allPhotos = data.found_photos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: p.status === 'paid'
+            }));
+            
+            // Mostra album
+            showScreen('album');
+            await displayPhotos();
+            showStickyOfferBar(allPhotos.length);
+            return; // Esci, album mostrato
+          }
         }
-      })();
+        
+        // Non ha nulla → flusso normale: vai al selfie
+        showScreen('selfie');
+        await startCamera();
+      } catch(e) {
+        console.error('Error checking user state:', e);
+        
+        // Nascondi loading anche in caso di errore
+        if(emailLoading) {
+          emailLoading.style.display = 'none';
+        }
+        emailContinueBtn.disabled = false;
+        emailContinueBtn.style.opacity = '1';
+        
+        // In caso di errore, vai comunque al selfie
+        showScreen('selfie');
+        await startCamera();
+      }
       
     });
     
