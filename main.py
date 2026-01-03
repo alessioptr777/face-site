@@ -1716,6 +1716,12 @@ async def my_photos_by_email(
                 </div>
                 """
         
+        # Link intelligente: se ha email, porta direttamente all'album se ha foto trovate
+        if email:
+            album_button = f'<a href="/?email={email}" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+        else:
+            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+        
         # Usa lo stesso HTML template di checkout/success
         html_content = f"""
         <!DOCTYPE html>
@@ -1831,18 +1837,18 @@ async def my_photos_by_email(
         <body>
             <div class="container">
                 <div class="success-icon">✅</div>
-                <h1>LE TUE FOTO</h1>
-                <p class="message">Hai acquistato {len(paid_photos)} foto</p>
+                <h1>YOUR PHOTOS</h1>
+                <p class="message">You purchased {len(paid_photos)} photos</p>
                 
-                <!-- Istruzioni iOS in alto (se iPhone) -->
+                <!-- iOS Instructions at top (if iPhone) -->
                 <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; backdrop-filter: blur(10px);">
-                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 18px;">📱 Come salvare le foto:</p>
-                    <p style="margin: 0; font-size: 16px; line-height: 1.6;">1. Tocca e tieni premuto sull'immagine</p>
-                    <p style="margin: 5px 0 0 0; font-size: 16px; line-height: 1.6;">2. Seleziona "Salva in Foto"</p>
+                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 18px;">📱 How to save photos:</p>
+                    <p style="margin: 0; font-size: 16px; line-height: 1.6;">1. Touch and hold the image</p>
+                    <p style="margin: 5px 0 0 0; font-size: 16px; line-height: 1.6;">2. Select "Save to Photos"</p>
                 </div>
                 
-                <!-- Bottone Acquista altre foto in alto -->
-                <a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Acquista altre foto</a>
+                <!-- Buy more photos button at top -->
+                {album_button}
                 
                 <!-- Foto -->
                 <div class="photos-grid">
@@ -1863,15 +1869,18 @@ async def my_photos_by_email(
                 
                 // Mostra/nascondi pulsante e istruzioni in base al dispositivo
                 document.addEventListener('DOMContentLoaded', function() {{
+                    const iosInstructionsTop = document.getElementById('ios-instructions-top');
                     const iosInstructions = document.querySelectorAll('.ios-instructions');
                     const downloadBtns = document.querySelectorAll('.download-btn-desktop');
                     
                     if (isIOS()) {{
-                        // Su iOS: mostra istruzioni, nascondi pulsanti
+                        // Su iOS: mostra istruzioni (in alto e sotto ogni foto), nascondi pulsanti
+                        if (iosInstructionsTop) iosInstructionsTop.style.display = 'block';
                         iosInstructions.forEach(el => el.style.display = 'block');
                         downloadBtns.forEach(el => el.style.display = 'none');
                     }} else {{
                         // Su Android/Desktop: mostra pulsanti, nascondi istruzioni
+                        if (iosInstructionsTop) iosInstructionsTop.style.display = 'none';
                         iosInstructions.forEach(el => el.style.display = 'none');
                         downloadBtns.forEach(el => el.style.display = 'block');
                     }}
@@ -2769,7 +2778,11 @@ async def checkout_success(
         else:
             photos_section = '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'
         
-        album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Acquista altre foto</a>'
+        # Link intelligente: se ha email, porta direttamente all'album se ha foto trovate
+        if email:
+            album_button = f'<a href="/?email={email}" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+        else:
+            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
         
         # Pagina con foto mostrate direttamente
         html_content = f"""
@@ -2896,17 +2909,17 @@ async def checkout_success(
         <body>
             <div class="container">
                 <div class="success-icon">✅</div>
-                <h1>PAGAMENTO COMPLETATO!</h1>
-                <p class="message">Le tue foto sono pronte per il download.</p>
+                <h1>PAYMENT COMPLETED!</h1>
+                <p class="message">Your photos are ready for download.</p>
                 
-                <!-- Istruzioni iOS in alto (se iPhone) -->
+                <!-- iOS Instructions at top (if iPhone) -->
                 <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; backdrop-filter: blur(10px);">
-                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 18px;">📱 Come salvare le foto:</p>
-                    <p style="margin: 0; font-size: 16px; line-height: 1.6;">1. Tocca e tieni premuto sull'immagine</p>
-                    <p style="margin: 5px 0 0 0; font-size: 16px; line-height: 1.6;">2. Seleziona "Salva in Foto"</p>
+                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 18px;">📱 How to save photos:</p>
+                    <p style="margin: 0; font-size: 16px; line-height: 1.6;">1. Touch and hold the image</p>
+                    <p style="margin: 5px 0 0 0; font-size: 16px; line-height: 1.6;">2. Select "Save to Photos"</p>
                 </div>
                 
-                <!-- Bottone Acquista altre foto in alto -->
+                <!-- Buy more photos button at top -->
                 {album_button}
                 
                 <!-- Foto -->
@@ -2926,15 +2939,18 @@ async def checkout_success(
                 
                 // Mostra/nascondi pulsante e istruzioni in base al dispositivo
                 document.addEventListener('DOMContentLoaded', function() {{
+                    const iosInstructionsTop = document.getElementById('ios-instructions-top');
                     const iosInstructions = document.querySelectorAll('.ios-instructions');
                     const downloadBtns = document.querySelectorAll('.download-btn-desktop');
                     
                     if (isIOS()) {{
-                        // Su iOS: mostra istruzioni, nascondi pulsanti
+                        // Su iOS: mostra istruzioni (in alto e sotto ogni foto), nascondi pulsanti
+                        if (iosInstructionsTop) iosInstructionsTop.style.display = 'block';
                         iosInstructions.forEach(el => el.style.display = 'block');
                         downloadBtns.forEach(el => el.style.display = 'none');
                     }} else {{
                         // Su Android/Desktop: mostra pulsanti, nascondi istruzioni
+                        if (iosInstructionsTop) iosInstructionsTop.style.display = 'none';
                         iosInstructions.forEach(el => el.style.display = 'none');
                         downloadBtns.forEach(el => el.style.display = 'block');
                     }}

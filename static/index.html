@@ -1403,9 +1403,29 @@
         return;
       }
       
+      // 2. Se c'è email nell'URL (da "Buy more photos"), controlla stato utente
+      if(emailParam) {
+        userEmail = emailParam;
+        localStorage.setItem('userEmail', emailParam);
+        
+        const userState = await checkUserState(emailParam);
+        
+        // Se ha foto trovate (non pagate), mostra album
+        if(userState.shown) {
+          return; // Album già mostrato
+        }
+        
+        // Se ha foto pagate, redirecta
+        if(userState.redirect) {
+          return; // Redirect già fatto
+        }
+        
+        // Se non ha nulla, continua con flusso normale
+      }
+      
       // 3. NUOVO: Controlla se utente ha acquisti (rientro)
       const savedEmail = localStorage.getItem('userEmail');
-      if(savedEmail) {
+      if(savedEmail && !emailParam) {
         try {
           const res = await fetch(`/user/photos?email=${encodeURIComponent(savedEmail)}`);
           const data = await res.json();
