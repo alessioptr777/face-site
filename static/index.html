@@ -1603,16 +1603,28 @@
         const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
         const data = await res.json();
         
+        console.log('checkUserState - API response:', data);
+        console.log('checkUserState - paid_photos:', data.paid_photos);
+        console.log('checkUserState - found_photos:', data.found_photos);
+        
         if(!data.ok) {
+          console.log('checkUserState - API returned !ok');
           return { hasPaid: false, hasFound: false }; // Nessuna foto
         }
         
         const hasPaid = data.paid_photos && data.paid_photos.length > 0;
         const hasFound = data.found_photos && data.found_photos.length > 0;
         
+        // Controlla anche se ci sono foto trovate con status='paid'
+        const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
+        const hasAnyPaid = hasPaid || hasPaidInFound;
+        
+        console.log(`checkUserState - hasPaid: ${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound: ${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound: ${hasPaidInFound}`);
+        
         // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
-        if(hasPaid) {
-          console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
+        if(hasAnyPaid) {
+          const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
+          console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
           window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
           return { hasPaid: true, hasFound: hasFound, redirect: true };
         }
@@ -1623,23 +1635,32 @@
           userEmail = email;
           localStorage.setItem('userEmail', email);
           
-          // Prepara foto da mostrare
-          allPhotos = data.found_photos.map(p => ({
-            photo_id: p.photo_id,
-            score: 0,
-            has_face: true,
-            paid: p.status === 'paid'
-          }));
+          // Prepara foto da mostrare - FILTRA quelle già pagate
+          allPhotos = data.found_photos
+            .filter(p => p.status !== 'paid') // Escludi foto già pagate
+            .map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: false
+            }));
           
-          // Mostra album
-          showScreen('album');
-          await displayPhotos();
-          showStickyOfferBar(allPhotos.length);
-          
-          return { hasPaid: false, hasFound: true, shown: true };
+          // Se ci sono foto non pagate, mostra album
+          if(allPhotos.length > 0) {
+            showScreen('album');
+            await displayPhotos();
+            showStickyOfferBar(allPhotos.length);
+            return { hasPaid: false, hasFound: true, shown: true };
+          } else {
+            // Tutte le foto trovate sono già pagate, redirecta a /my-photos
+            console.log('All found photos are already paid, redirecting to /my-photos');
+            window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+            return { hasPaid: true, hasFound: true, redirect: true };
+          }
         }
         
         // 5. Non ha nulla → flusso normale
+        console.log('checkUserState - No photos found, continuing with normal flow');
         return { hasPaid: false, hasFound: false };
       } catch(e) {
         console.error('Error checking user state:', e);
@@ -1701,11 +1722,16 @@
           const hasPaid = data.paid_photos && data.paid_photos.length > 0;
           const hasFound = data.found_photos && data.found_photos.length > 0;
           
-          console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos)`);
+          // Controlla anche se ci sono foto trovate con status='paid'
+          const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
+          const hasAnyPaid = hasPaid || hasPaidInFound;
+          
+          console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound=${hasPaidInFound}`);
           
           // PRIORITÀ: Se ha foto pagate (anche solo una) → redirect IMMEDIATO a /my-photos
-          if(hasPaid) {
-            console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
+          if(hasAnyPaid) {
+            const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
+            console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
             window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
             return; // Esci subito, il redirect è in corso
           }
