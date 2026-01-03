@@ -225,6 +225,9 @@ def _init_database():
         return
     
     try:
+        # Assicurati che la directory esista
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Connecting to database: {DB_PATH}")
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
@@ -513,26 +516,34 @@ async def _match_selfie_embedding(selfie_embedding: bytes, threshold: float = 0.
 async def _create_order(email: str, order_id: str, stripe_session_id: str, photo_ids: List[str], amount_cents: int) -> Optional[str]:
     """Crea un ordine e ritorna download token"""
     if not SQLITE_AVAILABLE:
+        logger.error("SQLite not available, cannot create order")
         return None
     
     try:
+        logger.info(f"_create_order called: email={email}, order_id={order_id}, photo_count={len(photo_ids)}")
         now = datetime.now(timezone.utc).isoformat()
         download_token = secrets.token_urlsafe(32)
+        logger.info(f"Generated download_token: {download_token[:20]}...")
         
         async with aiosqlite.connect(DB_PATH) as conn:
+            logger.info(f"Connected to database: {DB_PATH}")
             await conn.execute("""
                 INSERT INTO orders (order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (order_id, email, stripe_session_id, json.dumps(photo_ids), amount_cents, now, download_token))
+            logger.info("Order inserted into database")
             
             # Marca foto come pagate
             for photo_id in photo_ids:
                 await _mark_photo_paid(email, photo_id)
+            logger.info(f"Marked {len(photo_ids)} photos as paid")
             
             await conn.commit()
+            logger.info("Order committed successfully")
             return download_token
     except Exception as e:
-        logger.error(f"Error creating order: {e}")
+        logger.error(f"Error creating order: {e}", exc_info=True)
+        logger.error(f"Exception type: {type(e).__name__}")
     return None
 
 async def _get_order_by_token(token: str) -> Optional[Dict[str, Any]]:
@@ -1113,7 +1124,16 @@ async def startup():
     global face_app, faiss_index, meta_rows, back_photos
     
     # Inizializza database SQLite all'avvio
+    logger.info("Initializing database...")
     _init_database()
+    
+    # Verifica che il database sia stato creato
+    if SQLITE_AVAILABLE and DB_PATH.exists():
+        logger.info(f"✅ Database verified: {DB_PATH} (size: {DB_PATH.stat().st_size} bytes)")
+    elif SQLITE_AVAILABLE:
+        logger.warning(f"⚠️  Database file not found: {DB_PATH}")
+    else:
+        logger.warning("⚠️  SQLite not available")
     
     logger.info("Loading face recognition model...")
     try:
@@ -1581,12 +1601,402 @@ async def get_user_photos(
         logger.error(f"Error getting user photos: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
+@app.get("/my-photos")
+async def my_photos_by_email(
+    request: Request,
+    email: Optional[str] = Query(None, description="Email utente")
+):
+    """Pagina download foto pagate usando solo email (per utenti che rientrano)"""
+    try:
+        if not email:
+            return HTMLResponse("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Email richiesta - TenerifePictures</title>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    body { font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: linear-gradient(135deg, #7b74ff, #5f58ff); color: #fff; }
+                    .container { text-align: center; padding: 40px; background: rgba(255,255,255,0.1); border-radius: 20px; }
+                    h1 { font-size: 32px; margin: 0 0 20px; }
+                    a { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #fff; color: #5f58ff; text-decoration: none; border-radius: 8px; font-weight: 600; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>📧 Email richiesta</h1>
+                    <p>Per accedere alle tue foto, inserisci la tua email.</p>
+                    <a href="/">Torna alla home</a>
+                </div>
+            </body>
+            </html>
+            """)
+        
+        # Recupera foto pagate per questa email
+        paid_photos = []
+        if SQLITE_AVAILABLE:
+            try:
+                paid_photos = await _get_user_paid_photos(email)
+            except Exception as e:
+                logger.error(f"Error getting paid photos for {email}: {e}")
+        
+        if not paid_photos or len(paid_photos) == 0:
+            return HTMLResponse(f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Nessuna foto acquistata - TenerifePictures</title>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    body {{ font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: linear-gradient(135deg, #7b74ff, #5f58ff); color: #fff; }}
+                    .container {{ text-align: center; padding: 40px; background: rgba(255,255,255,0.1); border-radius: 20px; }}
+                    h1 {{ font-size: 32px; margin: 0 0 20px; }}
+                    a {{ display: inline-block; margin-top: 20px; padding: 12px 24px; background: #fff; color: #5f58ff; text-decoration: none; border-radius: 8px; font-weight: 600; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>📷 Nessuna foto acquistata</h1>
+                    <p>Non hai ancora acquistato foto con questa email.</p>
+                    <a href="/">Vai alla galleria</a>
+                </div>
+            </body>
+            </html>
+            """)
+        
+        # Genera HTML per pagina download (stesso stile di checkout/success)
+        base_url = str(request.base_url).rstrip('/')
+        photos_html = ""
+        for photo_id in paid_photos:
+            photo_url = f"{base_url}/photo/{photo_id}?paid=true&email={email}"
+            photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '&quot;')
+            email_escaped = email.replace("'", "\\'").replace('"', '&quot;')
+            
+            photos_html += f"""
+                <div class="photo-item">
+                    <img src="{photo_url}" alt="Foto" loading="lazy" class="photo-img" style="cursor: pointer;">
+                    <div class="ios-instructions" style="display: none; margin-top: 15px; padding: 12px; background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 10px; color: #0369a1; text-align: center;">
+                        <p style="margin: 0; font-weight: bold; font-size: 14px;">📱 Per salvare:</p>
+                        <p style="margin: 8px 0 0 0; font-size: 13px;">Tocca e tieni premuto sull'immagine, poi seleziona "Salva in Foto"</p>
+                    </div>
+                    <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Scarica</button>
+                </div>
+                """
+        
+        # Usa lo stesso HTML template di checkout/success
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Le mie foto - TenerifePictures</title>
+            <style>
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    padding: 20px;
+                }}
+                .container {{
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    background: white;
+                    border-radius: 20px;
+                    padding: 40px;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                }}
+                .success-icon {{
+                    font-size: 80px;
+                    text-align: center;
+                    margin-bottom: 20px;
+                }}
+                h1 {{
+                    text-align: center;
+                    color: #333;
+                    margin-bottom: 20px;
+                    font-size: 36px;
+                }}
+                .message {{
+                    text-align: center;
+                    color: #666;
+                    font-size: 18px;
+                    margin-bottom: 30px;
+                }}
+                .photos-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin: 30px 0;
+                }}
+                .photo-item {{
+                    position: relative;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    background: #f5f5f5;
+                }}
+                .photo-img {{
+                    width: 100%;
+                    height: auto;
+                    display: block;
+                }}
+                .download-btn {{
+                    position: absolute;
+                    bottom: 10px;
+                    right: 10px;
+                    background: #22c55e;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-weight: 600;
+                    font-size: 14px;
+                }}
+                .download-btn:hover {{
+                    background: #16a34a;
+                }}
+                .main-button {{
+                    display: block;
+                    width: 100%;
+                    max-width: 400px;
+                    margin: 30px auto;
+                    padding: 18px 30px;
+                    background: rgba(255, 255, 255, 0.2);
+                    color: #fff;
+                    text-decoration: none;
+                    border-radius: 12px;
+                    font-weight: 700;
+                    font-size: 18px;
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                    transition: transform 0.2s, background 0.2s;
+                    text-align: center;
+                }}
+                .main-button:hover {{
+                    transform: translateY(-2px);
+                    background: rgba(255, 255, 255, 0.3);
+                }}
+                @media (max-width: 600px) {{
+                    .photos-grid {{
+                        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                        gap: 15px;
+                    }}
+                    h1 {{
+                        font-size: 28px;
+                    }}
+                    .message {{
+                        font-size: 18px;
+                    }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success-icon">✅</div>
+                <h1>LE TUE FOTO</h1>
+                <p class="message">Hai acquistato {len(paid_photos)} foto</p>
+                
+                <!-- Istruzioni iOS in alto (se iPhone) -->
+                <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; backdrop-filter: blur(10px);">
+                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 18px;">📱 Come salvare le foto:</p>
+                    <p style="margin: 0; font-size: 16px; line-height: 1.6;">1. Tocca e tieni premuto sull'immagine</p>
+                    <p style="margin: 5px 0 0 0; font-size: 16px; line-height: 1.6;">2. Seleziona "Salva in Foto"</p>
+                </div>
+                
+                <!-- Bottone Acquista altre foto in alto -->
+                <a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Acquista altre foto</a>
+                
+                <!-- Foto -->
+                <div class="photos-grid">
+                    {photos_html}
+                </div>
+            </div>
+            <script>
+                // Rileva se è iOS
+                function isIOS() {{
+                    return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                }}
+                
+                // Rileva se è Android
+                function isAndroid() {{
+                    return /Android/i.test(navigator.userAgent);
+                }}
+                
+                // Mostra/nascondi pulsante e istruzioni in base al dispositivo
+                document.addEventListener('DOMContentLoaded', function() {{
+                    const iosInstructions = document.querySelectorAll('.ios-instructions');
+                    const downloadBtns = document.querySelectorAll('.download-btn-desktop');
+                    
+                    if (isIOS()) {{
+                        // Su iOS: mostra istruzioni, nascondi pulsanti
+                        iosInstructions.forEach(el => el.style.display = 'block');
+                        downloadBtns.forEach(el => el.style.display = 'none');
+                    }} else {{
+                        // Su Android/Desktop: mostra pulsanti, nascondi istruzioni
+                        iosInstructions.forEach(el => el.style.display = 'none');
+                        downloadBtns.forEach(el => el.style.display = 'block');
+                    }}
+                }});
+                
+                async function downloadPhotoSuccess(photoId, email, btnElement) {{
+                    try {{
+                        const btn = btnElement || event?.target || document.querySelector(`button[onclick*="${{photoId}}"]`);
+                        if (!btn) {{
+                            console.error('Pulsante non trovato');
+                            alert('Errore: pulsante non trovato');
+                            return;
+                        }}
+                        
+                        btn.disabled = true;
+                        btn.textContent = '⏳ Scaricamento...';
+                        
+                        const filename = photoId.split('/').pop() || 'foto.jpg';
+                        
+                        // Costruisci URL con paid=true, email e download=true
+                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true&download=true`;
+                        if (email) {{
+                            photoUrl += `&email=${{encodeURIComponent(email)}}`;
+                        }}
+                        
+                        // Su iOS: usa approccio semplice e diretto
+                        if (isIOS()) {{
+                            try {{
+                                // Prova prima con Web Share API
+                                const response = await fetch(photoUrl);
+                                if (!response.ok) {{
+                                    throw new Error('Errore nel download: ' + response.status);
+                                }}
+                                
+                                const blob = await response.blob();
+                                const file = new File([blob], filename, {{ type: 'image/jpeg' }});
+                                
+                                if (navigator.share && navigator.canShare) {{
+                                    try {{
+                                        if (navigator.canShare({{ files: [file] }})) {{
+                                            await navigator.share({{
+                                                files: [file],
+                                                title: 'Salva foto',
+                                                text: 'Salva questa foto nella galleria'
+                                            }});
+                                            btn.textContent = '✅ Salvata!';
+                                            setTimeout(() => {{
+                                                btn.disabled = false;
+                                                btn.textContent = '📥 Scarica';
+                                            }}, 2000);
+                                            return;
+                                        }}
+                                    }} catch (shareErr) {{
+                                        console.log('Web Share error:', shareErr);
+                                    }}
+                                }}
+                                
+                                // Fallback: apri l'immagine
+                                const imgWindow = window.open(photoUrl, '_blank');
+                                
+                                if (imgWindow) {{
+                                    setTimeout(() => {{
+                                        alert('📱 Tocca e tieni premuto sull\\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
+                                    }}, 800);
+                                    
+                                    btn.textContent = '✅ Aperta!';
+                                    setTimeout(() => {{
+                                        btn.disabled = false;
+                                        btn.textContent = '📥 Scarica';
+                                    }}, 2000);
+                                }} else {{
+                                    alert('📱 Popup bloccato. Per salvare la foto:\\n1. Tocca e tieni premuto sull\\'immagine qui sotto\\n2. Seleziona "Salva in Foto"');
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 Scarica';
+                                }}
+                            }} catch (fetchError) {{
+                                console.error('Errore fetch:', fetchError);
+                                alert('Errore nel caricamento della foto. Riprova.');
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                                return;
+                            }}
+                        }}
+                        // Su Android: download diretto
+                        else if (isAndroid()) {{
+                            const link = document.createElement('a');
+                            link.href = photoUrl;
+                            link.download = filename;
+                            link.style.display = 'none';
+                            document.body.appendChild(link);
+                            link.click();
+                            setTimeout(() => {{
+                                document.body.removeChild(link);
+                            }}, 1000);
+                            
+                            btn.textContent = '✅ Scaricata!';
+                            setTimeout(() => {{
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}, 2000);
+                        }}
+                        // Desktop: download normale
+                        else {{
+                            const response = await fetch(photoUrl);
+                            if (!response.ok) {{
+                                throw new Error('Errore nel download');
+                            }}
+                            
+                            const blob = await response.blob();
+                            const blobUrl = window.URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = blobUrl;
+                            link.download = filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            window.URL.revokeObjectURL(blobUrl);
+                            
+                            btn.textContent = '✅ Scaricata!';
+                            setTimeout(() => {{
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}, 2000);
+                        }}
+                    }} catch (error) {{
+                        console.error('Errore download:', error);
+                        alert('Errore durante il download. Riprova più tardi.');
+                        btn.disabled = false;
+                        btn.textContent = '📥 Scarica';
+                    }}
+                }}
+            </script>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(html_content)
+    except Exception as e:
+        logger.error(f"Error in my_photos_by_email: {e}", exc_info=True)
+        return HTMLResponse(f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial; padding: 50px; text-align: center;">
+            <h1>❌ Errore</h1>
+            <p>{str(e)}</p>
+            <a href="/">Torna alla home</a>
+        </body>
+        </html>
+        """)
+
 @app.get("/my-photos/{token}")
 async def my_photos_page(
     token: str,
     request: Request
 ):
-    """Pagina download foto dopo pagamento"""
+    """Pagina download foto dopo pagamento (con token)"""
     try:
         order = await _get_order_by_token(token)
         
@@ -1755,6 +2165,113 @@ async def my_photos_page(
     except Exception as e:
         logger.error(f"Error loading my-photos page: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.post("/test-checkout")
+async def test_checkout(
+    request: Request,
+    session_id: str = Query(..., description="ID sessione"),
+    email: Optional[str] = Query(None, description="Email utente")
+):
+    """Endpoint di test per simulare checkout senza Stripe (per test locali)"""
+    try:
+        logger.info(f"=== TEST CHECKOUT (no Stripe) ===")
+        logger.info(f"Session ID: {session_id}")
+        logger.info(f"Email: {email}")
+        
+        photo_ids = _get_cart(session_id)
+        logger.info(f"Cart photo_ids: {photo_ids}")
+        
+        if not photo_ids:
+            raise HTTPException(status_code=400, detail="Cart is empty")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required")
+        
+        # Simula un ordine senza Stripe
+        base_url = str(request.base_url).rstrip('/')
+        fake_session_id = f"test_session_{int(datetime.now(timezone.utc).timestamp())}"
+        
+        # Crea ordine nel database
+        amount_cents = calculate_price(len(photo_ids))
+        logger.info(f"Creating test order: email={email}, order_id={fake_session_id}, photos={len(photo_ids)}, amount={amount_cents}")
+        
+        try:
+            download_token = await _create_order(email, fake_session_id, fake_session_id, photo_ids, amount_cents)
+            logger.info(f"Order created, download_token: {download_token}")
+        except Exception as order_error:
+            logger.error(f"Error creating order: {order_error}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error creating test order: {str(order_error)}")
+        
+        if download_token:
+            # Redirecta direttamente alla pagina di successo
+            success_url = f"{base_url}/checkout/success?session_id={fake_session_id}&cart_session={session_id}"
+            logger.info(f"Test checkout success, redirecting to: {success_url}")
+            return {
+                "ok": True,
+                "checkout_url": success_url,
+                "session_id": fake_session_id,
+                "test_mode": True
+            }
+        else:
+            logger.error("_create_order returned None (no token)")
+            raise HTTPException(status_code=500, detail="Error creating test order: download_token is None")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in test-checkout: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Test checkout error: {str(e)}")
+
+@app.get("/test-album")
+async def test_album(
+    email: Optional[str] = Query("test@example.com", description="Email di test")
+):
+    """Endpoint di test per mostrare galleria con foto di prova senza passare per la camera"""
+    try:
+        # Prendi le prime 20 foto dalla cartella photos
+        photo_files = list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.jpeg"))
+        photo_files = [f for f in photo_files if not f.name.endswith('_watermarked.jpg')]  # Escludi watermark
+        
+        # Limita a 20 foto per test
+        photo_files = photo_files[:20]
+        
+        if not photo_files:
+            return {
+                "ok": False,
+                "error": "Nessuna foto trovata nella cartella photos"
+            }
+        
+        # Crea risultati simulati (stesso formato di match_selfie)
+        results = []
+        for i, photo_file in enumerate(photo_files):
+            photo_id = photo_file.name
+            results.append({
+                "photo_id": photo_id,
+                "score": 0.85 - (i * 0.01),  # Score decrescente per simulare ranking
+                "has_face": True,
+                "is_back_photo": False
+            })
+        
+        # Se email fornita, salva foto trovate nel database (simula comportamento normale)
+        if email:
+            for result in results:
+                await _add_user_photo(email, result["photo_id"], "found")
+            logger.info(f"Test album: saved {len(results)} photos for user {email}")
+        
+        return {
+            "ok": True,
+            "count": len(results),
+            "matches": results,
+            "results": results,
+            "matched_count": len(results),
+            "back_photos_count": 0
+        }
+    except Exception as e:
+        logger.error(f"Error in test-album endpoint: {e}", exc_info=True)
+        return {
+            "ok": False,
+            "error": str(e)
+        }
 
 # ========== ENDPOINT ESISTENTI ==========
 
@@ -2019,22 +2536,35 @@ async def create_checkout(
     email: Optional[str] = Query(None, description="Email utente (obbligatoria per salvare ordine)")
 ):
     """Crea una sessione di checkout Stripe"""
+    logger.info(f"=== CHECKOUT REQUEST ===")
+    logger.info(f"Session ID: {session_id}")
+    logger.info(f"Email: {email}")
+    logger.info(f"USE_STRIPE: {USE_STRIPE}")
+    
     if not USE_STRIPE:
+        logger.error("Stripe not configured")
         raise HTTPException(status_code=503, detail="Stripe not configured")
     
     photo_ids = _get_cart(session_id)
+    logger.info(f"Cart photo_ids: {photo_ids}")
+    
     if not photo_ids:
+        logger.error("Cart is empty")
         raise HTTPException(status_code=400, detail="Cart is empty")
     
     if not email:
+        logger.error("Email is required")
         raise HTTPException(status_code=400, detail="Email is required")
     
     price_cents = calculate_price(len(photo_ids))
+    logger.info(f"Price calculated: {price_cents} cents ({price_cents/100} EUR) for {len(photo_ids)} photos")
     
     try:
         # Costruisci URL base
         base_url = str(request.base_url).rstrip('/')
+        logger.info(f"Base URL: {base_url}")
         
+        logger.info("Creating Stripe checkout session...")
         # Crea checkout session Stripe
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -2061,13 +2591,17 @@ async def create_checkout(
             }
         )
         
+        logger.info(f"Stripe checkout session created: {checkout_session.id}")
+        logger.info(f"Checkout URL: {checkout_session.url}")
+        
         return {
             "ok": True,
             "checkout_url": checkout_session.url,
             "session_id": checkout_session.id
         }
     except Exception as e:
-        logger.error(f"Error creating Stripe checkout: {e}")
+        logger.error(f"Error creating Stripe checkout: {e}", exc_info=True)
+        logger.error(f"Exception type: {type(e).__name__}")
         raise HTTPException(status_code=500, detail=f"Checkout error: {str(e)}")
 
 @app.get("/checkout/success")
@@ -2204,10 +2738,7 @@ async def checkout_success(
         else:
             photos_section = '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'
         
-        if email:
-            album_button = f'<a href="/?email={email}&refresh=paid" class="main-button">VAI ALL\'ALBUM COMPLETO</a>'
-        else:
-            album_button = '<a href="/" class="main-button">VAI ALL\'ALBUM</a>'
+        album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Acquista altre foto</a>'
         
         # Pagina con foto mostrate direttamente
         html_content = f"""
@@ -2336,8 +2867,19 @@ async def checkout_success(
                 <div class="success-icon">✅</div>
                 <h1>PAGAMENTO COMPLETATO!</h1>
                 <p class="message">Le tue foto sono pronte per il download.</p>
-                {photos_section}
+                
+                <!-- Istruzioni iOS in alto (se iPhone) -->
+                <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; backdrop-filter: blur(10px);">
+                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 18px;">📱 Come salvare le foto:</p>
+                    <p style="margin: 0; font-size: 16px; line-height: 1.6;">1. Tocca e tieni premuto sull'immagine</p>
+                    <p style="margin: 5px 0 0 0; font-size: 16px; line-height: 1.6;">2. Seleziona "Salva in Foto"</p>
+                </div>
+                
+                <!-- Bottone Acquista altre foto in alto -->
                 {album_button}
+                
+                <!-- Foto -->
+                {photos_section}
             </div>
             <script>
                 // Rileva se è iOS

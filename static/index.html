@@ -1092,10 +1092,11 @@
     <div class="email-input-container">
       <input type="email" class="email-input" id="emailInput" placeholder="tua@email.com" data-i18n-placeholder="email.placeholder">
       <p class="email-error" id="emailError" data-i18n="email.error">Email non valida</p>
-    </div>
+        </div>
     <button class="btn-primary" id="emailContinueBtn" data-i18n="email.continue">Continua</button>
     <button class="btn-secondary" id="myPhotosBtn" style="margin-top: 15px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2);" data-i18n="email.myPhotos">📸 Foto già acquistate</button>
-  </div>
+    <button class="btn-secondary" id="testAlbumBtn" style="margin-top: 15px; background: rgba(0, 255, 0, 0.1); border: 2px solid rgba(0, 255, 0, 0.3); color: #4ade80;" onclick="loadTestAlbum()">🧪 Test Album (salta camera)</button>
+      </div>
 
   <!-- Welcome Screen -->
   <div class="screen welcome-screen" id="welcomeScreen">
@@ -1106,7 +1107,7 @@
         <rect x="35" y="60" width="30" height="8" rx="4"/>
         <circle cx="70" cy="35" r="4"/>
       </svg>
-    </div>
+        </div>
     <h1 class="welcome-title" data-i18n="welcome.title">Find your photos!</h1>
     <p class="welcome-text" data-i18n="welcome.text">
       In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.
@@ -1115,7 +1116,7 @@
     <p class="welcome-privacy" data-i18n="welcome.privacy">
       We operate in full respect of Privacy and use your face exclusively to find photos that feature you.
     </p>
-  </div>
+      </div>
 
   <!-- Selfie Screen -->
   <div class="screen selfie-screen" id="selfieScreen">
@@ -1231,7 +1232,7 @@
         </div>
         <div class="price-item-value">€1</div>
       </div>
-      
+
       <div class="price-item">
         <div class="price-item-info">
           <div class="price-item-count">2 <span data-i18n="prices.photo">photos</span></div>
@@ -1244,10 +1245,10 @@
         <div class="price-item-info">
           <div class="price-item-count">3 <span data-i18n="prices.photo">photos</span> <span class="price-item-badge" data-i18n="prices.badgeDiscount">Discount</span></div>
           <div class="price-item-desc" data-i18n="prices.special">Special offer</div>
-        </div>
-        <div class="price-item-value">€35</div>
       </div>
-      
+        <div class="price-item-value">€35</div>
+    </div>
+
       <div class="price-item">
         <div class="price-item-info">
           <div class="price-item-count">4 <span data-i18n="prices.photo">photos</span></div>
@@ -1584,7 +1585,7 @@
         currentLang = savedLang;
       }
       
-      // 2. Controlla se è ritorno dopo pagamento
+      // 2. Controlla se è ritorno dopo pagamento (parametri URL)
       const urlParams = new URLSearchParams(window.location.search);
       const emailParam = urlParams.get('email');
       const refreshParam = urlParams.get('refresh');
@@ -1595,7 +1596,26 @@
         return;
       }
       
-      // 3. FLUSSO BASE: lingua → email → selfie
+      // 3. NUOVO: Controlla se utente ha acquisti (rientro)
+      const savedEmail = localStorage.getItem('userEmail');
+      if(savedEmail) {
+        try {
+          const res = await fetch(`/user/photos?email=${encodeURIComponent(savedEmail)}`);
+          const data = await res.json();
+          
+          // Se ha foto pagate, redirecta a /my-photos
+          if(data.ok && data.paid_photos && data.paid_photos.length > 0) {
+            console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
+            window.location.href = `/my-photos?email=${encodeURIComponent(savedEmail)}`;
+            return;
+          }
+        } catch(e) {
+          console.error("Error checking paid photos on init:", e);
+          // Continua con flusso normale se errore
+        }
+      }
+      
+      // 4. FLUSSO BASE: lingua → email → selfie
       if(savedLang) {
         showScreen('email');
       } else {
@@ -1791,6 +1811,86 @@
       // Se hasPaidPhotos è true, l'album è già stato mostrato da checkEmailForPaidPhotos
     });
     
+    // Funzione per caricare album di test (salta camera)
+    async function loadTestAlbum() {
+      const email = emailInput.value.trim();
+      
+      // Validazione email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if(!email || !emailRegex.test(email)) {
+        emailError.classList.add('show');
+        emailInput.style.borderColor = '#ff4444';
+        return;
+      }
+      
+      // Salva email
+      userEmail = email;
+      localStorage.setItem('userEmail', email);
+      emailError.classList.remove('show');
+      emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+      
+      // Mostra loading
+      const testBtn = document.getElementById('testAlbumBtn');
+      if(testBtn) {
+        testBtn.disabled = true;
+        testBtn.textContent = '⏳ Caricamento...';
+      }
+      
+      try {
+        // Chiama endpoint test-album
+        const res = await fetch(`/test-album?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        
+        if(data.ok && data.results && data.results.length > 0) {
+          console.log(`Test album: trovate ${data.results.length} foto`);
+          
+          allPhotos = data.results;
+          photosLoadedCount = 0;
+          
+          // Carica anche le foto già acquistate
+          if(userEmail) {
+            try {
+              const paidRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+              const paidData = await paidRes.json();
+              
+              if(paidData.ok && paidData.paid_photos && paidData.paid_photos.length > 0) {
+                paidPhotos = [...paidData.paid_photos];
+                console.log(`Caricate ${paidPhotos.length} foto pagate`);
+                
+                // Marca come pagate le foto nell'album
+                allPhotos.forEach(photo => {
+                  if(paidData.paid_photos.includes(photo.photo_id)) {
+                    photo.paid = true;
+                    if(!paidPhotos.includes(photo.photo_id)) {
+                      paidPhotos.push(photo.photo_id);
+                    }
+                  }
+                });
+              }
+            } catch(e) {
+              console.error('Errore caricamento foto pagate:', e);
+            }
+          }
+          
+          // Mostra album
+          showScreen('album');
+          await displayPhotos();
+          showStickyOfferBar(allPhotos.length);
+          applyTranslations();
+        } else {
+          alert('Nessuna foto trovata per il test. Verifica che ci siano foto nella cartella photos.');
+        }
+      } catch(e) {
+        console.error('Errore caricamento test album:', e);
+        alert('Errore durante il caricamento del test album: ' + e.message);
+      } finally {
+        if(testBtn) {
+          testBtn.disabled = false;
+          testBtn.textContent = '🧪 Test Album (salta camera)';
+        }
+      }
+    }
+    
     // Pulsante "Le mie foto già acquistate"
     const myPhotosBtn = document.getElementById('myPhotosBtn');
     if(myPhotosBtn) {
@@ -1804,7 +1904,7 @@
           emailInput.style.borderColor = '#ff4444';
           return;
         }
-        
+
         // Salva email
         userEmail = email;
         localStorage.setItem('userEmail', email);
@@ -1891,7 +1991,7 @@
       showScreen('selfie');
       // Aspetta un attimo che lo schermo sia visibile, poi avvia la camera
       setTimeout(async () => {
-        await startCamera();
+      await startCamera();
       }, 100);
       });
     }
@@ -2103,7 +2203,7 @@
         
         // Mostra placeholder
         const placeholder = document.getElementById('videoPlaceholder');
-        const video = document.getElementById('video');
+  const video = document.getElementById('video');
         if(placeholder && video) {
           placeholder.style.display = 'block';
           video.style.display = 'none';
@@ -2133,10 +2233,10 @@
             msgEl.textContent = errorMsg;
           }
         }
-      }
     }
+  }
 
-    function captureSelfie() {
+  function captureSelfie() {
       try {
         // Verifica che il video sia pronto
         if(!video || !video.videoWidth || !video.videoHeight) {
@@ -2147,8 +2247,8 @@
             readyState: video?.readyState
           });
           alert("La fotocamera non è ancora pronta. Attendi un attimo e riprova.");
-          return;
-        }
+      return;
+    }
 
         console.log("Cattura selfie, dimensioni video:", video.videoWidth, "x", video.videoHeight);
         
@@ -2186,7 +2286,7 @@
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
         
-        const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d');
         
         // Disegna il frame corrente del video sul canvas con crop centrato
         // Usa la stessa area che viene mostrata nel video (object-fit: cover)
@@ -2200,12 +2300,12 @@
         console.log("Crop applicato:", { sourceX, sourceY, sourceWidth, sourceHeight });
         
         // Converti canvas in blob
-        canvas.toBlob((blob) => {
+    canvas.toBlob((blob) => {
           if(!blob) {
             console.error("Errore: blob non creato");
             alert("Errore nella cattura della foto. Riprova.");
-            return;
-          }
+        return;
+      }
           
           console.log("Blob creato, dimensione:", blob.size, "bytes");
           capturedBlob = blob;
@@ -2233,8 +2333,8 @@
     async function confirmSelfie() {
       // Se abbiamo email e selfie, registra/aggiorna utente
       if(userEmail && capturedBlob) {
-        try {
-          const fd = new FormData();
+    try {
+      const fd = new FormData();
           fd.append("selfie", capturedBlob, "selfie.jpg");
           
           await fetch(`/register_user?email=${encodeURIComponent(userEmail)}`, {
@@ -2262,7 +2362,7 @@
         startCamera();
         return;
       }
-      
+
       // Mostra area upload status (torna allo schermo selfie se siamo in confirm)
       showScreen('selfie');
       const uploadStatus = document.getElementById('uploadStatus');
@@ -2834,7 +2934,7 @@
       
       try {
         const res = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
-        const data = await res.json();
+      const data = await res.json();
         if(data.ok) {
           paidPhotos = [];
           if(data.paid_photos) paidPhotos = [...data.paid_photos];
@@ -2859,7 +2959,7 @@
         startCamera();
         return;
       }
-      
+
       // Carica foto pagate prima di renderizzare
       await loadPaidPhotos();
       
@@ -2897,7 +2997,7 @@
       allPhotos.forEach((photo, index) => {
         const div = document.createElement('div');
         div.className = 'album-photo';
-        
+
         const img = document.createElement('img');
         img.dataset.photoId = photo.photo_id;
         img.dataset.index = index;
@@ -3092,9 +3192,9 @@
       const countdownDays = document.getElementById('paidCountdownDays');
       
       if(!countdownBanner || paidPhotos.length === 0) {
-        return;
-      }
-      
+      return;
+    }
+
       // Calcola giorni rimanenti (30 giorni dalla data di pagamento)
       // Per ora usiamo una stima: assumiamo che le foto siano state pagate oggi
       // In futuro potremmo recuperare la data di scadenza dal server
@@ -3246,9 +3346,9 @@
         
         if(!userEmail) {
           alert("Email non trovata. Per favore, accedi di nuovo.");
-          return;
-        }
-        
+        return;
+      }
+
         const filename = `${photoId}.jpg`;
         
         // Costruisci URL con paid=true, email e download=true per verifica backend e forzare download
@@ -3449,7 +3549,7 @@
             <div style="display: flex; align-items: center; gap: 12px;">
               <img src="/photo/${encodeURIComponent(photoId)}?paid=false" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;" />
               <span style="font-size: 14px; color: var(--text-light);">${photoId}</span>
-            </div>
+  </div>
             <button onclick="removeFromCart('${photoId}')" style="background: #ff4444; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;">Rimuovi</button>
           `;
           cartItems.appendChild(div);
@@ -3512,13 +3612,59 @@
         return;
       }
       
-      const res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}&email=${encodeURIComponent(userEmail)}`, {
-        method: "POST"
-      });
+      const checkoutBtn = document.getElementById("checkoutBtn");
+      if(checkoutBtn) {
+        checkoutBtn.disabled = true;
+        checkoutBtn.textContent = "⏳ Caricamento...";
+      }
       
-      const data = await res.json();
-      if(data.checkout_url) {
-        window.location.href = data.checkout_url;
+      try {
+        console.log("Inizio checkout:", { sessionId, userEmail, photoCount: currentCart.photo_ids.length });
+        
+        // Prova prima checkout normale, se fallisce (503) usa test-checkout
+        let res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}&email=${encodeURIComponent(userEmail)}`, {
+          method: "POST"
+        });
+        
+        console.log("Checkout response status:", res.status);
+        
+        // Se Stripe non è configurato (503), usa test-checkout
+        if(res.status === 503) {
+          console.log("Stripe not configured, using test-checkout...");
+          res = await fetch(`/test-checkout?session_id=${encodeURIComponent(sessionId)}&email=${encodeURIComponent(userEmail)}`, {
+            method: "POST"
+          });
+          console.log("Test-checkout response status:", res.status);
+        }
+        
+        if(!res.ok) {
+          const errorText = await res.text();
+          console.error("Checkout error response:", errorText);
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch(e) {
+            errorData = { detail: errorText || `Errore ${res.status}` };
+          }
+          throw new Error(errorData.detail || `Errore ${res.status}: ${res.statusText}`);
+        }
+        
+        const data = await res.json();
+        console.log("Checkout data:", data);
+        
+        if(data.checkout_url) {
+          console.log("Redirecting to Stripe:", data.checkout_url);
+          window.location.href = data.checkout_url;
+        } else {
+          throw new Error("URL di checkout non ricevuto dal server");
+        }
+      } catch(err) {
+        console.error("Checkout error:", err);
+        alert("Errore durante il pagamento: " + err.message + "\n\nControlla la console per i dettagli.");
+        if(checkoutBtn) {
+          checkoutBtn.disabled = false;
+          checkoutBtn.textContent = "💳 Vai al Pagamento";
+        }
       }
     }
     
@@ -3553,9 +3699,9 @@
         if(!userEmail) {
           alert(t('email.required') || "Email is required");
           showScreen('email');
-          return;
-        }
-        
+    return;
+  }
+
         // Ora fai il checkout con questa sessione che contiene tutte le foto
         const res = await fetch(`/checkout?session_id=${encodeURIComponent(checkoutSessionId)}&email=${encodeURIComponent(userEmail)}`, {
           method: "POST"
