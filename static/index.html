@@ -3417,6 +3417,11 @@
     }
 
     async function toggleCart(photoId, buttonElement) {
+      // Previeni l'aggiunta di foto pagate al carrello
+      if(paidPhotos.includes(photoId)) {
+        console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
+        return;
+      }
       try {
         // Previeni l'aggiunta di foto pagate al carrello
         if(paidPhotos.includes(photoId)) {
