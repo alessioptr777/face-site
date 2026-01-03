@@ -1449,7 +1449,7 @@
         
         // Se view_album=true, forza visualizzazione album anche se ha foto pagate
         if(viewAlbumParam === 'true') {
-          checkUserState(emailParam).then(userState => {
+          checkUserState(emailParam, true).then(userState => {
             // Se ha foto trovate (non pagate), mostra album
             if(userState.shown) {
               return; // Album già mostrato
@@ -1604,7 +1604,7 @@
     const emailContinueBtn = document.getElementById('emailContinueBtn');
     
     // Funzione per controllare lo stato dell'utente e mostrare contenuto appropriato
-    async function checkUserState(email) {
+    async function checkUserState(email, forceAlbum = false) {
       try {
         // 1. Salva l'utente solo con email
         try {
@@ -1624,6 +1624,7 @@
         console.log('checkUserState - API response:', data);
         console.log('checkUserState - paid_photos:', data.paid_photos);
         console.log('checkUserState - found_photos:', data.found_photos);
+        console.log('checkUserState - forceAlbum:', forceAlbum);
         
         if(!data.ok) {
           console.log('checkUserState - API returned !ok');
@@ -1637,45 +1638,51 @@
         const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
         const hasAnyPaid = hasPaid || hasPaidInFound;
         
-        // DEBUG: Mostra info visibile (rimuovere dopo test)
-        const debugInfo = `DEBUG: paid_photos=${data.paid_photos?.length || 0}, found_photos=${data.found_photos?.length || 0}, hasPaid=${hasPaid}, hasPaidInFound=${hasPaidInFound}, hasAnyPaid=${hasAnyPaid}`;
-        console.log(`checkUserState - ${debugInfo}`);
-        
         // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
-        if(hasAnyPaid) {
+        // MA: se forceAlbum=true, mostra l'album invece di fare redirect
+        if(hasAnyPaid && !forceAlbum) {
           const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
           console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
           window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
           return { hasPaid: true, hasFound: hasFound, redirect: true };
         }
         
-        // 4. Se ha solo foto trovate (non pagate) → mostra album per comprare
+        // 4. Se ha foto trovate → mostra album per comprare (filtra quelle già pagate)
         if(hasFound) {
-          console.log(`User has ${data.found_photos.length} found photos (not paid), showing album`);
           userEmail = email;
           localStorage.setItem('userEmail', email);
           
           // Prepara foto da mostrare - FILTRA quelle già pagate
-          allPhotos = data.found_photos
-            .filter(p => p.status !== 'paid') // Escludi foto già pagate
-            .map(p => ({
+          const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
+          
+          if(unpaidPhotos.length > 0) {
+            console.log(`User has ${unpaidPhotos.length} unpaid found photos, showing album`);
+            allPhotos = unpaidPhotos.map(p => ({
               photo_id: p.photo_id,
               score: 0,
               has_face: true,
               paid: false
             }));
-          
-          // Se ci sono foto non pagate, mostra album
-          if(allPhotos.length > 0) {
+            
+            // Mostra album
             showScreen('album');
             await displayPhotos();
             showStickyOfferBar(allPhotos.length);
-            return { hasPaid: false, hasFound: true, shown: true };
+            return { hasPaid: hasAnyPaid, hasFound: true, shown: true };
           } else {
-            // Tutte le foto trovate sono già pagate, redirecta a /my-photos
-            console.log('All found photos are already paid, redirecting to /my-photos');
-            window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-            return { hasPaid: true, hasFound: true, redirect: true };
+            // Tutte le foto trovate sono già pagate
+            // Se forceAlbum=true, mostra comunque selfie per trovare nuove foto
+            if(forceAlbum) {
+              console.log('All found photos are already paid, but forceAlbum=true, showing selfie to find new photos');
+              showScreen('selfie');
+              await startCamera();
+              return { hasPaid: true, hasFound: true, shown: false };
+            } else {
+              // Redirecta a /my-photos solo se non è forzato l'album
+              console.log('All found photos are already paid, redirecting to /my-photos');
+              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+              return { hasPaid: true, hasFound: true, redirect: true };
+            }
           }
         }
         

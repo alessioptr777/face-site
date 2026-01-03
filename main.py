@@ -1889,11 +1889,11 @@ async def my_photos_by_email(
                 </div>
                 """
         
-        # Link intelligente: se ha email, porta direttamente all'album se ha foto trovate
+        # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
-            album_button = f'<a href="/?email={email}" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+            album_button = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
         else:
-            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
         
         # Usa lo stesso HTML template di checkout/success
         html_content = f"""
@@ -2982,11 +2982,11 @@ async def checkout_success(
         else:
             photos_section = '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'
         
-        # Link intelligente: se ha email, porta direttamente all'album se ha foto trovate
+        # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
-            album_button = f'<a href="/?email={email}" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+            album_button = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
         else:
-            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Buy more photos</a>'
+            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
         
         # Pagina con foto mostrate direttamente
         html_content = f"""
