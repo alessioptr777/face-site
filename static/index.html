@@ -1730,31 +1730,41 @@
           
           console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound=${hasPaidInFound}`);
           
-          // PRIORITÀ: Se ha foto pagate (anche solo una) → redirect IMMEDIATO a /my-photos
+          // PRIORITÀ ASSOLUTA: Se ha foto pagate (anche solo una) → redirect IMMEDIATO a /my-photos
+          // NON mostrare album, NON fare altri controlli, vai DIRETTAMENTE alle foto pagate
           if(hasAnyPaid) {
-            const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
-            console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
+            console.log(`User has paid photos, redirecting immediately to /my-photos`);
             window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-            return; // Esci subito, il redirect è in corso
+            return; // Esci subito, il redirect è in corso - NON fare altro
           }
           
           // Se ha solo foto trovate (non pagate) → mostra album
           if(hasFound) {
-            console.log(`User has ${data.found_photos.length} found photos (not paid), showing album`);
+            // FILTRA: mostra solo foto NON pagate
+            const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
             
-            // Prepara foto da mostrare
-            allPhotos = data.found_photos.map(p => ({
-              photo_id: p.photo_id,
-              score: 0,
-              has_face: true,
-              paid: p.status === 'paid'
-            }));
-            
-            // Mostra album
-            showScreen('album');
-            await displayPhotos();
-            showStickyOfferBar(allPhotos.length);
-            return; // Esci, album mostrato
+            if(unpaidPhotos.length > 0) {
+              console.log(`User has ${unpaidPhotos.length} unpaid found photos, showing album`);
+              
+              // Prepara foto da mostrare (solo quelle non pagate)
+              allPhotos = unpaidPhotos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: false
+              }));
+              
+              // Mostra album
+              showScreen('album');
+              await displayPhotos();
+              showStickyOfferBar(allPhotos.length);
+              return; // Esci, album mostrato
+            } else {
+              // Tutte le foto trovate sono già pagate, redirecta a /my-photos
+              console.log('All found photos are already paid, redirecting to /my-photos');
+              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+              return; // Esci, redirect in corso
+            }
           }
         }
         
