@@ -3142,10 +3142,13 @@ async def checkout_success(
                 </div>
                 
                 <!-- Buy more photos button at top -->
-                {album_button}
+                {album_button_top}
                 
                 <!-- Foto -->
                 {photos_section}
+                
+                <!-- Buy more photos button at bottom -->
+                {album_button_bottom}
             </div>
             <script>
                 // Rileva se è iOS
