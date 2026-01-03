@@ -1638,6 +1638,46 @@
         const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
         const hasAnyPaid = hasPaid || hasPaidInFound;
         
+        // PULISCI CARRELLO: Se ha foto pagate, rimuovi tutte le foto dal carrello
+        // (potrebbero essere rimaste da una sessione precedente)
+        if(hasAnyPaid) {
+          try {
+            // Carica carrello corrente
+            const cartRes = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+            const cartData = await cartRes.json();
+            
+            if(cartData.ok && cartData.photo_ids && cartData.photo_ids.length > 0) {
+              // Raccogli tutte le foto pagate
+              const allPaidPhotoIds = new Set();
+              if(data.paid_photos) {
+                data.paid_photos.forEach(id => allPaidPhotoIds.add(id));
+              }
+              if(data.found_photos) {
+                data.found_photos.filter(p => p.status === 'paid').forEach(p => allPaidPhotoIds.add(p.photo_id));
+              }
+              
+              // Rimuovi tutte le foto pagate dal carrello
+              for(const photoId of cartData.photo_ids) {
+                if(allPaidPhotoIds.has(photoId)) {
+                  await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+                    method: "DELETE"
+                  });
+                }
+              }
+              
+              // Aggiorna carrello locale
+              const updatedCartRes = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+              const updatedCartData = await updatedCartRes.json();
+              if(updatedCartData.ok) {
+                currentCart = updatedCartData;
+                updateCart();
+              }
+            }
+          } catch(e) {
+            console.error('Error cleaning cart on return:', e);
+          }
+        }
+        
         // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
         // MA: se forceAlbum=true, mostra l'album invece di fare redirect
         if(hasAnyPaid && !forceAlbum) {
@@ -3592,6 +3632,43 @@
         alert("Email is required");
         showScreen('email');
         return;
+      }
+      
+      // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout
+      if(paidPhotos.length > 0) {
+        const paidPhotoIdsSet = new Set(paidPhotos);
+        const unpaidInCart = currentCart.photo_ids.filter(photoId => !paidPhotoIdsSet.has(photoId));
+        
+        if(unpaidInCart.length !== currentCart.photo_ids.length) {
+          console.log(`Rimosse ${currentCart.photo_ids.length - unpaidInCart.length} foto pagate dal carrello prima del checkout`);
+          
+          // Rimuovi foto pagate dal carrello backend
+          for(const paidPhotoId of currentCart.photo_ids) {
+            if(paidPhotoIdsSet.has(paidPhotoId)) {
+              try {
+                await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(paidPhotoId)}`, {
+                  method: "DELETE"
+                });
+              } catch(e) {
+                console.error('Error removing paid photo from cart:', e);
+              }
+            }
+          }
+          
+          // Aggiorna carrello locale
+          const res = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+          const cartData = await res.json();
+          if(cartData.ok) {
+            currentCart = cartData;
+            updateCart();
+            
+            // Se carrello vuoto dopo filtro, avvisa
+            if(currentCart.photo_ids.length === 0) {
+              alert("Tutte le foto selezionate sono già state acquistate. Puoi scaricarle dalla pagina 'Le mie foto'.");
+              return;
+            }
+          }
+        }
       }
       
       const checkoutBtn = document.getElementById("checkoutBtn");

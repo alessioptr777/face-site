@@ -2959,7 +2959,6 @@ async def create_checkout(
     if not email:
         logger.error("Email is required")
         raise HTTPException(status_code=400, detail="Email is required")
-    
     price_cents = calculate_price(len(photo_ids))
     logger.info(f"Price calculated: {price_cents} cents ({price_cents/100} EUR) for {len(photo_ids)} photos")
     
@@ -3083,12 +3082,12 @@ async def checkout_success(
                         "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = ?",
                         (stripe_session_id,)
                     )
-                        if row:
-                            download_token = row['download_token']
-                            photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                            if not email:  # Usa email dal database se non già recuperata
-                                email = row['email']
-                            logger.info(f"Order found after retry: {stripe_session_id}")
+                    if row:
+                        download_token = row['download_token']
+                        photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                        if not email:  # Usa email dal database se non già recuperata
+                            email = row['email']
+                        logger.info(f"Order found after retry: {stripe_session_id}")
                 except Exception as e:
                     logger.error(f"Error retrying order from database: {e}")
         
