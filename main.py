@@ -2649,16 +2649,12 @@ async def create_checkout(
         
         logger.info("Creating Stripe checkout session...")
         # Crea checkout session Stripe
-        # Nota: Per disabilitare completamente Stripe Link, devi anche disabilitarlo nella Dashboard Stripe:
+        # Nota: Per disabilitare Stripe Link, devi disabilitarlo nella Dashboard Stripe:
         # Dashboard → Settings → Payment methods → Link → Disable
+        # Il parametro payment_method_options[link][enabled] non è supportato da questa versione dell'API
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
-            payment_method_options={
-                'link': {
-                    'enabled': False  # Disabilita Stripe Link per questa sessione
-                }
-            },
-            # Alternativa: non includere customer_email se non necessario (Link usa email per autofill)
+            # Non includere customer_email per ridurre probabilità che Stripe mostri Link
             # customer_email=email,  # Commentato per ridurre probabilità che Stripe mostri Link
             line_items=[{
                 'price_data': {
