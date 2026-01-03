@@ -2672,7 +2672,7 @@ async def my_photos_by_email(
         <body style="font-family: Arial; padding: 50px; text-align: center;">
             <h1>❌ Errore</h1>
             <p>{str(e)}</p>
-            <a href="/">Torna alla home</a>
+            <a href="/">Back to home</a>
         </body>
         </html>
         """)
@@ -3818,7 +3818,7 @@ async def checkout_success(
         <body style="font-family: Arial; text-align: center; padding: 50px;">
             <h1>✅ Pagamento completato!</h1>
             <p>Controlla la tua email per il link di download.</p>
-            <a href="/">Torna alla home</a>
+            <a href="/">Back to home</a>
         </body>
         </html>
         """)
@@ -3869,7 +3869,7 @@ async def checkout_cancel(session_id: str = Query(..., description="Session ID")
         <div class="container">
             <h1>❌ Pagamento annullato</h1>
             <p>Il pagamento è stato annullato.</p>
-            <a href="/">Torna alla home</a>
+            <a href="/">Back to home</a>
         </div>
     </body>
     </html>
@@ -4367,7 +4367,7 @@ async def test_download_page(
         <body style="font-family: Arial; padding: 50px; text-align: center;">
             <h1>❌ Errore</h1>
             <p>{str(e)}</p>
-            <a href="/">Torna alla home</a>
+            <a href="/">Back to home</a>
         </body>
         </html>
         """)
