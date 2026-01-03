@@ -3713,14 +3713,23 @@ async def stripe_webhook(request: Request):
             
             if email:
                 # Normalizza email
+                original_email = email
                 email = _normalize_email(email)
-                photo_ids = photo_ids_str.split(',')
+                logger.info(f"Email normalized: '{original_email}' -> '{email}'")
+                photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
+                logger.info(f"Photo IDs parsed: {photo_ids} (count: {len(photo_ids)})")
                 order_id = session.get('id')
                 amount_cents = session.get('amount_total', 0)
+                logger.info(f"Creating order: order_id={order_id}, email={email}, amount={amount_cents}, photos={len(photo_ids)}")
                 
                 # Crea ordine nel database con download token
                 base_url = str(request.base_url).rstrip('/')
                 download_token = await _create_order(email, order_id, order_id, photo_ids, amount_cents)
+                
+                if download_token:
+                    logger.info(f"✅ Order created successfully: {order_id}, download_token generated")
+                else:
+                    logger.error(f"❌ Order creation failed: {order_id}")
                 
                 if download_token:
                     # Invia email di conferma pagamento
