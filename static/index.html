@@ -1627,17 +1627,8 @@
         if(hasAnyPaid) {
           const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
           console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
-          // DEBUG: Alert temporaneo per iPhone
-          alert(`✅ Foto pagate trovate (${paidCount})! Redirect a /my-photos...`);
           window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
           return { hasPaid: true, hasFound: hasFound, redirect: true };
-        }
-        
-        // DEBUG: Se non ha foto pagate, mostra info
-        if(hasFound) {
-          console.log(`⚠️ Nessuna foto pagata trovata, ma ci sono ${data.found_photos.length} foto trovate`);
-          // DEBUG: Alert temporaneo per iPhone
-          alert(`⚠️ DEBUG: ${data.found_photos.length} foto trovate, ma nessuna pagata. Mostro album.`);
         }
         
         // 4. Se ha solo foto trovate (non pagate) → mostra album per comprare
@@ -1743,17 +1734,8 @@
           if(hasAnyPaid) {
             const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
             console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
-            // DEBUG: Alert temporaneo per iPhone
-            alert(`✅ Foto pagate trovate (${paidCount})! Redirect a /my-photos...`);
             window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
             return; // Esci subito, il redirect è in corso
-          }
-          
-          // DEBUG: Se non ha foto pagate, mostra info
-          if(hasFound) {
-            console.log(`⚠️ Nessuna foto pagata trovata, ma ci sono ${data.found_photos.length} foto trovate`);
-            // DEBUG: Alert temporaneo per iPhone
-            alert(`⚠️ DEBUG: ${data.found_photos.length} foto trovate, ma nessuna pagata. Mostro album.`);
           }
           
           // Se ha solo foto trovate (non pagate) → mostra album
