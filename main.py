@@ -625,10 +625,11 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
                     VALUES (?, ?, ?, ?, 'paid', ?)
                 """, (email, photo_id, now, now, expires_at))
         
-        logger.info(f"Photo marked as paid: {email} - {photo_id}")
+        logger.info(f"✅ Photo marked as paid: {email} - {photo_id}")
         return True
     except Exception as e:
-        logger.error(f"Error marking photo paid: {e}")
+        logger.error(f"❌ Error marking photo paid: {e}", exc_info=True)
+        logger.error(f"Exception type: {type(e).__name__}")
     return False
 
 async def _get_user_paid_photos(email: str) -> List[str]:
@@ -754,9 +755,15 @@ async def _create_order(email: str, order_id: str, stripe_session_id: str, photo
         logger.info("Order inserted into database")
         
         # Marca foto come pagate
-        for photo_id in photo_ids:
-            await _mark_photo_paid(email, photo_id)
-        logger.info(f"Marked {len(photo_ids)} photos as paid")
+        logger.info(f"Starting to mark {len(photo_ids)} photos as paid for {email}")
+        for i, photo_id in enumerate(photo_ids):
+            logger.info(f"Marking photo {i+1}/{len(photo_ids)}: {photo_id}")
+            result = await _mark_photo_paid(email, photo_id)
+            if result:
+                logger.info(f"✅ Successfully marked {photo_id} as paid")
+            else:
+                logger.error(f"❌ Failed to mark {photo_id} as paid")
+        logger.info(f"Completed marking photos as paid. Total: {len(photo_ids)}")
         
         logger.info("Order committed successfully")
         return download_token
