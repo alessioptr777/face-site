@@ -46,13 +46,24 @@ try:
 except ImportError:
     SENDGRID_AVAILABLE = False
 
-# SQLite per database utenti
+# Database: PostgreSQL (se DATABASE_URL presente) o SQLite (fallback)
 try:
     import sqlite3
     import aiosqlite
     SQLITE_AVAILABLE = True
 except ImportError:
     SQLITE_AVAILABLE = False
+
+# PostgreSQL support
+try:
+    import asyncpg
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+
+# Verifica se usare PostgreSQL o SQLite
+DATABASE_URL = os.getenv("DATABASE_URL")
+USE_POSTGRES = POSTGRES_AVAILABLE and DATABASE_URL is not None and DATABASE_URL.startswith("postgresql://")
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -216,7 +227,7 @@ meta_rows: List[Dict[str, Any]] = []
 back_photos: List[Dict[str, Any]] = []  # Foto senza volti (di spalle)
 
 # Funzioni helper
-# ========== DATABASE SQLITE ==========
+# ========== DATABASE (PostgreSQL o SQLite) ==========
 
 def _normalize_email(email: str) -> str:
     """Normalizza l'email: minuscolo, senza spazi"""
@@ -224,85 +235,156 @@ def _normalize_email(email: str) -> str:
         return email
     return email.strip().lower()
 
-def _init_database():
-    """Inizializza il database SQLite con le tabelle necessarie"""
-    if not SQLITE_AVAILABLE:
-        logger.warning("SQLite not available - user tracking disabled")
-        return
-    
-    try:
-        # Assicurati che la directory esista
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Connecting to database: {DB_PATH}")
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        # Tabella utenti
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                email TEXT PRIMARY KEY,
-                selfie_embedding BLOB,
-                created_at TEXT NOT NULL,
-                last_login_at TEXT,
-                last_selfie_at TEXT
-            )
-        """)
-        
-        # Tabella foto utente
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_photos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL,
-                photo_id TEXT NOT NULL,
-                found_at TEXT NOT NULL,
-                paid_at TEXT,
-                expires_at TEXT,
-                status TEXT NOT NULL DEFAULT 'found',
-                FOREIGN KEY (email) REFERENCES users(email),
-                UNIQUE(email, photo_id)
-            )
-        """)
-        
-        # Tabella ordini
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS orders (
-                order_id TEXT PRIMARY KEY,
-                email TEXT NOT NULL,
-                stripe_session_id TEXT,
-                photo_ids TEXT NOT NULL,
-                amount_cents INTEGER NOT NULL,
-                paid_at TEXT NOT NULL,
-                expires_at TEXT,
-                download_token TEXT UNIQUE,
-                FOREIGN KEY (email) REFERENCES users(email)
-            )
-        """)
-        
-        # Tabella email follow-up
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS email_followups (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL,
-                photo_id TEXT NOT NULL,
-                followup_type TEXT NOT NULL,
-                sent_at TEXT,
-                FOREIGN KEY (email) REFERENCES users(email),
-                UNIQUE(email, photo_id, followup_type)
-            )
-        """)
-        
-        # Indici per performance
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_email ON user_photos(email)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_status ON user_photos(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_expires ON user_photos(expires_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_token ON orders(download_token)")
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"Database initialized: {DB_PATH}")
-    except Exception as e:
-        logger.error(f"Error initializing database: {e}")
+async def _init_database():
+    """Inizializza il database (PostgreSQL o SQLite) con le tabelle necessarie"""
+    if USE_POSTGRES:
+        # PostgreSQL
+        try:
+            logger.info(f"Initializing PostgreSQL database: {DATABASE_URL[:30]}...")
+            conn = await asyncpg.connect(DATABASE_URL)
+            
+            # Tabella utenti
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    email VARCHAR(255) PRIMARY KEY,
+                    selfie_embedding BYTEA,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_login_at TIMESTAMP,
+                    last_selfie_at TIMESTAMP
+                )
+            """)
+            
+            # Tabella foto utente
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_photos (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    photo_id VARCHAR(255) NOT NULL,
+                    found_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    paid_at TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    status VARCHAR(50) NOT NULL DEFAULT 'found',
+                    FOREIGN KEY (email) REFERENCES users(email),
+                    UNIQUE(email, photo_id)
+                )
+            """)
+            
+            # Tabella ordini
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id VARCHAR(255) PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    stripe_session_id VARCHAR(255),
+                    photo_ids TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    paid_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    download_token VARCHAR(255) UNIQUE,
+                    FOREIGN KEY (email) REFERENCES users(email)
+                )
+            """)
+            
+            # Tabella email follow-up
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_followups (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    photo_id VARCHAR(255) NOT NULL,
+                    followup_type VARCHAR(50) NOT NULL,
+                    sent_at TIMESTAMP,
+                    FOREIGN KEY (email) REFERENCES users(email),
+                    UNIQUE(email, photo_id, followup_type)
+                )
+            """)
+            
+            # Indici per performance
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_email ON user_photos(email)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_status ON user_photos(status)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_expires ON user_photos(expires_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_token ON orders(download_token)")
+            
+            await conn.close()
+            logger.info("PostgreSQL database initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing PostgreSQL database: {e}", exc_info=True)
+            raise
+    elif SQLITE_AVAILABLE:
+        # SQLite (fallback)
+        try:
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Initializing SQLite database: {DB_PATH}")
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            
+            # Tabella utenti
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    email TEXT PRIMARY KEY,
+                    selfie_embedding BLOB,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT,
+                    last_selfie_at TEXT
+                )
+            """)
+            
+            # Tabella foto utente
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_photos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL,
+                    photo_id TEXT NOT NULL,
+                    found_at TEXT NOT NULL,
+                    paid_at TEXT,
+                    expires_at TEXT,
+                    status TEXT NOT NULL DEFAULT 'found',
+                    FOREIGN KEY (email) REFERENCES users(email),
+                    UNIQUE(email, photo_id)
+                )
+            """)
+            
+            # Tabella ordini
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    stripe_session_id TEXT,
+                    photo_ids TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    paid_at TEXT NOT NULL,
+                    expires_at TEXT,
+                    download_token TEXT UNIQUE,
+                    FOREIGN KEY (email) REFERENCES users(email)
+                )
+            """)
+            
+            # Tabella email follow-up
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS email_followups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL,
+                    photo_id TEXT NOT NULL,
+                    followup_type TEXT NOT NULL,
+                    sent_at TEXT,
+                    FOREIGN KEY (email) REFERENCES users(email),
+                    UNIQUE(email, photo_id, followup_type)
+                )
+            """)
+            
+            # Indici per performance
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_email ON user_photos(email)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_status ON user_photos(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_expires ON user_photos(expires_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_token ON orders(download_token)")
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"SQLite database initialized: {DB_PATH}")
+        except Exception as e:
+            logger.error(f"Error initializing SQLite database: {e}")
+    else:
+        logger.warning("No database available - user tracking disabled")
 
 async def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     """Recupera un utente per email"""
@@ -1151,15 +1233,24 @@ async def startup():
     """Carica il modello e l'indice all'avvio"""
     global face_app, faiss_index, meta_rows, back_photos
     
-    # Inizializza database SQLite all'avvio
+    # Inizializza database (PostgreSQL o SQLite) all'avvio
     logger.info("Initializing database...")
-    _init_database()
+    if USE_POSTGRES:
+        logger.info("Using PostgreSQL database")
+    elif SQLITE_AVAILABLE:
+        logger.info("Using SQLite database (fallback)")
+    else:
+        logger.warning("No database available")
+    
+    await _init_database()
     
     # Verifica che il database sia stato creato
-    if SQLITE_AVAILABLE and DB_PATH.exists():
-        logger.info(f"✅ Database verified: {DB_PATH} (size: {DB_PATH.stat().st_size} bytes)")
+    if USE_POSTGRES:
+        logger.info("✅ PostgreSQL database initialized")
+    elif SQLITE_AVAILABLE and DB_PATH.exists():
+        logger.info(f"✅ SQLite database verified: {DB_PATH} (size: {DB_PATH.stat().st_size} bytes)")
     elif SQLITE_AVAILABLE:
-        logger.warning(f"⚠️  Database file not found: {DB_PATH}")
+        logger.warning(f"⚠️  SQLite database file not found: {DB_PATH}")
     else:
         logger.warning("⚠️  SQLite not available")
     
