@@ -1607,9 +1607,9 @@ async def fix_paid_photos(email: str = Query(..., description="Email utente")):
             "ok": True,
             "message": f"Fixed {fixed_count} photos for {email}",
             "orders_count": len(orders_rows),
-                "photos_fixed": fixed_count,
-                "photo_ids": list(all_paid_photo_ids)
-            }
+            "photos_fixed": fixed_count,
+            "photo_ids": list(all_paid_photo_ids)
+        }
     except Exception as e:
         logger.error(f"Error fixing paid photos: {e}", exc_info=True)
         return {"error": str(e)}
