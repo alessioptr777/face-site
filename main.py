@@ -1891,9 +1891,11 @@ async def my_photos_by_email(
         
         # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
-            album_button = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
+            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Vedi altre foto disponibili</a>'
+            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">🛒 Vedi altre foto disponibili</a>'
         else:
-            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
+            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Vedi altre foto disponibili</a>'
+            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">🛒 Vedi altre foto disponibili</a>'
         
         # Usa lo stesso HTML template di checkout/success
         html_content = f"""
@@ -2032,12 +2034,15 @@ async def my_photos_by_email(
                 </div>
                 
                 <!-- Buy more photos button at top -->
-                {album_button}
+                {album_button_top}
                 
                 <!-- Foto -->
                 <div class="photos-grid">
                     {photos_html}
                 </div>
+                
+                <!-- Buy more photos button at bottom -->
+                {album_button_bottom}
             </div>
             <script>
                 // Rileva se è iOS
@@ -2984,9 +2989,11 @@ async def checkout_success(
         
         # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
-            album_button = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
+            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Vedi altre foto disponibili</a>'
+            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">🛒 Vedi altre foto disponibili</a>'
         else:
-            album_button = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 View available photos to buy</a>'
+            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">🛒 Vedi altre foto disponibili</a>'
+            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">🛒 Vedi altre foto disponibili</a>'
         
         # Pagina con foto mostrate direttamente
         html_content = f"""
