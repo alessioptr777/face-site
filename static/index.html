@@ -2914,20 +2914,14 @@
       // Carica foto pagate prima di renderizzare
       await loadPaidPhotos();
       
-      // RIMUOVI le foto già pagate dall'album (non possono essere ricomprate)
+      // NON rimuovere le foto pagate dall'album - le mostriamo con badge "Acquistata"
+      // Le foto pagate saranno visibili ma non selezionabili per il carrello
       const paidPhotoIdsSet = new Set(paidPhotos);
-      const beforeCount = allPhotos.length;
-      allPhotos = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id));
-      const removedCount = beforeCount - allPhotos.length;
+      const unpaidPhotos = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id));
+      const paidCount = allPhotos.length - unpaidPhotos.length;
       
-      if(removedCount > 0) {
-        console.log(`Rimosse ${removedCount} foto già pagate dall'album prima della visualizzazione`);
-      }
-      
-      // Se non ci sono più foto dopo il filtro, mostra messaggio
-      if(allPhotos.length === 0 && beforeCount > 0) {
-        console.log('Tutte le foto sono già state pagate');
-        // Potresti mostrare un messaggio all'utente qui se necessario
+      if(paidCount > 0) {
+        console.log(`Mostrando ${paidCount} foto pagate nell'album con badge "Acquistata"`);
       }
       
       const loadingOverlay = document.getElementById('albumLoadingOverlay');
@@ -3020,23 +3014,34 @@
           if(!paidPhotos.includes(photo.photo_id)) {
             paidPhotos.push(photo.photo_id);
           }
-          // Aggiungi badge "Pagata"
+          // Aggiungi badge "Acquistata" in alto a destra
           const paidBadge = document.createElement('div');
           paidBadge.className = 'photo-paid-badge';
-          paidBadge.textContent = '✓ Pagata';
-          paidBadge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(34, 197, 94, 0.9); color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; z-index: 5;';
+          paidBadge.textContent = '✓ Acquistata';
+          paidBadge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(34, 197, 94, 0.95); color: white; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.2); pointer-events: none;';
           div.appendChild(paidBadge);
           
           // Aggiungi pulsante "SCARICA" grande e verde per foto pagate
           const downloadBtn = document.createElement('button');
           downloadBtn.className = 'photo-download-btn';
           downloadBtn.textContent = '📥 SCARICA';
-          downloadBtn.style.cssText = 'position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: #22c55e; color: white; border: none; padding: 14px 24px; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; z-index: 5; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4); width: calc(100% - 24px); max-width: 200px;';
+          downloadBtn.style.cssText = 'position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: #22c55e; color: white; border: none; padding: 12px 20px; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; z-index: 10; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4); width: calc(100% - 24px); max-width: 180px; transition: all 0.2s;';
+          downloadBtn.onmouseenter = () => {
+            downloadBtn.style.background = '#16a34a';
+            downloadBtn.style.transform = 'translateX(-50%) scale(1.05)';
+          };
+          downloadBtn.onmouseleave = () => {
+            downloadBtn.style.background = '#22c55e';
+            downloadBtn.style.transform = 'translateX(-50%)';
+          };
           downloadBtn.onclick = (e) => {
             e.stopPropagation(); // Previeni apertura lightbox
             downloadPhoto(photo.photo_id);
           };
           div.appendChild(downloadBtn);
+          
+          // Aggiungi classe per identificare foto pagata (per stili CSS)
+          div.classList.add('photo-paid');
         } else {
           // Verifica se la foto è già nel carrello
           if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
