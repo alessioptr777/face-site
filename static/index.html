@@ -1405,7 +1405,7 @@
     // buyAllBtn rimosso - ora si usa solo il banner sticky
     const buyAllPrice = document.getElementById("buyAllPrice"); // Mantenuto per compatibilità se usato altrove
     const photoLightbox = document.getElementById("photoLightbox");
-    const lightboxImage = document.getElementById("photoLightbox").querySelector("img");
+    const lightboxImage = photoLightbox ? photoLightbox.querySelector("img") : null;
     const photoCounter = document.getElementById("photoCounter");
 
     // Funzioni screen management
@@ -2095,39 +2095,64 @@
       }
     });
     // Pulsante buyAllBtn rimosso - ora si usa solo il banner sticky
-    document.getElementById("albumBackBtn").addEventListener("click", () => {
-      showScreen('welcome');
-    });
-    document.getElementById("albumCartBtn").addEventListener("click", () => {
-      document.getElementById('cartModal').classList.add('active');
-      updateCartModal();
-    });
+    const albumBackBtn = document.getElementById("albumBackBtn");
+    if(albumBackBtn) {
+      albumBackBtn.addEventListener("click", () => {
+        showScreen('welcome');
+      });
+    }
+    
+    if(albumCartBtn) {
+      albumCartBtn.addEventListener("click", () => {
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          updateCartModal();
+        }
+      });
+    }
     
     // Gestione tab album
-    document.getElementById("myContentTab").addEventListener("click", () => {
-      document.getElementById("myContentTab").classList.add('active');
-      document.getElementById("pricesTab").classList.remove('active');
-      document.getElementById("albumGrid").style.display = 'grid';
-      document.getElementById("pricesList").classList.remove('active');
-    });
+    const myContentTab = document.getElementById("myContentTab");
+    const pricesTab = document.getElementById("pricesTab");
+    const pricesList = document.getElementById("pricesList");
+    const closeCartBtn = document.getElementById("closeCartBtn");
+    const cartModal = document.getElementById('cartModal');
     
-    document.getElementById("pricesTab").addEventListener("click", () => {
-      document.getElementById("pricesTab").classList.add('active');
-      document.getElementById("myContentTab").classList.remove('active');
-      document.getElementById("albumGrid").style.display = 'none';
-      document.getElementById("pricesList").classList.add('active');
-    });
-    document.getElementById("closeCartBtn").addEventListener("click", () => {
-      document.getElementById('cartModal').classList.remove('active');
-    });
-    document.getElementById("checkoutBtn").addEventListener("click", checkout);
+    if(myContentTab && pricesTab && albumGrid && pricesList) {
+      myContentTab.addEventListener("click", () => {
+        myContentTab.classList.add('active');
+        pricesTab.classList.remove('active');
+        if(albumGrid) albumGrid.style.display = 'grid';
+        pricesList.classList.remove('active');
+      });
+      
+      pricesTab.addEventListener("click", () => {
+        pricesTab.classList.add('active');
+        myContentTab.classList.remove('active');
+        if(albumGrid) albumGrid.style.display = 'none';
+        pricesList.classList.add('active');
+      });
+    }
+    
+    if(closeCartBtn && cartModal) {
+      closeCartBtn.addEventListener("click", () => {
+        cartModal.classList.remove('active');
+      });
+    }
+    const checkoutBtn = document.getElementById("checkoutBtn");
+    if(checkoutBtn) {
+      checkoutBtn.addEventListener("click", checkout);
+    }
     
     // Chiudi modal cliccando fuori
-    document.getElementById('cartModal').addEventListener('click', (e) => {
-      if(e.target.id === 'cartModal') {
-        document.getElementById('cartModal').classList.remove('active');
-      }
-    });
+    if(cartModal) {
+      cartModal.addEventListener('click', (e) => {
+        if(e.target.id === 'cartModal') {
+          cartModal.classList.remove('active');
+        }
+      });
+    }
     
     document.getElementById('offersModal').addEventListener('click', (e) => {
       if(e.target.id === 'offersModal') {
@@ -3273,12 +3298,22 @@
       currentPhotoIndex = index;
       const photo = allPhotos[index];
       
+      // Verifica che lightboxImage e photoLightbox esistano
+      if(!lightboxImage || !photoLightbox) {
+        console.error('Lightbox elements not found');
+        return;
+      }
+      
       // Preload dell'immagine prima di mostrarla
       const img = new Image();
       img.onload = () => {
-        lightboxImage.src = img.src;
+        if(lightboxImage) {
+          lightboxImage.src = img.src;
+        }
         updateLightboxCounter();
-        photoLightbox.classList.add('active');
+        if(photoLightbox) {
+          photoLightbox.classList.add('active');
+        }
       };
       img.onerror = () => {
         alert('Connection error. Check your internet connection and try again.');
@@ -3296,23 +3331,32 @@
       const prevBtn = document.getElementById('lightboxPrev');
       const nextBtn = document.getElementById('lightboxNext');
       const downloadBtn = document.getElementById('lightboxDownload');
-      prevBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
-      nextBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
+      if(prevBtn) {
+        prevBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
+      }
+      if(nextBtn) {
+        nextBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
+      }
       
       // Mostra pulsante download solo se foto è pagata
-      if(isPaid) {
-        downloadBtn.style.display = 'block';
-        downloadBtn.onclick = () => downloadPhoto(photo.photo_id);
-      } else {
-        downloadBtn.style.display = 'none';
+      if(downloadBtn) {
+        if(isPaid) {
+          downloadBtn.style.display = 'block';
+          downloadBtn.onclick = () => downloadPhoto(photo.photo_id);
+        } else {
+          downloadBtn.style.display = 'none';
+        }
       }
     }
     
     function updateLightboxCounter() {
-      photoCounter.textContent = `${currentPhotoIndex + 1}/${allPhotos.length}`;
+      if(photoCounter) {
+        photoCounter.textContent = `${currentPhotoIndex + 1}/${allPhotos.length}`;
+      }
     }
     
     function nextPhoto() {
+      if(!lightboxImage) return;
       if(currentPhotoIndex < allPhotos.length - 1) {
         currentPhotoIndex++;
         const photo = allPhotos[currentPhotoIndex];
@@ -3328,6 +3372,7 @@
     }
     
     function prevPhoto() {
+      if(!lightboxImage) return;
       if(currentPhotoIndex > 0) {
         currentPhotoIndex--;
         const photo = allPhotos[currentPhotoIndex];
@@ -3564,8 +3609,12 @@
     }
 
     function updateCart() {
-      albumCartCount.textContent = currentCart.count || 0;
-      albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      if(albumCartCount) {
+        albumCartCount.textContent = currentCart.count || 0;
+      }
+      if(albumCartPrice) {
+        albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      }
       // buyAllPrice rimosso insieme al pulsante buyAllBtn
       if(buyAllPrice) {
         buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
@@ -3576,6 +3625,11 @@
       const cartItems = document.getElementById('cartItems');
       const cartTotal = document.getElementById('cartTotal');
       const checkoutBtn = document.getElementById('checkoutBtn');
+      
+      if(!cartItems || !cartTotal || !checkoutBtn) {
+        console.warn('Cart modal elements not found');
+        return;
+      }
       
       if(currentCart.photo_ids && currentCart.photo_ids.length > 0) {
         cartItems.innerHTML = '';
@@ -3793,38 +3847,53 @@
       }
     }
 
-    // Lightbox controls
-    document.getElementById('lightboxClose').addEventListener('click', () => {
-      photoLightbox.classList.remove('active');
-    });
+    // Lightbox controls (solo se elementi esistono)
+    const lightboxClose = document.getElementById('lightboxClose');
+    const lightboxPrev = document.getElementById('lightboxPrev');
+    const lightboxNext = document.getElementById('lightboxNext');
     
-    document.getElementById('lightboxPrev').addEventListener('click', prevPhoto);
-    document.getElementById('lightboxNext').addEventListener('click', nextPhoto);
+    if(lightboxClose && photoLightbox) {
+      lightboxClose.addEventListener('click', () => {
+        photoLightbox.classList.remove('active');
+      });
+    }
+    
+    if(lightboxPrev) {
+      lightboxPrev.addEventListener('click', prevPhoto);
+    }
+    
+    if(lightboxNext) {
+      lightboxNext.addEventListener('click', nextPhoto);
+    }
     
     // Navigazione con tastiera
     document.addEventListener('keydown', (e) => {
-      if(photoLightbox.classList.contains('active')) {
+      if(photoLightbox && photoLightbox.classList.contains('active')) {
         if(e.key === 'ArrowLeft') prevPhoto();
         if(e.key === 'ArrowRight') nextPhoto();
         if(e.key === 'Escape') photoLightbox.classList.remove('active');
       }
     });
 
-    photoLightbox.addEventListener('click', (e) => {
-      if(e.target === photoLightbox) {
-        photoLightbox.classList.remove('active');
-      }
-    });
+    if(photoLightbox) {
+      photoLightbox.addEventListener('click', (e) => {
+        if(e.target === photoLightbox) {
+          photoLightbox.classList.remove('active');
+        }
+      });
+    }
     
-    // Blocca salvataggio foto
-    lightboxImage.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      alert('⚠️ Acquista la foto per scaricarla!');
-    });
-    
-    lightboxImage.addEventListener('dragstart', (e) => {
-      e.preventDefault();
-    });
+    // Blocca salvataggio foto (solo se lightboxImage esiste)
+    if(lightboxImage) {
+      lightboxImage.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        alert('⚠️ Acquista la foto per scaricarla!');
+      });
+      
+      lightboxImage.addEventListener('dragstart', (e) => {
+        e.preventDefault();
+      });
+    }
     
 
     // Boot
