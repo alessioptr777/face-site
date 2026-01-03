@@ -3450,8 +3450,19 @@ async def stripe_webhook(request: Request):
         email = metadata.get('email') or session.get('customer_email') or session.get('customer_details', {}).get('email')
         photo_ids_str = metadata.get('photo_ids', '')
         
-        # Log per debug
-        logger.info(f"Webhook received: session_id={session_id}, email={email}, photo_ids={photo_ids_str}")
+        # Log dettagliato per debug
+        logger.info(f"=== WEBHOOK RECEIVED ===")
+        logger.info(f"Event type: {event['type']}")
+        logger.info(f"Session ID from metadata: {session_id}")
+        logger.info(f"Session ID from session: {session.get('id')}")
+        logger.info(f"Email from metadata: {metadata.get('email')}")
+        logger.info(f"Email from session: {session.get('customer_email')}")
+        logger.info(f"Email from customer_details: {session.get('customer_details', {}).get('email')}")
+        logger.info(f"Final email: {email}")
+        logger.info(f"Photo IDs from metadata: {photo_ids_str}")
+        logger.info(f"Full metadata: {metadata}")
+        logger.info(f"Session payment_status: {session.get('payment_status')}")
+        logger.info(f"Session status: {session.get('status')}")
         
         if session_id and photo_ids_str:
             # Se manca email, prova a recuperarla
