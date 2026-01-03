@@ -2415,19 +2415,24 @@ async def my_photos_by_email(
                     max-width: 400px;
                     margin: 30px auto;
                     padding: 18px 30px;
-                    background: rgba(255, 255, 255, 0.2);
+                    background: linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%);
                     color: #fff;
                     text-decoration: none;
                     border-radius: 12px;
                     font-weight: 700;
                     font-size: 18px;
-                    border: 2px solid rgba(255, 255, 255, 0.3);
-                    transition: transform 0.2s, background 0.2s;
+                    border: none;
+                    box-shadow: 0 4px 15px rgba(123, 116, 255, 0.4);
+                    transition: transform 0.2s, box-shadow 0.2s;
                     text-align: center;
+                    cursor: pointer;
                 }}
                 .main-button:hover {{
                     transform: translateY(-2px);
-                    background: rgba(255, 255, 255, 0.3);
+                    box-shadow: 0 6px 20px rgba(123, 116, 255, 0.6);
+                }}
+                .main-button:active {{
+                    transform: translateY(0);
                 }}
                 @media (max-width: 600px) {{
                     .photos-grid {{
