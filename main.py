@@ -597,10 +597,18 @@ async def _get_user_paid_photos(email: str) -> List[str]:
             logger.info(f"  - {row['photo_id']}: status={row['status']}, expires_at={row['expires_at']}")
         
         # Poi recupera solo quelle pagate e non scadute
-        rows = await _db_execute("""
-            SELECT photo_id FROM user_photos 
-            WHERE email = ? AND status = 'paid' AND expires_at > ?
-        """, (email, now))
+        if USE_POSTGRES:
+            # PostgreSQL: usa NOW() per evitare problemi con timezone
+            rows = await _db_execute("""
+                SELECT photo_id FROM user_photos 
+                WHERE email = $1 AND status = 'paid' AND expires_at > NOW()
+            """, (email,))
+        else:
+            # SQLite: usa parametro
+            rows = await _db_execute("""
+                SELECT photo_id FROM user_photos 
+                WHERE email = ? AND status = 'paid' AND expires_at > ?
+            """, (email, now))
         photo_ids = [row['photo_id'] for row in rows]
         logger.info(f"Paid photos (not expired) for {email}: {len(photo_ids)} photos - {photo_ids}")
         return photo_ids
@@ -851,16 +859,20 @@ async def _cleanup_expired_photos():
         return
     
     try:
-        if USE_POSTGRES:
-            now = datetime.now(timezone.utc)
-        else:
-            now = datetime.now(timezone.utc).isoformat()
-        
         # Trova foto scadute
-        expired = await _db_execute("""
-            SELECT email, photo_id, status FROM user_photos
-            WHERE expires_at < ? AND status != 'deleted'
-        """, (now,))
+        if USE_POSTGRES:
+            # PostgreSQL: usa NOW() per evitare problemi con timezone
+            expired = await _db_execute("""
+                SELECT email, photo_id, status FROM user_photos
+                WHERE expires_at < NOW() AND status != 'deleted'
+            """, ())
+        else:
+            # SQLite: usa parametro
+            now = datetime.now(timezone.utc).isoformat()
+            expired = await _db_execute("""
+                SELECT email, photo_id, status FROM user_photos
+                WHERE expires_at < ? AND status != 'deleted'
+            """, (now,))
         
         deleted_count = 0
         for row in expired:
