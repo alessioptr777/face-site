@@ -218,6 +218,12 @@ back_photos: List[Dict[str, Any]] = []  # Foto senza volti (di spalle)
 # Funzioni helper
 # ========== DATABASE SQLITE ==========
 
+def _normalize_email(email: str) -> str:
+    """Normalizza l'email: minuscolo, senza spazi"""
+    if not email:
+        return email
+    return email.strip().lower()
+
 def _init_database():
     """Inizializza il database SQLite con le tabelle necessarie"""
     if not SQLITE_AVAILABLE:
@@ -304,6 +310,7 @@ async def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         return None
     
     try:
+        email = _normalize_email(email)
         async with aiosqlite.connect(DB_PATH) as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute(
@@ -323,6 +330,7 @@ async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] =
         return False
     
     try:
+        email = _normalize_email(email)
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(DB_PATH) as conn:
             # Verifica se esiste
@@ -366,6 +374,7 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
         return False
     
     try:
+        email = _normalize_email(email)
         now = datetime.now(timezone.utc).isoformat()
         
         # Calcola expires_at
@@ -408,6 +417,7 @@ async def _mark_photo_paid(email: str, photo_id: str) -> bool:
         return False
     
     try:
+        email = _normalize_email(email)
         now = datetime.now(timezone.utc).isoformat()
         expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         
@@ -447,6 +457,7 @@ async def _get_user_paid_photos(email: str) -> List[str]:
         return []
     
     try:
+        email = _normalize_email(email)
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(DB_PATH) as conn:
             # Prima verifica tutte le foto per questo utente (per debug)
@@ -478,6 +489,7 @@ async def _get_user_found_photos(email: str) -> List[Dict[str, Any]]:
         return []
     
     try:
+        email = _normalize_email(email)
         async with aiosqlite.connect(DB_PATH) as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("""
@@ -535,6 +547,7 @@ async def _create_order(email: str, order_id: str, stripe_session_id: str, photo
         return None
     
     try:
+        email = _normalize_email(email)
         logger.info(f"_create_order called: email={email}, order_id={order_id}, photo_count={len(photo_ids)}")
         now = datetime.now(timezone.utc).isoformat()
         download_token = secrets.token_urlsafe(32)
@@ -1321,6 +1334,127 @@ def debug_paths():
         "index_html_path": index_path,
     }
 
+@app.get("/debug/orders")
+async def debug_orders(email: Optional[str] = Query(None, description="Filtra per email")):
+    """Endpoint di debug per vedere ordini e foto nel database"""
+    if not SQLITE_AVAILABLE:
+        return {"error": "SQLite not available", "orders": [], "user_photos": []}
+    
+    try:
+        if email:
+            email = _normalize_email(email)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            
+            # Recupera tutti gli ordini
+            if email:
+                orders_cursor = await conn.execute(
+                    "SELECT order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token FROM orders WHERE email = ? ORDER BY paid_at DESC LIMIT 50",
+                    (email,)
+                )
+            else:
+                orders_cursor = await conn.execute(
+                    "SELECT order_id, email, stripe_session_id, photo_ids, amount_cents, paid_at, download_token FROM orders ORDER BY paid_at DESC LIMIT 50"
+                )
+            orders_rows = await orders_cursor.fetchall()
+            orders = []
+            for row in orders_rows:
+                orders.append({
+                    "order_id": row['order_id'],
+                    "email": row['email'],
+                    "stripe_session_id": row['stripe_session_id'],
+                    "photo_ids": json.loads(row['photo_ids']) if row['photo_ids'] else [],
+                    "amount_cents": row['amount_cents'],
+                    "paid_at": row['paid_at'],
+                    "download_token": row['download_token'][:20] + "..." if row['download_token'] else None
+                })
+            
+            # Recupera tutte le foto utente
+            if email:
+                photos_cursor = await conn.execute(
+                    "SELECT email, photo_id, status, found_at, paid_at, expires_at FROM user_photos WHERE email = ? ORDER BY paid_at DESC, found_at DESC LIMIT 100",
+                    (email,)
+                )
+            else:
+                photos_cursor = await conn.execute(
+                    "SELECT email, photo_id, status, found_at, paid_at, expires_at FROM user_photos ORDER BY paid_at DESC, found_at DESC LIMIT 100"
+                )
+            photos_rows = await photos_cursor.fetchall()
+            user_photos = []
+            for row in photos_rows:
+                user_photos.append({
+                    "email": row['email'],
+                    "photo_id": row['photo_id'],
+                    "status": row['status'],
+                    "found_at": row['found_at'],
+                    "paid_at": row['paid_at'],
+                    "expires_at": row['expires_at']
+                })
+            
+            return {
+                "ok": True,
+                "email_filter": email,
+                "orders_count": len(orders),
+                "orders": orders,
+                "user_photos_count": len(user_photos),
+                "user_photos": user_photos
+            }
+    except Exception as e:
+        logger.error(f"Error in debug_orders: {e}", exc_info=True)
+        return {"error": str(e), "orders": [], "user_photos": []}
+
+@app.post("/debug/fix-paid-photos")
+async def fix_paid_photos(email: str = Query(..., description="Email utente")):
+    """Endpoint per correggere manualmente le foto pagate basandosi sugli ordini"""
+    if not SQLITE_AVAILABLE:
+        return {"error": "SQLite not available"}
+    
+    try:
+        email = _normalize_email(email)
+        logger.info(f"Fixing paid photos for {email}")
+        
+        async with aiosqlite.connect(DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            
+            # Recupera tutti gli ordini per questa email
+            orders_cursor = await conn.execute(
+                "SELECT order_id, photo_ids FROM orders WHERE email = ?",
+                (email,)
+            )
+            orders_rows = await orders_cursor.fetchall()
+            
+            if not orders_rows:
+                return {"ok": False, "message": f"No orders found for {email}"}
+            
+            # Raccogli tutti i photo_ids dagli ordini
+            all_paid_photo_ids = set()
+            for row in orders_rows:
+                photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                all_paid_photo_ids.update(photo_ids)
+            
+            logger.info(f"Found {len(orders_rows)} orders with {len(all_paid_photo_ids)} unique paid photos")
+            
+            # Marca tutte queste foto come pagate
+            fixed_count = 0
+            for photo_id in all_paid_photo_ids:
+                success = await _mark_photo_paid(email, photo_id)
+                if success:
+                    fixed_count += 1
+                    logger.info(f"Fixed photo: {photo_id}")
+                else:
+                    logger.warning(f"Failed to fix photo: {photo_id}")
+            
+            return {
+                "ok": True,
+                "message": f"Fixed {fixed_count} photos for {email}",
+                "orders_count": len(orders_rows),
+                "photos_fixed": fixed_count,
+                "photo_ids": list(all_paid_photo_ids)
+            }
+    except Exception as e:
+        logger.error(f"Error fixing paid photos: {e}", exc_info=True)
+        return {"error": str(e)}
+
 @app.get("/photo/{filename:path}")
 async def serve_photo(
     filename: str, 
@@ -1527,6 +1661,7 @@ async def check_user(
 ):
     """Verifica se utente esiste e matcha selfie, ritorna storico"""
     try:
+        email = _normalize_email(email)
         # Leggi e processa selfie
         file_bytes = await selfie.read()
         img = _read_image_from_bytes(file_bytes)
@@ -1603,6 +1738,9 @@ async def register_user_by_email(
 ):
     """Registra un utente solo con email (senza selfie)"""
     try:
+        # Normalizza email
+        email = _normalize_email(email)
+        
         # Valida email
         import re
         if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
@@ -1633,12 +1771,31 @@ async def get_user_photos(
 ):
     """Recupera tutte le foto di un utente (trovate e pagate)"""
     try:
+        original_email = email
+        email = _normalize_email(email)
+        logger.info(f"User photos request - original: '{original_email}', normalized: '{email}'")
+        
         found_photos = await _get_user_found_photos(email)
         paid_photos = await _get_user_paid_photos(email)
         
         logger.info(f"User photos request for {email}: found={len(found_photos)}, paid={len(paid_photos)}")
         if paid_photos:
             logger.info(f"Paid photos for {email}: {paid_photos}")
+        else:
+            logger.warning(f"No paid photos found for {email} - checking if there are any orders...")
+            # Debug: controlla se ci sono ordini per questa email
+            if SQLITE_AVAILABLE:
+                try:
+                    async with aiosqlite.connect(DB_PATH) as conn:
+                        cursor = await conn.execute(
+                            "SELECT COUNT(*) as count FROM orders WHERE email = ?",
+                            (email,)
+                        )
+                        row = await cursor.fetchone()
+                        order_count = row[0] if row else 0
+                        logger.info(f"Orders found for {email}: {order_count}")
+                except Exception as e:
+                    logger.error(f"Error checking orders: {e}")
         
         return {
             "ok": True,
@@ -1647,7 +1804,7 @@ async def get_user_photos(
             "paid_photos": paid_photos
         }
     except Exception as e:
-        logger.error(f"Error getting user photos: {e}")
+        logger.error(f"Error getting user photos: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/my-photos")
@@ -1657,6 +1814,8 @@ async def my_photos_by_email(
 ):
     """Pagina download foto pagate usando solo email (per utenti che rientrano)"""
     try:
+        if email:
+            email = _normalize_email(email)
         if not email:
             return HTMLResponse("""
             <!DOCTYPE html>
@@ -3301,6 +3460,8 @@ async def stripe_webhook(request: Request):
                 logger.warning(f"Email not in metadata, recovered from session: {email}")
             
             if email:
+                # Normalizza email
+                email = _normalize_email(email)
                 photo_ids = photo_ids_str.split(',')
                 order_id = session.get('id')
                 amount_cents = session.get('amount_total', 0)
