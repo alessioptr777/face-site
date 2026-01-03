@@ -1610,7 +1610,14 @@
         const hasPaid = data.paid_photos && data.paid_photos.length > 0;
         const hasFound = data.found_photos && data.found_photos.length > 0;
         
-        // 3. Se ha foto trovate (anche se ha foto pagate) → mostra album per comprare altre foto
+        // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
+        if(hasPaid) {
+          console.log(`User has ${data.paid_photos.length} paid photos, redirecting to /my-photos`);
+          window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+          return { hasPaid: true, hasFound: hasFound, redirect: true };
+        }
+        
+        // 4. Se ha solo foto trovate (non pagate) → mostra album per comprare
         if(hasFound) {
           console.log(`User has ${data.found_photos.length} found photos (not paid), showing album`);
           userEmail = email;
@@ -1624,28 +1631,12 @@
             paid: p.status === 'paid'
           }));
           
-          // Carica foto pagate e RIMUOVILE dall'album
-          if(data.paid_photos && data.paid_photos.length > 0) {
-            paidPhotos = [...data.paid_photos];
-            // RIMUOVI le foto già pagate (non possono essere ricomprate)
-            const paidPhotoIdsSet = new Set(paidPhotos);
-            allPhotos = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id));
-            console.log(`Rimosse ${data.paid_photos.length} foto già pagate dall'album`);
-          }
-          
           // Mostra album
           showScreen('album');
           await displayPhotos();
           showStickyOfferBar(allPhotos.length);
           
-          return { hasPaid: hasPaid, hasFound: true, shown: true };
-        }
-        
-        // 4. Se ha solo foto pagate (nessuna foto trovata) → redirect a /my-photos
-        if(hasPaid && !hasFound) {
-          console.log(`User has ${data.paid_photos.length} paid photos but no found photos, redirecting to /my-photos`);
-          window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-          return { hasPaid: true, hasFound: false, redirect: true };
+          return { hasPaid: false, hasFound: true, shown: true };
         }
         
         // 5. Non ha nulla → flusso normale
@@ -1705,8 +1696,31 @@
             
             console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos)`);
             
-            // Se ha foto trovate (anche se ha foto pagate) → mostra album per comprare altre foto
-            if(hasFound) {
+            // PRIORITÀ: Se ha foto pagate (anche solo una) → interrompi selfie, mostra loading, poi redirect a /my-photos
+            if(hasPaid) {
+              console.log(`User has ${data.paid_photos.length} paid photos but no found photos, interrupting selfie to redirect`);
+              
+              // Interrompi camera
+              if(stream) {
+                stream.getTracks().forEach(track => track.stop());
+              }
+              
+              // Mostra loading
+              showScreen('email');
+              const emailLoading = document.getElementById('emailLoading');
+              if(emailLoading) {
+                emailLoading.style.display = 'flex';
+              }
+              
+              // Piccolo delay per mostrare loading, poi redirect
+              await new Promise(resolve => setTimeout(resolve, 500));
+              
+              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+        return;
+      }
+            
+            // Se ha solo foto trovate (non pagate) → interrompi selfie, mostra loading, poi album
+            if(hasFound && !hasPaid) {
               console.log(`User has ${data.found_photos.length} found photos (not paid), interrupting selfie to show album`);
               
               // Interrompi camera
@@ -1732,15 +1746,6 @@
                 paid: p.status === 'paid'
               }));
               
-              // Carica foto pagate e RIMUOVILE dall'album
-              if(data.paid_photos && data.paid_photos.length > 0) {
-                paidPhotos = [...data.paid_photos];
-                // RIMUOVI le foto già pagate (non possono essere ricomprate)
-                const paidPhotoIdsSet = new Set(paidPhotos);
-                allPhotos = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id));
-                console.log(`Rimosse ${data.paid_photos.length} foto già pagate dall'album`);
-              }
-              
               // Nascondi loading e mostra album
               if(emailLoading) {
                 emailLoading.style.display = 'none';
@@ -1748,29 +1753,6 @@
               showScreen('album');
               await displayPhotos();
               showStickyOfferBar(allPhotos.length);
-        return;
-      }
-            
-            // Se ha solo foto pagate (nessuna foto trovata) → redirect a /my-photos
-            if(hasPaid && !hasFound) {
-              console.log(`User has ${data.paid_photos.length} paid photos but no found photos, interrupting selfie to redirect`);
-              
-              // Interrompi camera
-              if(stream) {
-                stream.getTracks().forEach(track => track.stop());
-              }
-              
-              // Mostra loading
-              showScreen('email');
-              const emailLoading = document.getElementById('emailLoading');
-              if(emailLoading) {
-                emailLoading.style.display = 'flex';
-              }
-              
-              // Piccolo delay per mostrare loading, poi redirect
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
         return;
       }
           }
