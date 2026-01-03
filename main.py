@@ -4916,3 +4916,100 @@ async def admin_packages(
     except Exception as e:
         logger.error(f"Error getting package analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/fix-all-orders")
+async def admin_fix_all_orders(password: str = Query(..., description="Password admin")):
+    """Aggiorna tutti gli ordini esistenti: marca tutte le foto come pagate nella tabella user_photos"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        if not (USE_POSTGRES or SQLITE_AVAILABLE):
+            return {"ok": False, "error": "Database not available"}
+        
+        # Recupera tutti gli ordini
+        orders_rows = await _db_execute("""
+            SELECT order_id, email, photo_ids, amount_cents, paid_at
+            FROM orders
+            ORDER BY paid_at DESC
+        """)
+        
+        results = {
+            "ok": True,
+            "total_orders": len(orders_rows),
+            "orders_processed": 0,
+            "photos_marked_paid": 0,
+            "photos_already_paid": 0,
+            "photos_not_found": 0,
+            "errors": [],
+            "details": []
+        }
+        
+        for row in orders_rows:
+            order_id = row['order_id']
+            email = _normalize_email(row['email'])
+            photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+            amount_cents = row['amount_cents']
+            paid_at = row['paid_at']
+            
+            order_detail = {
+                "order_id": order_id,
+                "email": email,
+                "photo_count": len(photo_ids),
+                "amount_cents": amount_cents,
+                "paid_at": str(paid_at),
+                "photos_marked": 0,
+                "photos_already_paid": 0,
+                "photos_not_found": 0,
+                "errors": []
+            }
+            
+            # Per ogni foto nell'ordine, marca come pagata
+            for photo_id in photo_ids:
+                try:
+                    # Verifica se la foto esiste in user_photos
+                    existing = await _db_execute_one(
+                        "SELECT status, paid_at FROM user_photos WHERE email = ? AND photo_id = ?",
+                        (email, photo_id)
+                    )
+                    
+                    if existing:
+                        # Verifica se è già pagata
+                        if existing.get('status') == 'paid' and existing.get('paid_at'):
+                            order_detail["photos_already_paid"] += 1
+                            results["photos_already_paid"] += 1
+                        else:
+                            # Marca come pagata (usa la funzione esistente)
+                            success = await _mark_photo_paid(email, photo_id)
+                            if success:
+                                order_detail["photos_marked"] += 1
+                                results["photos_marked_paid"] += 1
+                            else:
+                                error_msg = f"Failed to mark {photo_id} as paid"
+                                order_detail["errors"].append(error_msg)
+                                results["errors"].append(f"Order {order_id}: {error_msg}")
+                    else:
+                        # La foto non esiste in user_photos, crea un record pagato
+                        # Questo può succedere se l'ordine è stato creato ma la foto non è stata trovata
+                        order_detail["photos_not_found"] += 1
+                        results["photos_not_found"] += 1
+                        # Prova comunque a marcarla come pagata (la funzione crea il record se non esiste)
+                        success = await _mark_photo_paid(email, photo_id)
+                        if success:
+                            order_detail["photos_marked"] += 1
+                            results["photos_marked_paid"] += 1
+                except Exception as e:
+                    error_msg = f"Error marking {photo_id} as paid: {str(e)}"
+                    order_detail["errors"].append(error_msg)
+                    results["errors"].append(f"Order {order_id}: {error_msg}")
+                    logger.error(error_msg, exc_info=True)
+            
+            results["orders_processed"] += 1
+            results["details"].append(order_detail)
+        
+        logger.info(f"Fixed all orders: {results['orders_processed']} orders, {results['photos_marked_paid']} photos marked as paid, {results['photos_already_paid']} already paid, {results['photos_not_found']} not found")
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error fixing all orders: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

@@ -360,8 +360,13 @@
             
             <!-- Ordini -->
             <div id="orders" class="tab-content">
-                <h2>Ordini e Pagamenti</h2>
-                <div id="ordersList" class="loading">Caricamento...</div>
+                <h2>Orders and Payments</h2>
+                <div style="margin-bottom: 20px;">
+                    <button class="btn btn-primary" onclick="fixAllOrders()">🔄 Update All Orders (Mark Photos as Paid)</button>
+                    <p style="margin-top: 10px; color: #666; font-size: 14px;">This will mark all photos in existing orders as paid in the user_photos table. Use this to sync orders with photo status.</p>
+                </div>
+                <div id="fixOrdersResult" style="margin-bottom: 20px;"></div>
+                <div id="ordersList" class="loading">Loading...</div>
             </div>
             
             <!-- Sales Analysis -->
@@ -787,6 +792,86 @@
             document.getElementById('salesStartDate').value = '';
             document.getElementById('salesEndDate').value = '';
             loadSalesAnalysis();
+        }
+        
+        // Fix All Orders Function
+        async function fixAllOrders() {
+            if(!confirm('This will mark all photos in existing orders as paid. Continue?')) return;
+            
+            const resultDiv = document.getElementById('fixOrdersResult');
+            resultDiv.innerHTML = '<p class="loading">Processing...</p>';
+            
+            try {
+                const res = await fetch(`/admin/fix-all-orders?password=${encodeURIComponent(adminPassword)}`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                
+                if(data.ok) {
+                    let html = `
+                        <div class="alert alert-success" style="display: block;">
+                            <h3>✅ Orders Updated Successfully!</h3>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li><strong>Total Orders:</strong> ${data.total_orders}</li>
+                                <li><strong>Orders Processed:</strong> ${data.orders_processed}</li>
+                                <li><strong>Photos Marked as Paid:</strong> ${data.photos_marked_paid}</li>
+                                <li><strong>Photos Already Paid:</strong> ${data.photos_already_paid}</li>
+                                <li><strong>Photos Not Found:</strong> ${data.photos_not_found || 0}</li>
+                                ${data.errors && data.errors.length > 0 ? `<li><strong>Errors:</strong> ${data.errors.length}</li>` : ''}
+                            </ul>
+                        </div>
+                    `;
+                    
+                    if(data.errors && data.errors.length > 0) {
+                        html += `<div class="alert alert-error" style="display: block; margin-top: 10px;">
+                            <h4>Errors:</h4>
+                            <ul style="margin: 10px 0; padding-left: 20px; max-height: 200px; overflow-y: auto;">
+                                ${data.errors.map(e => `<li>${e}</li>`).join('')}
+                            </ul>
+                        </div>`;
+                    }
+                    
+                    if(data.details && data.details.length > 0) {
+                        html += `<details style="margin-top: 15px;">
+                            <summary style="cursor: pointer; font-weight: 600; color: #667eea;">View Details (${data.details.length} orders)</summary>
+                            <div style="margin-top: 10px; max-height: 400px; overflow-y: auto;">
+                                <table style="font-size: 12px;">
+                                    <tr>
+                                        <th>Order ID</th>
+                                        <th>Email</th>
+                                        <th>Photos</th>
+                                        <th>Amount</th>
+                                        <th>Marked</th>
+                                        <th>Already Paid</th>
+                                        <th>Not Found</th>
+                                    </tr>
+                                    ${data.details.map(d => `
+                                        <tr>
+                                            <td><code>${d.order_id.substring(0, 20)}...</code></td>
+                                            <td>${d.email}</td>
+                                            <td>${d.photo_count}</td>
+                                            <td>€${(d.amount_cents / 100).toFixed(2)}</td>
+                                            <td>${d.photos_marked}</td>
+                                            <td>${d.photos_already_paid}</td>
+                                            <td>${d.photos_not_found || 0}</td>
+                                        </tr>
+                                    `).join('')}
+                                </table>
+                            </div>
+                        </details>`;
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                    
+                    // Ricarica la lista ordini
+                    loadOrders();
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-error" style="display: block;">Error: ${data.error || 'Unknown error'}</div>`;
+                }
+            } catch(e) {
+                console.error('Error fixing orders:', e);
+                resultDiv.innerHTML = `<div class="alert alert-error" style="display: block;">Error: ${e.message}</div>`;
+            }
         }
     </script>
 </body>
