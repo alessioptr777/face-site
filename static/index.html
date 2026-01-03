@@ -1619,14 +1619,25 @@
         const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
         const hasAnyPaid = hasPaid || hasPaidInFound;
         
-        console.log(`checkUserState - hasPaid: ${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound: ${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound: ${hasPaidInFound}`);
+        // DEBUG: Mostra info visibile (rimuovere dopo test)
+        const debugInfo = `DEBUG: paid_photos=${data.paid_photos?.length || 0}, found_photos=${data.found_photos?.length || 0}, hasPaid=${hasPaid}, hasPaidInFound=${hasPaidInFound}, hasAnyPaid=${hasAnyPaid}`;
+        console.log(`checkUserState - ${debugInfo}`);
         
         // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
         if(hasAnyPaid) {
           const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
           console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
+          // DEBUG: Alert temporaneo per iPhone
+          alert(`✅ Foto pagate trovate (${paidCount})! Redirect a /my-photos...`);
           window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
           return { hasPaid: true, hasFound: hasFound, redirect: true };
+        }
+        
+        // DEBUG: Se non ha foto pagate, mostra info
+        if(hasFound) {
+          console.log(`⚠️ Nessuna foto pagata trovata, ma ci sono ${data.found_photos.length} foto trovate`);
+          // DEBUG: Alert temporaneo per iPhone
+          alert(`⚠️ DEBUG: ${data.found_photos.length} foto trovate, ma nessuna pagata. Mostro album.`);
         }
         
         // 4. Se ha solo foto trovate (non pagate) → mostra album per comprare
@@ -1732,8 +1743,17 @@
           if(hasAnyPaid) {
             const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
             console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
+            // DEBUG: Alert temporaneo per iPhone
+            alert(`✅ Foto pagate trovate (${paidCount})! Redirect a /my-photos...`);
             window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
             return; // Esci subito, il redirect è in corso
+          }
+          
+          // DEBUG: Se non ha foto pagate, mostra info
+          if(hasFound) {
+            console.log(`⚠️ Nessuna foto pagata trovata, ma ci sono ${data.found_photos.length} foto trovate`);
+            // DEBUG: Alert temporaneo per iPhone
+            alert(`⚠️ DEBUG: ${data.found_photos.length} foto trovate, ma nessuna pagata. Mostro album.`);
           }
           
           // Se ha solo foto trovate (non pagate) → mostra album
@@ -1758,7 +1778,7 @@
         
         // Non ha nulla → flusso normale: vai al selfie
         showScreen('selfie');
-        await startCamera();
+      await startCamera();
       } catch(e) {
         console.error('Error checking user state:', e);
         
@@ -1771,7 +1791,7 @@
         
         // In caso di errore, vai comunque al selfie
         showScreen('selfie');
-        await startCamera();
+      await startCamera();
       }
       
     });
@@ -1785,8 +1805,8 @@
       if(!email || !emailRegex.test(email)) {
         emailError.classList.add('show');
         emailInput.style.borderColor = '#ff4444';
-          return;
-        }
+        return;
+      }
 
       // Salva email
       userEmail = email;
