@@ -879,13 +879,12 @@ async def _cleanup_expired_photos():
                     try:
                         photo_path.unlink()
                         deleted_count += 1
-                            logger.info(f"Deleted expired photo: {photo_id}")
-                        except Exception as e:
-                            logger.error(f"Error deleting photo file {photo_id}: {e}")
-            
-            await conn.commit()
-            if expired:
-                logger.info(f"Cleaned up {len(expired)} expired photos ({deleted_count} files deleted)")
+                        logger.info(f"Deleted expired photo: {photo_id}")
+                    except Exception as e:
+                        logger.error(f"Error deleting photo file {photo_id}: {e}")
+        
+        if expired:
+            logger.info(f"Cleaned up {len(expired)} expired photos ({deleted_count} files deleted)")
     except Exception as e:
         logger.error(f"Error cleaning up expired photos: {e}")
 
