@@ -1687,41 +1687,75 @@
           return { hasPaid: true, hasFound: hasFound, redirect: true };
         }
         
-        // 4. Se ha foto trovate → mostra album per comprare (filtra quelle già pagate)
+        // 4. Se ha foto trovate → mostra album
         if(hasFound) {
           userEmail = email;
           localStorage.setItem('userEmail', email);
           
-          // Prepara foto da mostrare - FILTRA quelle già pagate
-          const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
-          
-          if(unpaidPhotos.length > 0) {
-            console.log(`User has ${unpaidPhotos.length} unpaid found photos, showing album`);
-            allPhotos = unpaidPhotos.map(p => ({
+          // Se forceAlbum=true, mostra TUTTE le foto (pagate + non pagate)
+          // Se forceAlbum=false, mostra solo foto NON pagate
+          let photosToShow = [];
+          if(forceAlbum) {
+            // Mostra TUTTE le foto trovate (pagate e non pagate)
+            photosToShow = data.found_photos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: p.status === 'paid'
+            }));
+            console.log(`forceAlbum=true: showing ALL ${photosToShow.length} found photos (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
+          } else {
+            // Mostra solo foto NON pagate
+            const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
+            photosToShow = unpaidPhotos.map(p => ({
               photo_id: p.photo_id,
               score: 0,
               has_face: true,
               paid: false
             }));
+            console.log(`Showing ${photosToShow.length} unpaid found photos`);
+          }
+          
+          if(photosToShow.length > 0) {
+            allPhotos = photosToShow;
             
             // Mostra album
             showScreen('album');
             await displayPhotos();
-            showStickyOfferBar(allPhotos.length);
+            
+            // Mostra sticky bar solo con conteggio foto NON pagate
+            const unpaidCount = photosToShow.filter(p => !p.paid).length;
+            if(unpaidCount > 0) {
+              showStickyOfferBar(unpaidCount);
+            } else {
+              // Nascondi sticky bar se tutte le foto sono pagate
+              const stickyBar = document.getElementById('stickyOfferBar');
+              if(stickyBar) {
+                stickyBar.style.display = 'none';
+              }
+            }
+            
             return { hasPaid: hasAnyPaid, hasFound: true, shown: true };
           } else {
-            // Tutte le foto trovate sono già pagate
-            // Se forceAlbum=true, mostra comunque selfie per trovare nuove foto
+            // Nessuna foto trovata
+            // Se forceAlbum=true, mostra selfie per trovare nuove foto
             if(forceAlbum) {
-              console.log('All found photos are already paid, but forceAlbum=true, showing selfie to find new photos');
+              console.log('No found photos, but forceAlbum=true, showing selfie to find new photos');
               showScreen('selfie');
               await startCamera();
-              return { hasPaid: true, hasFound: true, shown: false };
+              return { hasPaid: hasAnyPaid, hasFound: false, shown: false };
             } else {
-              // Redirecta a /my-photos solo se non è forzato l'album
-              console.log('All found photos are already paid, redirecting to /my-photos');
-              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-              return { hasPaid: true, hasFound: true, redirect: true };
+              // Redirecta a /my-photos se ha foto pagate, altrimenti selfie
+              if(hasAnyPaid) {
+                console.log('No found photos but has paid photos, redirecting to /my-photos');
+                window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+                return { hasPaid: true, hasFound: false, redirect: true };
+              } else {
+                console.log('No photos found, showing selfie');
+                showScreen('selfie');
+                await startCamera();
+                return { hasPaid: false, hasFound: false, shown: false };
+              }
             }
           }
         }
@@ -3045,7 +3079,7 @@
         addCartBtn.className = 'add-cart';
         addCartBtn.dataset.photoId = photo.photo_id;
         
-        // Se la foto è pagata, mostra pulsante "Scarica" invece del carrello
+        // Se la foto è pagata, mostra solo testo "già acquistata"
         // Controlla sia paidPhotos che photo.paid per sicurezza
         const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
         if(isPaid) {
@@ -3054,31 +3088,12 @@
           if(!paidPhotos.includes(photo.photo_id)) {
             paidPhotos.push(photo.photo_id);
           }
-          // Aggiungi badge "Acquistata" in alto a destra
-          const paidBadge = document.createElement('div');
-          paidBadge.className = 'photo-paid-badge';
-          paidBadge.textContent = '✓ Acquistata';
-          paidBadge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(34, 197, 94, 0.95); color: white; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.2); pointer-events: none;';
-          div.appendChild(paidBadge);
-          
-          // Aggiungi pulsante "SCARICA" grande e verde per foto pagate
-          const downloadBtn = document.createElement('button');
-          downloadBtn.className = 'photo-download-btn';
-          downloadBtn.textContent = '📥 SCARICA';
-          downloadBtn.style.cssText = 'position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: #22c55e; color: white; border: none; padding: 12px 20px; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; z-index: 10; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4); width: calc(100% - 24px); max-width: 180px; transition: all 0.2s;';
-          downloadBtn.onmouseenter = () => {
-            downloadBtn.style.background = '#16a34a';
-            downloadBtn.style.transform = 'translateX(-50%) scale(1.05)';
-          };
-          downloadBtn.onmouseleave = () => {
-            downloadBtn.style.background = '#22c55e';
-            downloadBtn.style.transform = 'translateX(-50%)';
-          };
-          downloadBtn.onclick = (e) => {
-            e.stopPropagation(); // Previeni apertura lightbox
-            downloadPhoto(photo.photo_id);
-          };
-          div.appendChild(downloadBtn);
+          // Aggiungi solo testo semplice "già acquistata"
+          const paidText = document.createElement('div');
+          paidText.className = 'photo-paid-text';
+          paidText.textContent = 'già acquistata';
+          paidText.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; z-index: 10; pointer-events: none;';
+          div.appendChild(paidText);
           
           // Aggiungi classe per identificare foto pagata (per stili CSS)
           div.classList.add('photo-paid');
