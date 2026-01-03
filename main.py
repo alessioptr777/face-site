@@ -698,19 +698,33 @@ async def _get_user_paid_photos(email: str) -> List[str]:
         logger.error(f"Error getting paid photos for {email}: {e}", exc_info=True)
     return []
 
-async def _get_user_found_photos(email: str) -> List[Dict[str, Any]]:
-    """Recupera tutte le foto trovate per un utente"""
+async def _get_user_found_photos(email: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Recupera tutte le foto trovate per un utente (con limite opzionale per performance)"""
     if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return []
     
     try:
         email = _normalize_email(email)
-        rows = await _db_execute("""
-            SELECT photo_id, found_at, paid_at, expires_at, status 
-            FROM user_photos 
-            WHERE email = ?
-            ORDER BY found_at DESC
-        """, (email,))
+        # Limite default di 200 foto per evitare problemi di performance
+        # Se serve di più, si può aumentare o implementare paginazione
+        limit_clause = f"LIMIT {limit}" if limit else "LIMIT 200"
+        
+        if USE_POSTGRES:
+            rows = await _db_execute(f"""
+                SELECT photo_id, found_at, paid_at, expires_at, status 
+                FROM user_photos 
+                WHERE email = $1
+                ORDER BY found_at DESC
+                {limit_clause}
+            """, (email,))
+        else:
+            rows = await _db_execute(f"""
+                SELECT photo_id, found_at, paid_at, expires_at, status 
+                FROM user_photos 
+                WHERE email = ?
+                ORDER BY found_at DESC
+                {limit_clause}
+            """, (email,))
         return rows
     except Exception as e:
         logger.error(f"Error getting found photos: {e}")
