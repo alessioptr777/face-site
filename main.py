@@ -1604,6 +1604,126 @@ def debug_paths():
         "index_html_path": index_path,
     }
 
+@app.get("/debug/test-postgres")
+async def debug_test_postgres():
+    """Endpoint di test per verificare che PostgreSQL 18 funzioni correttamente"""
+    if not USE_POSTGRES:
+        return {
+            "ok": False,
+            "error": "PostgreSQL not in use",
+            "database_type": "SQLite" if SQLITE_AVAILABLE else "None"
+        }
+    
+    results = {
+        "ok": True,
+        "database_type": "PostgreSQL",
+        "tests": {}
+    }
+    
+    try:
+        # Test 1: Connessione base
+        try:
+            conn = await asyncpg.connect(DATABASE_URL)
+            await conn.close()
+            results["tests"]["connection"] = {"ok": True, "message": "Connection successful"}
+        except Exception as e:
+            results["tests"]["connection"] = {"ok": False, "error": str(e)}
+            results["ok"] = False
+        
+        # Test 2: Query con NOW()
+        try:
+            rows = await _db_execute("SELECT NOW() as current_time", ())
+            if rows and 'current_time' in rows[0]:
+                results["tests"]["now_function"] = {"ok": True, "value": str(rows[0]['current_time'])}
+            else:
+                results["tests"]["now_function"] = {"ok": False, "error": "No result returned"}
+                results["ok"] = False
+        except Exception as e:
+            results["tests"]["now_function"] = {"ok": False, "error": str(e)}
+            results["ok"] = False
+        
+        # Test 3: Query con INTERVAL
+        try:
+            rows = await _db_execute("SELECT NOW() + INTERVAL '30 days' as future_date", ())
+            if rows and 'future_date' in rows[0]:
+                results["tests"]["interval_function"] = {"ok": True, "value": str(rows[0]['future_date'])}
+            else:
+                results["tests"]["interval_function"] = {"ok": False, "error": "No result returned"}
+                results["ok"] = False
+        except Exception as e:
+            results["tests"]["interval_function"] = {"ok": False, "error": str(e)}
+            results["ok"] = False
+        
+        # Test 4: Query con placeholder $1, $2
+        try:
+            test_email = "test@example.com"
+            rows = await _db_execute("SELECT $1 as test_param, $2 as test_param2", (test_email, "test2"))
+            if rows and rows[0]['test_param'] == test_email:
+                results["tests"]["placeholder_query"] = {"ok": True, "message": "Placeholders work correctly"}
+            else:
+                results["tests"]["placeholder_query"] = {"ok": False, "error": "Placeholder values don't match"}
+                results["ok"] = False
+        except Exception as e:
+            results["tests"]["placeholder_query"] = {"ok": False, "error": str(e)}
+            results["ok"] = False
+        
+        # Test 5: INSERT e SELECT (test completo)
+        try:
+            test_photo_id = f"test_photo_{int(datetime.now(timezone.utc).timestamp())}"
+            test_email = "test@example.com"
+            
+            # Inserisci record di test
+            await _db_execute_write(f"""
+                INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
+                VALUES ($1, $2, NOW(), 'found', NOW() + INTERVAL '90 days')
+                ON CONFLICT (email, photo_id) DO NOTHING
+            """, (test_email, test_photo_id))
+            
+            # Leggi il record inserito
+            rows = await _db_execute("""
+                SELECT email, photo_id, status, expires_at FROM user_photos 
+                WHERE email = $1 AND photo_id = $2
+            """, (test_email, test_photo_id))
+            
+            if rows and len(rows) > 0:
+                # Pulisci: elimina il record di test
+                await _db_execute_write("""
+                    DELETE FROM user_photos WHERE email = $1 AND photo_id = $2
+                """, (test_email, test_photo_id))
+                
+                results["tests"]["insert_select"] = {
+                    "ok": True, 
+                    "message": "INSERT and SELECT work correctly",
+                    "inserted_record": {
+                        "email": rows[0]['email'],
+                        "photo_id": rows[0]['photo_id'],
+                        "status": rows[0]['status']
+                    }
+                }
+            else:
+                results["tests"]["insert_select"] = {"ok": False, "error": "Record not found after insert"}
+                results["ok"] = False
+        except Exception as e:
+            results["tests"]["insert_select"] = {"ok": False, "error": str(e)}
+            results["ok"] = False
+        
+        # Test 6: Verifica versione PostgreSQL
+        try:
+            rows = await _db_execute("SELECT version() as pg_version", ())
+            if rows and 'pg_version' in rows[0]:
+                pg_version = rows[0]['pg_version']
+                results["tests"]["postgres_version"] = {"ok": True, "version": pg_version}
+            else:
+                results["tests"]["postgres_version"] = {"ok": False, "error": "Version not returned"}
+        except Exception as e:
+            results["tests"]["postgres_version"] = {"ok": False, "error": str(e)}
+        
+    except Exception as e:
+        results["ok"] = False
+        results["error"] = str(e)
+    
+    return results
+
 @app.get("/debug/orders")
 async def debug_orders(email: Optional[str] = Query(None, description="Filtra per email")):
     """Endpoint di debug per vedere ordini e foto nel database"""
