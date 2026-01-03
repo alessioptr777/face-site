@@ -1720,13 +1720,50 @@
             
             return { hasPaid: hasAnyPaid, hasFound: true, shown: true };
           } else {
-            // Nessuna foto trovata
-            // Se forceAlbum=true, mostra selfie per trovare nuove foto
+            // Nessuna foto trovata (tutte pagate o nessuna foto)
+            // Se forceAlbum=true, mostra messaggio nell'album invece del selfie
             if(forceAlbum) {
-              console.log('No found photos, but forceAlbum=true, showing selfie to find new photos');
-              showScreen('selfie');
-              await startCamera();
-              return { hasPaid: hasAnyPaid, hasFound: false, shown: false };
+              console.log('No unpaid photos found, showing message in album');
+              userEmail = email;
+              localStorage.setItem('userEmail', email);
+              
+              // Mostra album con messaggio
+              showScreen('album');
+              
+              // Pulisci griglia e mostra messaggio
+              const albumGrid = document.getElementById('albumGrid');
+              if(albumGrid) {
+                albumGrid.innerHTML = '';
+                
+                // Crea messaggio
+                const messageDiv = document.createElement('div');
+                messageDiv.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 60px 20px; background: rgba(255, 255, 255, 0.05); border-radius: 16px; margin: 40px 0;';
+                
+                const icon = document.createElement('div');
+                icon.textContent = '✅';
+                icon.style.cssText = 'font-size: 64px; margin-bottom: 20px;';
+                
+                const title = document.createElement('h2');
+                title.textContent = 'Hai comprato tutte le foto disponibili!';
+                title.style.cssText = 'color: white; font-size: 24px; font-weight: 700; margin-bottom: 12px;';
+                
+                const subtitle = document.createElement('p');
+                subtitle.textContent = 'Non ci sono più foto acquistabili al momento.';
+                subtitle.style.cssText = 'color: rgba(255, 255, 255, 0.8); font-size: 16px; line-height: 1.6;';
+                
+                messageDiv.appendChild(icon);
+                messageDiv.appendChild(title);
+                messageDiv.appendChild(subtitle);
+                albumGrid.appendChild(messageDiv);
+              }
+              
+              // Nascondi sticky bar
+              const stickyBar = document.getElementById('stickyOfferBar');
+              if(stickyBar) {
+                stickyBar.style.display = 'none';
+              }
+              
+              return { hasPaid: hasAnyPaid, hasFound: false, shown: true };
             } else {
               // Redirecta a /my-photos se ha foto pagate, altrimenti selfie
               if(hasAnyPaid) {
