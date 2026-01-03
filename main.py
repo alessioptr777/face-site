@@ -2189,8 +2189,12 @@ async def checkout_success(
                 email_escaped = (email or "").replace("'", "\\'").replace('"', '\\"')
                 photos_html += f"""
                 <div class="photo-item">
-                    <img src="{photo_url}" alt="Foto" loading="lazy" class="photo-img">
-                    <button onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}')" class="download-btn">📥 Scarica</button>
+                    <img src="{photo_url}" alt="Foto" loading="lazy" class="photo-img" style="cursor: pointer;">
+                    <div class="ios-instructions" style="display: none; margin-top: 15px; padding: 12px; background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 10px; color: #0369a1; text-align: center;">
+                        <p style="margin: 0; font-weight: bold; font-size: 14px;">📱 Per salvare:</p>
+                        <p style="margin: 8px 0 0 0; font-size: 13px;">Tocca e tieni premuto sull'immagine, poi seleziona "Salva in Foto"</p>
+                    </div>
+                    <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Scarica</button>
                 </div>
                 """
         
@@ -2347,16 +2351,39 @@ async def checkout_success(
                     return /Android/i.test(navigator.userAgent);
                 }}
                 
-                async function downloadPhotoSuccess(photoId, email) {{
+                // Mostra/nascondi pulsante e istruzioni in base al dispositivo
+                document.addEventListener('DOMContentLoaded', function() {{
+                    const iosInstructions = document.querySelectorAll('.ios-instructions');
+                    const downloadBtns = document.querySelectorAll('.download-btn-desktop');
+                    
+                    if (isIOS()) {{
+                        // Su iOS: mostra istruzioni, nascondi pulsanti
+                        iosInstructions.forEach(el => el.style.display = 'block');
+                        downloadBtns.forEach(el => el.style.display = 'none');
+                    }} else {{
+                        // Su Android/Desktop: mostra pulsanti, nascondi istruzioni
+                        iosInstructions.forEach(el => el.style.display = 'none');
+                        downloadBtns.forEach(el => el.style.display = 'block');
+                    }}
+                }});
+                
+                async function downloadPhotoSuccess(photoId, email, btnElement) {{
                     try {{
-                        const btn = event.target;
+                        // Trova il pulsante se non passato come parametro
+                        const btn = btnElement || event?.target || document.querySelector(`button[onclick*="${{photoId}}"]`);
+                        if (!btn) {{
+                            console.error('Pulsante non trovato');
+                            alert('Errore: pulsante non trovato');
+                            return;
+                        }}
+                        
                         btn.disabled = true;
                         btn.textContent = '⏳ Scaricamento...';
                         
                         const filename = photoId.split('/').pop() || 'foto.jpg';
                         
-                        // Costruisci URL con paid=true e email per verifica backend
-                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true`;
+                        // Costruisci URL con paid=true, email e download=true per verifica backend e forzare download
+                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true&download=true`;
                         if (email) {{
                             photoUrl += `&email=${{encodeURIComponent(email)}}`;
                         }}
@@ -2390,7 +2417,54 @@ async def checkout_success(
                                         }}
                                     }} catch (shareErr) {{
                                         console.log('Web Share error:', shareErr);
+                                        // Continua con fallback
                                     }}
+                                }}
+                                
+                                // Fallback: apri l'immagine direttamente usando l'URL
+                                // Su iOS Safari, questo permette all'utente di fare long-press e salvare
+                                const imgWindow = window.open(photoUrl, '_blank');
+                                
+                                if (imgWindow) {{
+                                    // Mostra istruzioni dopo un breve delay
+                                    setTimeout(() => {{
+                                        alert('📱 Tocca e tieni premuto sull\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
+                                    }}, 800);
+                                    
+                                    btn.textContent = '✅ Aperta!';
+                                    setTimeout(() => {{
+                                        btn.disabled = false;
+                                        btn.textContent = '📥 Scarica';
+                                    }}, 2000);
+                                }} else {{
+                                    // Se popup bloccato, mostra istruzioni e riprova con link diretto
+                                    alert('📱 Popup bloccato. Per salvare la foto:\n1. Tocca e tieni premuto sull\'immagine qui sotto\n2. Seleziona "Salva in Foto"\n\nOppure apri questa pagina in Safari.');
+                                    
+                                    // Crea un link visibile temporaneo
+                                    const tempLink = document.createElement('a');
+                                    tempLink.href = photoUrl;
+                                    tempLink.target = '_blank';
+                                    tempLink.style.display = 'block';
+                                    tempLink.style.margin = '20px auto';
+                                    tempLink.style.padding = '15px 30px';
+                                    tempLink.style.background = '#22c55e';
+                                    tempLink.style.color = '#fff';
+                                    tempLink.style.borderRadius = '8px';
+                                    tempLink.style.textDecoration = 'none';
+                                    tempLink.style.fontWeight = 'bold';
+                                    tempLink.textContent = '📱 Tocca qui per aprire la foto';
+                                    tempLink.onclick = function(e) {{
+                                        e.preventDefault();
+                                        window.open(photoUrl, '_blank');
+                                    }};
+                                    
+                                    const container = document.querySelector('.container');
+                                    if (container) {{
+                                        container.appendChild(tempLink);
+                                    }}
+                                    
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 Scarica';
                                 }}
                             }} catch (fetchError) {{
                                 console.error('Errore fetch:', fetchError);
@@ -2399,58 +2473,12 @@ async def checkout_success(
                                 btn.textContent = '📥 Scarica';
                                 return;
                             }}
-                            
-                            // Fallback: apri l'immagine direttamente usando l'URL
-                            // Su iOS Safari, questo permette all'utente di fare long-press e salvare
-                            const imgWindow = window.open(photoUrl, '_blank');
-                            
-                            if (imgWindow) {{
-                                // Mostra istruzioni dopo un breve delay
-                                setTimeout(() => {{
-                                    alert('📱 Tocca e tieni premuto sull\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
-                                }}, 800);
-                                
-                                btn.textContent = '✅ Aperta!';
-                                setTimeout(() => {{
-                                    btn.disabled = false;
-                                    btn.textContent = '📥 Scarica';
-                                }}, 2000);
-                            }} else {{
-                                // Se popup bloccato, mostra istruzioni e riprova con link diretto
-                                alert('📱 Popup bloccato. Per salvare la foto:\n1. Tocca e tieni premuto sull\'immagine qui sotto\n2. Seleziona "Salva in Foto"\n\nOppure apri questa pagina in Safari.');
-                                
-                                // Crea un link visibile temporaneo
-                                const tempLink = document.createElement('a');
-                                tempLink.href = photoUrl;
-                                tempLink.target = '_blank';
-                                tempLink.style.display = 'block';
-                                tempLink.style.margin = '20px auto';
-                                tempLink.style.padding = '15px 30px';
-                                tempLink.style.background = '#22c55e';
-                                tempLink.style.color = '#fff';
-                                tempLink.style.borderRadius = '8px';
-                                tempLink.style.textDecoration = 'none';
-                                tempLink.style.fontWeight = 'bold';
-                                tempLink.textContent = '📱 Tocca qui per aprire la foto';
-                                tempLink.onclick = function(e) {{
-                                    e.preventDefault();
-                                    window.open(photoUrl, '_blank');
-                                }};
-                                
-                                const container = document.querySelector('.container');
-                                if (container) {{
-                                    container.appendChild(tempLink);
-                                }}
-                                
-                                btn.disabled = false;
-                                btn.textContent = '📥 Scarica';
-                            }}
                         }}
                         // Su Android: download diretto (salva automaticamente nella galleria)
                         else if (isAndroid()) {{
-                            const photoUrlDownload = photoUrl + '&download=true';
+                            // photoUrl già include download=true
                             const link = document.createElement('a');
-                            link.href = photoUrlDownload;
+                            link.href = photoUrl;
                             link.download = filename;
                             link.style.display = 'none';
                             link.target = '_self';
@@ -2469,8 +2497,8 @@ async def checkout_success(
                         }}
                         // Desktop: download normale
                         else {{
-                            const photoUrlDownload = photoUrl + '&download=true';
-                            const response = await fetch(photoUrlDownload);
+                            // photoUrl già include download=true
+                            const response = await fetch(photoUrl);
                             if (!response.ok) {{
                                 throw new Error('Errore nel download');
                             }}
@@ -2708,6 +2736,326 @@ async def test_email(
             "error": str(e),
             "type": type(e).__name__
         }
+
+@app.get("/test-download")
+async def test_download_page(
+    request: Request,
+    email: str = Query("test@example.com", description="Email di test"),
+    photo_id: str = Query(None, description="ID foto di test (opzionale)")
+):
+    """Pagina di test per verificare il download su iPhone senza completare il flusso completo"""
+    try:
+        # Se non specificato, prendi la prima foto disponibile
+        if not photo_id:
+            photos = list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.jpeg"))
+            if photos:
+                photo_id = photos[0].name
+            else:
+                return HTMLResponse("""
+                <html>
+                <body style="font-family: Arial; padding: 50px; text-align: center;">
+                    <h1>❌ Nessuna foto disponibile</h1>
+                    <p>Carica almeno una foto per testare il download.</p>
+                    <a href="/">Torna alla home</a>
+                </body>
+                </html>
+                """)
+        
+        # Usa la stessa struttura HTML della pagina di successo checkout
+        base_url = str(request.base_url).rstrip('/')
+        photo_url = f"{base_url}/photo/{photo_id}?paid=true&email={email}"
+        
+        # Escape per sicurezza
+        photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '&quot;')
+        email_escaped = email.replace("'", "\\'").replace('"', '&quot;')
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Test Download - iPhone</title>
+            <style>
+                body {{
+                    margin: 0;
+                    padding: 20px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .container {{
+                    background: white;
+                    border-radius: 20px;
+                    padding: 40px;
+                    max-width: 600px;
+                    width: 100%;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                    text-align: center;
+                }}
+                h1 {{
+                    color: #333;
+                    margin-bottom: 20px;
+                }}
+                .photo-item {{
+                    margin: 30px 0;
+                }}
+                .photo-img {{
+                    width: 100%;
+                    max-width: 400px;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }}
+                .download-btn {{
+                    margin-top: 20px;
+                    padding: 15px 30px;
+                    background: #22c55e;
+                    color: white;
+                    border: none;
+                    border-radius: 12px;
+                    font-size: 18px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    transition: transform 0.2s, background 0.2s;
+                }}
+                .download-btn:hover {{
+                    transform: translateY(-2px);
+                    background: #16a34a;
+                }}
+                .download-btn:disabled {{
+                    background: #ccc;
+                    cursor: not-allowed;
+                }}
+                .info {{
+                    background: #f0f9ff;
+                    border: 1px solid #0ea5e9;
+                    border-radius: 8px;
+                    padding: 15px;
+                    margin: 20px 0;
+                    color: #0369a1;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🧪 Test Download iPhone</h1>
+                <div class="info">
+                    <p><strong>Questa è una pagina di test</strong></p>
+                    <p>Usa questa pagina per testare il download su iPhone senza completare il flusso completo.</p>
+                </div>
+                <div class="photo-item">
+                    <img src="{photo_url}" alt="Foto test" class="photo-img" style="cursor: pointer;" onclick="if(isIOS()) {{ alert('📱 Per salvare: Tocca e tieni premuto sull\\'immagine, poi seleziona \\'Salva in Foto\\''); }}">
+                    <div id="ios-instructions" style="display: none; margin-top: 20px; padding: 15px; background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 12px; color: #0369a1;">
+                        <p style="margin: 0; font-weight: bold; font-size: 16px;">📱 Come salvare la foto:</p>
+                        <p style="margin: 10px 0 0 0;">1. Tocca e tieni premuto sull'immagine qui sopra</p>
+                        <p style="margin: 5px 0 0 0;">2. Seleziona "Salva in Foto"</p>
+                    </div>
+                    <button id="download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" class="download-btn" style="display: none;">📥 Scarica</button>
+                </div>
+                <p style="margin-top: 30px;">
+                    <a href="/" style="color: #667eea; text-decoration: none;">← Torna alla home</a>
+                </p>
+            </div>
+            <script>
+                // Rileva se è iOS
+                function isIOS() {{
+                    return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                }}
+                
+                // Rileva se è Android
+                function isAndroid() {{
+                    return /Android/i.test(navigator.userAgent);
+                }}
+                
+                // Mostra/nascondi pulsante e istruzioni in base al dispositivo
+                document.addEventListener('DOMContentLoaded', function() {{
+                    const iosInstructions = document.getElementById('ios-instructions');
+                    const downloadBtn = document.getElementById('download-btn-desktop');
+                    
+                    if (isIOS()) {{
+                        // Su iOS: mostra istruzioni, nascondi pulsante
+                        if (iosInstructions) iosInstructions.style.display = 'block';
+                        if (downloadBtn) downloadBtn.style.display = 'none';
+                    }} else {{
+                        // Su Android/Desktop: mostra pulsante, nascondi istruzioni
+                        if (iosInstructions) iosInstructions.style.display = 'none';
+                        if (downloadBtn) downloadBtn.style.display = 'block';
+                    }}
+                }});
+                
+                async function downloadPhotoSuccess(photoId, email, btnElement) {{
+                    console.log('downloadPhotoSuccess chiamata:', photoId, email, btnElement);
+                    try {{
+                        const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
+                        if (!btn) {{
+                            console.error('Pulsante non trovato');
+                            alert('Errore: pulsante non trovato');
+                            return;
+                        }}
+                        
+                        console.log('Pulsante trovato, disabilito...');
+                        btn.disabled = true;
+                        btn.textContent = '⏳ Scaricamento...';
+                        
+                        const filename = photoId.split('/').pop() || 'foto.jpg';
+                        console.log('Filename:', filename);
+                        
+                        // Costruisci URL con paid=true, email e download=true
+                        let photoUrl = '/photo/' + encodeURIComponent(photoId) + '?paid=true&download=true';
+                        if (email) {{
+                            photoUrl += '&email=' + encodeURIComponent(email);
+                        }}
+                        console.log('Photo URL:', photoUrl);
+                        console.log('isIOS():', isIOS());
+                        console.log('isAndroid():', isAndroid());
+                        
+                        // Su iOS: usa approccio semplice e diretto
+                        if (isIOS()) {{
+                            console.log('iOS rilevato, uso Web Share API o fallback');
+                            try {{
+                                // Prova prima con Web Share API
+                                console.log('Fetch foto...');
+                                const response = await fetch(photoUrl);
+                                if (!response.ok) {{
+                                    throw new Error('Errore nel download: ' + response.status);
+                                }}
+                                
+                                console.log('Foto scaricata, creo blob...');
+                                const blob = await response.blob();
+                                const file = new File([blob], filename, {{ type: 'image/jpeg' }});
+                                
+                                if (navigator.share && navigator.canShare) {{
+                                    try {{
+                                        console.log('Provo Web Share API...');
+                                        if (navigator.canShare({{ files: [file] }})) {{
+                                            await navigator.share({{
+                                                files: [file],
+                                                title: 'Salva foto',
+                                                text: 'Salva questa foto nella galleria'
+                                            }});
+                                            console.log('Web Share completato');
+                                            btn.textContent = '✅ Salvata!';
+                                            setTimeout(() => {{
+                                                btn.disabled = false;
+                                                btn.textContent = '📥 Scarica';
+                                            }}, 2000);
+                                            return;
+                                        }}
+                                    }} catch (shareErr) {{
+                                        console.log('Web Share error:', shareErr);
+                                    }}
+                                }}
+                                
+                                // Fallback: apri l'immagine
+                                console.log('Web Share non disponibile, uso fallback...');
+                                const imgWindow = window.open(photoUrl, '_blank');
+                                
+                                if (imgWindow) {{
+                                    setTimeout(() => {{
+                                        alert('📱 Tocca e tieni premuto sull\\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
+                                    }}, 800);
+                                    
+                                    btn.textContent = '✅ Aperta!';
+                                    setTimeout(() => {{
+                                        btn.disabled = false;
+                                        btn.textContent = '📥 Scarica';
+                                    }}, 2000);
+                                }} else {{
+                                    alert('📱 Popup bloccato. Per salvare la foto:\\n1. Tocca e tieni premuto sull\\'immagine qui sotto\\n2. Seleziona "Salva in Foto"');
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 Scarica';
+                                }}
+                            }} catch (fetchError) {{
+                                console.error('Errore fetch:', fetchError);
+                                alert('Errore nel caricamento della foto. Riprova.\\nErrore: ' + fetchError.message);
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                                return;
+                            }}
+                        }}
+                        // Su Android: download diretto
+                        else if (isAndroid()) {{
+                            const link = document.createElement('a');
+                            link.href = photoUrl;
+                            link.download = filename;
+                            link.style.display = 'none';
+                            document.body.appendChild(link);
+                            link.click();
+                            setTimeout(() => {{
+                                document.body.removeChild(link);
+                            }}, 1000);
+                            
+                            btn.textContent = '✅ Scaricata!';
+                            setTimeout(() => {{
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}, 2000);
+                        }}
+                        // Desktop: download normale
+                        else {{
+                            console.log('Desktop rilevato, uso download normale');
+                            try {{
+                                console.log('Fetch foto per download...');
+                                const response = await fetch(photoUrl);
+                                if (!response.ok) {{
+                                    throw new Error('Errore nel download: ' + response.status);
+                                }}
+                                
+                                console.log('Foto scaricata, creo blob URL...');
+                                const blob = await response.blob();
+                                const blobUrl = window.URL.createObjectURL(blob);
+                                const link = document.createElement('a');
+                                link.href = blobUrl;
+                                link.download = filename;
+                                link.style.display = 'none';
+                                document.body.appendChild(link);
+                                console.log('Click su link download...');
+                                link.click();
+                                setTimeout(() => {{
+                                    document.body.removeChild(link);
+                                    window.URL.revokeObjectURL(blobUrl);
+                                }}, 100);
+                                
+                                btn.textContent = '✅ Scaricata!';
+                                setTimeout(() => {{
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 Scarica';
+                                }}, 2000);
+                            }} catch (desktopError) {{
+                                console.error('Errore download desktop:', desktopError);
+                                alert('Errore durante il download: ' + desktopError.message);
+                                btn.disabled = false;
+                                btn.textContent = '📥 Scarica';
+                            }}
+                        }}
+                    }} catch (error) {{
+                        console.error('Errore download:', error);
+                        alert('Errore durante il download. Riprova più tardi.');
+                        btn.disabled = false;
+                        btn.textContent = '📥 Scarica';
+                    }}
+                }}
+            </script>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(html_content)
+    except Exception as e:
+        logger.error(f"Error in test download page: {e}", exc_info=True)
+        return HTMLResponse(f"""
+        <html>
+        <body style="font-family: Arial; padding: 50px; text-align: center;">
+            <h1>❌ Errore</h1>
+            <p>{str(e)}</p>
+            <a href="/">Torna alla home</a>
+        </body>
+        </html>
+        """)
 
 @app.get("/download/{photo_id:path}")
 async def download_photo(
