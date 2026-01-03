@@ -3074,6 +3074,18 @@
           enableAlbumInteractions();
         }
       }, 2000);
+      
+      // Mostra sticky bar con conteggio solo delle foto NON pagate (disponibili da comprare)
+      const unpaidPhotosCount = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id)).length;
+      if(unpaidPhotosCount > 0) {
+        showStickyOfferBar(unpaidPhotosCount);
+      } else {
+        // Nascondi sticky bar se tutte le foto sono pagate
+        const stickyBar = document.getElementById('stickyOfferBar');
+        if(stickyBar) {
+          stickyBar.style.display = 'none';
+        }
+      }
     }
 
     function showStickyOfferBar(photoCount) {
