@@ -2887,7 +2887,7 @@ async def add_to_cart(
 ):
     """Aggiunge una foto al carrello - previene aggiunta di foto già pagate"""
     # Verifica se la foto è già pagata (se email fornita)
-    if email and SQLITE_AVAILABLE:
+    if email and (USE_POSTGRES or SQLITE_AVAILABLE):
         try:
             paid_photos = await _get_user_paid_photos(email)
             if photo_id in paid_photos:
@@ -3680,6 +3680,26 @@ async def stripe_webhook(request: Request):
                     json.dump(order_data, f, ensure_ascii=False, indent=2)
                 
                 logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
+                
+                # SVUOTA CARRELLO: rimuovi le foto acquistate dal carrello dopo il pagamento
+                # Questo previene che l'utente possa riacquistare le stesse foto
+                if session_id:
+                    try:
+                        # Rimuovi solo le foto acquistate dal carrello (non svuotare tutto)
+                        # in caso l'utente abbia aggiunto altre foto dopo il checkout
+                        cart_photo_ids = _get_cart(session_id)
+                        if cart_photo_ids:
+                            photo_ids_set = set(photo_ids)
+                            remaining_photos = [p for p in cart_photo_ids if p not in photo_ids_set]
+                            
+                            if len(remaining_photos) != len(cart_photo_ids):
+                                # Ci sono foto acquistate nel carrello, rimuovile
+                                carts[session_id] = remaining_photos
+                                logger.info(f"Removed {len(cart_photo_ids) - len(remaining_photos)} purchased photos from cart {session_id}")
+                            else:
+                                logger.info(f"No purchased photos found in cart {session_id} (already removed or not present)")
+                    except Exception as e:
+                        logger.error(f"Error clearing purchased photos from cart: {e}")
             else:
                 logger.error(f"Order failed: missing email. session_id={session_id}, photo_ids={photo_ids_str}")
         else:
