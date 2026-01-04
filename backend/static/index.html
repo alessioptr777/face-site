@@ -1086,25 +1086,21 @@
 </head>
 <body>
   <!-- Date Selection Screen (PRIMA PAGINA) -->
-  <div class="screen date-screen" id="dateScreen">
+  <div class="screen date-screen active" id="dateScreen">
     <h1 class="email-title">📅 Quando hai fatto il tour?</h1>
     <p class="email-subtitle">Seleziona la data del tuo tour per trovare le tue foto</p>
-    <div class="email-input-container" style="margin-bottom: 20px;">
-      <input type="date" class="email-input" id="tourDateInput" style="font-size: 18px; padding: 15px; text-align: center;">
+    
+    <div class="email-input-container" style="margin-bottom: 30px;">
+      <input 
+        type="date" 
+        class="email-input" 
+        id="tourDateInput" 
+        style="font-size: 20px; padding: 18px; text-align: center; width: 100%; max-width: 350px; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; background: rgba(255, 255, 255, 0.1); color: white;"
+      >
       <p class="email-error" id="dateError" style="display: none;"></p>
     </div>
     
-    <!-- Info Box -->
-    <div style="background: rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin: 20px 0; text-align: left;">
-      <p style="margin-bottom: 10px; font-weight: 600;">💡 Informazioni:</p>
-      <ul style="list-style: none; padding: 0; margin: 0; font-size: 14px; line-height: 1.8;">
-        <li>• Seleziona la data del tuo tour</li>
-        <li>• Le foto vengono caricate entro 24 ore dalla fine del tour</li>
-        <li>• Se non trovi la data, le foto potrebbero essere ancora in elaborazione</li>
-      </ul>
-    </div>
-    
-    <button class="btn-primary" id="dateContinueBtn" disabled style="opacity: 0.5; cursor: not-allowed;">Continua</button>
+    <button class="btn-primary" id="dateContinueBtn" disabled style="opacity: 0.5; cursor: not-allowed; margin-top: 20px;">Continua</button>
   </div>
   
   <!-- Email Screen -->
