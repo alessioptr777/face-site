@@ -4548,39 +4548,61 @@ def _check_admin_auth(password: Optional[str] = None) -> bool:
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel():
-    """Pagina admin"""
+    """Pagina admin - servita direttamente come HTMLResponse per bypassare cache"""
     admin_path = STATIC_DIR / "admin.html"
+    
+    # Log dettagliato per debug
+    logger.info(f"=== ADMIN PANEL REQUEST ===")
+    logger.info(f"BASE_DIR: {BASE_DIR.resolve()}")
+    logger.info(f"STATIC_DIR: {STATIC_DIR.resolve()}")
+    logger.info(f"admin_path: {admin_path.resolve()}")
+    logger.info(f"admin_path.exists(): {admin_path.exists()}")
+    
     if not admin_path.exists():
-        raise HTTPException(status_code=404, detail="Admin page not found")
-    # Log per debug: verifica quale file viene servito
-    logger.info(f"Serving admin.html from: {admin_path.resolve()}")
+        logger.error(f"❌ Admin.html NOT FOUND at: {admin_path.resolve()}")
+        raise HTTPException(status_code=404, detail=f"Admin page not found at: {admin_path}")
+    
     # Leggi il contenuto per verificare la versione e servirlo direttamente
     # Questo bypassa eventuali problemi di cache di FileResponse
     try:
         with open(admin_path, 'r', encoding='utf-8') as f:
             content = f.read()
+            file_size = len(content)
+            logger.info(f"File letto: {file_size} bytes")
+            
+            # Verifica versione
             if "VERSIONE 2.2" in content:
-                logger.info("✅ Admin.html contiene VERSIONE 2.2 (aggiornata)")
+                logger.info("✅✅✅ Admin.html contiene VERSIONE 2.2 (aggiornata) ✅✅✅")
             elif "VERSIONE 2.1" in content:
                 logger.info("⚠️ Admin.html contiene VERSIONE 2.1 (vecchia)")
             elif "VERSIONE 2.0" in content:
                 logger.info("⚠️ Admin.html contiene VERSIONE 2.0 (molto vecchia)")
             else:
                 logger.warning("⚠️ Admin.html non contiene marker di versione")
+            
+            # Verifica selettore data
+            if "dateSelector" in content:
+                logger.info("✅ Selettore data presente nel file")
+            else:
+                logger.warning("⚠️ Selettore data NON presente nel file")
         
         # Servi il contenuto direttamente come HTMLResponse invece di FileResponse
         # Questo bypassa eventuali problemi di cache del file system
+        logger.info("Servendo admin.html come HTMLResponse (bypass cache)")
         return HTMLResponse(
             content=content,
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0",
-                "X-Content-Version": "2.2"  # Header custom per debug
+                "X-Content-Version": "2.2",  # Header custom per debug
+                "X-File-Size": str(file_size)  # Header per verificare dimensione file
             }
         )
     except Exception as e:
-        logger.error(f"Errore leggendo admin.html: {e}")
+        logger.error(f"❌ Errore leggendo admin.html: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         # Fallback a FileResponse se la lettura fallisce
         return FileResponse(
             admin_path,
