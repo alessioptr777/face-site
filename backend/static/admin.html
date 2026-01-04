@@ -313,6 +313,11 @@
     </style>
 </head>
 <body>
+    <!-- DEBUG: Se vedi questo, la pagina si è caricata -->
+    <div style="position: fixed; top: 0; left: 0; right: 0; background: #4CAF50; color: white; padding: 10px; text-align: center; z-index: 10000; font-weight: bold;">
+        ✅ PAGINA CARICATA - Se vedi questo, il file HTML funziona
+    </div>
+    
     <div class="header">
         <h1>🔐 Admin Panel</h1>
         <p>Gestione FaceSite</p>
@@ -525,7 +530,7 @@
             
             // Verifica che la data sia selezionata
             const tourDate = tourDateInput ? tourDateInput.value : null;
-            if(!tourDate) {
+            if(!tourDate || tourDate.trim() === '') {
                 statusDiv.className = 'alert alert-error';
                 statusDiv.textContent = '⚠️ Seleziona prima la data del tour!';
                 statusDiv.style.display = 'block';
@@ -539,7 +544,11 @@
             let uploaded = 0;
             const total = files.length;
             
+            console.log(`Inizio upload di ${total} foto, data tour: ${tourDate}`);
+            
             for(const file of files) {
+                console.log(`Caricamento: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+                
                 const formData = new FormData();
                 formData.append('password', adminPassword);
                 formData.append('photo', file);
@@ -553,17 +562,32 @@
                         body: formData
                     });
                     
+                    console.log(`Risposta server per ${file.name}:`, res.status, res.statusText);
+                    
+                    if(!res.ok) {
+                        let errorText = '';
+                        try {
+                            errorText = await res.text();
+                        } catch(e) {
+                            errorText = 'Errore sconosciuto';
+                        }
+                        throw new Error(`Errore HTTP ${res.status}: ${errorText}`);
+                    }
+                    
                     const data = await res.json();
+                    console.log(`Dati ricevuti per ${file.name}:`, data);
+                    
                     uploaded++;
                     progressFill.style.width = (uploaded / total * 100) + '%';
                     
                     if(data.ok) {
-                        uploadedDiv.innerHTML += `<p>✅ ${file.name} - Indicizzata</p>`;
+                        uploadedDiv.innerHTML += `<p>✅ ${file.name} - Indicizzata${tourDate ? ' (Data: ' + tourDate + ')' : ''}</p>`;
                     } else {
-                        uploadedDiv.innerHTML += `<p>❌ ${file.name} - ${data.error || 'Errore'}</p>`;
+                        uploadedDiv.innerHTML += `<p>❌ ${file.name} - ${data.error || data.detail || 'Errore sconosciuto'}</p>`;
                     }
                 } catch(e) {
-                    uploadedDiv.innerHTML += `<p>❌ ${file.name} - Errore: ${e.message}</p>`;
+                    console.error('Errore upload foto:', e);
+                    uploadedDiv.innerHTML += `<p>❌ ${file.name} - Errore: ${e.message || 'Errore di caricamento'}</p>`;
                 }
             }
             
