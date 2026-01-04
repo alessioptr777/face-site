@@ -1550,7 +1550,15 @@ def root():
         logger.error(f"index.html not found at: {index_path.resolve()}")
         raise HTTPException(status_code=500, detail=f"index.html not found: {index_path}")
     logger.info(f"Serving index.html from: {index_path.resolve()}")
-    return FileResponse(index_path)
+    # Disabilita cache per assicurare che venga servita sempre la versione più recente
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 @app.get("/album", response_class=HTMLResponse)
 def album():
