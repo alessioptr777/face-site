@@ -389,17 +389,44 @@
                 <h2>Upload e Indicizzazione Foto</h2>
                 <p>Carica le foto che vuoi vendere. Verranno automaticamente indicizzate per il face matching.</p>
                 
-                <!-- Campo Data Tour -->
-                <div style="margin-bottom: 30px; padding: 25px; background: #fff3cd; border-radius: 8px; border: 3px solid #ffc107; box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);">
-                    <label for="tourDateInput" style="display: block; margin-bottom: 15px; font-weight: 700; font-size: 18px; color: #856404;">📅 Data del Tour (OBBLIGATORIA):</label>
-                    <input type="date" id="tourDateInput" required style="width: 100%; max-width: 400px; padding: 15px; border: 3px solid #ffc107; border-radius: 8px; font-size: 18px; background: white; color: #333; font-weight: 600;" />
-                    <p style="margin-top: 15px; font-size: 15px; color: #856404; font-weight: 600;">⚠️ <strong>IMPORTANTE:</strong> Seleziona la data del tour prima di caricare le foto!</p>
+                <!-- Selettore Data -->
+                <div style="margin-bottom: 30px; padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 250px;">
+                            <label for="dateSelector" style="display: block; margin-bottom: 10px; font-weight: 700; font-size: 16px; color: white;">📅 Seleziona Data del Tour:</label>
+                            <select id="dateSelector" style="width: 100%; padding: 12px; border: 2px solid white; border-radius: 8px; font-size: 16px; background: white; color: #333; font-weight: 600; cursor: pointer;">
+                                <option value="">-- Seleziona una data --</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1; min-width: 250px;">
+                            <label for="tourDateInput" style="display: block; margin-bottom: 10px; font-weight: 700; font-size: 16px; color: white;">📅 Oppure inserisci nuova data:</label>
+                            <input type="date" id="tourDateInput" style="width: 100%; padding: 12px; border: 2px solid white; border-radius: 8px; font-size: 16px; background: white; color: #333; font-weight: 600;" />
+                        </div>
+                    </div>
+                    <p style="margin-top: 15px; font-size: 14px; color: rgba(255,255,255,0.9); font-weight: 500;">⚠️ <strong>IMPORTANTE:</strong> Seleziona o inserisci la data del tour prima di caricare le foto!</p>
                 </div>
                 
-                <div class="upload-area" id="uploadArea" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
-                    <p style="font-size: 18px; margin-bottom: 10px;">📁 Trascina le foto qui o</p>
-                    <label for="photoUpload" class="file-label">Seleziona Foto</label>
-                    <input type="file" id="photoUpload" multiple accept="image/*" onchange="handleFileSelect(event)" />
+                <!-- Statistiche Data Selezionata -->
+                <div id="dateStats" style="margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea; display: none;">
+                    <h3 style="margin: 0 0 10px 0; color: #333; font-size: 18px;">📊 Foto caricate per questa data: <span id="photoCount">0</span> foto</h3>
+                </div>
+                
+                <!-- Griglia Foto per Data Selezionata -->
+                <div id="photosGrid" style="margin-bottom: 30px; display: none;">
+                    <h3 style="margin-bottom: 15px; color: #333; font-size: 18px;">🖼️ Foto già caricate:</h3>
+                    <div id="photosGridContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; max-height: 400px; overflow-y: auto; padding: 10px; background: #f8f9fa; border-radius: 8px;">
+                        <!-- Le foto verranno inserite qui dinamicamente -->
+                    </div>
+                </div>
+                
+                <!-- Area Upload -->
+                <div style="margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 15px; color: #333; font-size: 18px;">📤 Carica Nuove Foto:</h3>
+                    <div class="upload-area" id="uploadArea" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                        <p style="font-size: 18px; margin-bottom: 10px;">📁 Trascina le foto qui o</p>
+                        <label for="photoUpload" class="file-label">Seleziona Foto</label>
+                        <input type="file" id="photoUpload" multiple accept="image/*" onchange="handleFileSelect(event)" />
+                    </div>
                 </div>
                 
                 <div class="progress-bar" id="uploadProgress">
@@ -459,6 +486,98 @@
             if(tabName === 'orders') loadOrders();
             if(tabName === 'sales') loadSalesAnalysis();
             if(tabName === 'backPhotos') loadBackPhotos();
+            if(tabName === 'upload') loadPhotosByDate();
+        }
+        
+        // Carica le date disponibili e popola il selettore
+        async function loadPhotosByDate() {
+            try {
+                const res = await fetch(`/admin/photos-by-date?password=${encodeURIComponent(adminPassword)}`);
+                const data = await res.json();
+                
+                if(data.ok && data.photos_by_date) {
+                    const dateSelector = document.getElementById('dateSelector');
+                    if(dateSelector) {
+                        dateSelector.innerHTML = '<option value="">-- Seleziona una data --</option>';
+                        
+                        data.photos_by_date.forEach(item => {
+                            const option = document.createElement('option');
+                            option.value = item.date;
+                            option.textContent = `${item.date} (${item.count} foto)`;
+                            dateSelector.appendChild(option);
+                        });
+                    }
+                }
+            } catch(e) {
+                console.error('Error loading photos by date:', e);
+            }
+        }
+        
+        // Mostra le foto per la data selezionata
+        async function showPhotosForDate(selectedDate) {
+            if(!selectedDate || selectedDate === '') {
+                const dateStats = document.getElementById('dateStats');
+                const photosGrid = document.getElementById('photosGrid');
+                if(dateStats) dateStats.style.display = 'none';
+                if(photosGrid) photosGrid.style.display = 'none';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/admin/photos-by-date?password=${encodeURIComponent(adminPassword)}`);
+                const data = await res.json();
+                
+                if(data.ok && data.photos_by_date) {
+                    const dateData = data.photos_by_date.find(item => item.date === selectedDate);
+                    
+                    if(dateData) {
+                        // Mostra statistiche
+                        const photoCount = document.getElementById('photoCount');
+                        const dateStats = document.getElementById('dateStats');
+                        if(photoCount) photoCount.textContent = dateData.count;
+                        if(dateStats) dateStats.style.display = 'block';
+                        
+                        // Mostra griglia foto
+                        const gridContainer = document.getElementById('photosGridContainer');
+                        const photosGrid = document.getElementById('photosGrid');
+                        
+                        if(gridContainer) {
+                            gridContainer.innerHTML = '';
+                            
+                            if(dateData.photos.length > 0) {
+                                dateData.photos.forEach(photo => {
+                                    const photoDiv = document.createElement('div');
+                                    photoDiv.style.cssText = 'position: relative; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: white;';
+                                    
+                                    const img = document.createElement('img');
+                                    img.src = `/photos/${encodeURIComponent(photo.photo_id)}`;
+                                    img.style.cssText = 'width: 100%; height: 150px; object-fit: cover; display: block;';
+                                    img.onerror = function() { this.style.display = 'none'; };
+                                    
+                                    const label = document.createElement('div');
+                                    label.style.cssText = 'padding: 8px; font-size: 12px; color: #666; text-align: center; background: #f8f9fa;';
+                                    label.textContent = photo.photo_id.length > 20 ? photo.photo_id.substring(0, 20) + '...' : photo.photo_id;
+                                    
+                                    photoDiv.appendChild(img);
+                                    photoDiv.appendChild(label);
+                                    gridContainer.appendChild(photoDiv);
+                                });
+                                
+                                if(photosGrid) photosGrid.style.display = 'block';
+                            } else {
+                                if(photosGrid) photosGrid.style.display = 'none';
+                            }
+                        }
+                    } else {
+                        const dateStats = document.getElementById('dateStats');
+                        const photosGrid = document.getElementById('photosGrid');
+                        if(dateStats) dateStats.style.display = 'none';
+                        if(photosGrid) photosGrid.style.display = 'none';
+                    }
+                }
+            } catch(e) {
+                console.error('Error showing photos for date:', e);
+            }
         }
         
         async function loadDashboard() {
@@ -595,6 +714,13 @@
             statusDiv.className = 'alert alert-success';
             statusDiv.textContent = `Caricate ${uploaded} di ${total} foto`;
             statusDiv.style.display = 'block';
+            
+            // Ricarica le foto per la data selezionata
+            const selectedDate = document.getElementById('dateSelector').value || document.getElementById('tourDateInput').value;
+            if(selectedDate) {
+                loadPhotosByDate();
+                setTimeout(() => showPhotosForDate(selectedDate), 500);
+            }
         }
         
         async function loadBackPhotos() {
@@ -660,6 +786,38 @@
         // Enter key per login
         document.getElementById('adminPassword').addEventListener('keypress', (e) => {
             if(e.key === 'Enter') login();
+        });
+        
+        // Gestione selettore data e input date
+        document.addEventListener('DOMContentLoaded', function() {
+            const dateSelector = document.getElementById('dateSelector');
+            const tourDateInput = document.getElementById('tourDateInput');
+            
+            if(dateSelector) {
+                dateSelector.addEventListener('change', function() {
+                    const selectedDate = this.value;
+                    if(selectedDate) {
+                        if(tourDateInput) tourDateInput.value = selectedDate;
+                        showPhotosForDate(selectedDate);
+                    }
+                });
+            }
+            
+            if(tourDateInput) {
+                tourDateInput.addEventListener('change', function() {
+                    const selectedDate = this.value;
+                    if(selectedDate) {
+                        // Aggiorna selettore se la data esiste
+                        if(dateSelector) {
+                            const option = Array.from(dateSelector.options).find(opt => opt.value === selectedDate);
+                            if(option) {
+                                dateSelector.value = selectedDate;
+                            }
+                        }
+                        showPhotosForDate(selectedDate);
+                    }
+                });
+            }
         });
         
         // Sales Analysis Functions - Semplificata

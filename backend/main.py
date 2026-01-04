@@ -1325,12 +1325,45 @@ def _cleanup_downloaded_photos():
         logger.error(f"Error in cleanup: {e}")
 
 def _read_image_from_bytes(file_bytes: bytes):
-    """Legge un'immagine da bytes"""
+    """Legge un'immagine da bytes, supporta anche HEIC convertendolo in JPEG"""
+    # Prova prima con OpenCV (formati standard: JPEG, PNG, etc.)
     nparr = np.frombuffer(file_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise HTTPException(status_code=400, detail="Invalid image format")
-    return img
+    
+    if img is not None:
+        return img
+    
+    # Se OpenCV fallisce, prova con PIL (supporta più formati incluso HEIC se pillow-heif è installato)
+    try:
+        from io import BytesIO
+        from PIL import Image
+        
+        # Prova a registrare supporto HEIC se disponibile
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            pass  # pillow-heif non disponibile, continua comunque
+        
+        # Prova a leggere con PIL
+        pil_img = Image.open(BytesIO(file_bytes))
+        
+        # Converti in RGB se necessario
+        if pil_img.mode != 'RGB':
+            pil_img = pil_img.convert('RGB')
+        
+        # Converti PIL Image in numpy array per OpenCV
+        img_array = np.array(pil_img)
+        # PIL usa RGB, OpenCV usa BGR, quindi convertiamo
+        img = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        
+        return img
+    except Exception as e:
+        logger.error(f"Error reading image with PIL: {e}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Formato immagine non supportato. Formati supportati: JPEG, PNG, HEIC (richiede pillow-heif). Errore: {str(e)}"
+        )
 
 def _add_watermark(image_path: Path) -> bytes:
     """Aggiunge watermark pattern a griglia come getpica.com con 'tenerifepictures'"""
@@ -1564,6 +1597,21 @@ def root():
 def album():
     """Pagina album con i risultati delle foto"""
     return FileResponse(STATIC_DIR / "album.html")
+
+@app.get("/test", response_class=HTMLResponse)
+def test_page():
+    """Pagina di test per verificare le funzionalità"""
+    test_path = STATIC_DIR / "test.html"
+    if not test_path.exists():
+        raise HTTPException(status_code=404, detail="Test page not found")
+    return FileResponse(
+        test_path,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 
 @app.get("/health")
@@ -4618,22 +4666,69 @@ async def admin_upload(
     password: str = Form(...),
     tour_date: Optional[str] = Form(None)
 ):
-    """Upload e indicizzazione foto admin"""
+    """Upload e indicizzazione foto admin - converte automaticamente in JPEG"""
     if not _check_admin_auth(password):
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
         global meta_rows, back_photos, faiss_index
         
-        # Salva foto
-        photo_path = PHOTOS_DIR / photo.filename
+        # Leggi il contenuto del file
         content = await photo.read()
-        with open(photo_path, 'wb') as f:
-            f.write(content)
+        
+        # Controlla se è già JPEG - se sì, salvalo direttamente senza riconversione
+        original_ext = Path(photo.filename).suffix.lower()
+        if original_ext in ['.jpg', '.jpeg']:
+            # È già JPEG, salva direttamente senza riconversione per mantenere qualità originale
+            photo_path = PHOTOS_DIR / photo.filename
+            
+            # Evita duplicati: se esiste già, aggiungi un numero
+            counter = 1
+            original_name = Path(photo.filename).stem
+            while photo_path.exists():
+                jpeg_filename = f"{original_name}_{counter}.jpg"
+                photo_path = PHOTOS_DIR / jpeg_filename
+                counter += 1
+            
+            with open(photo_path, 'wb') as f:
+                f.write(content)
+            
+            jpeg_filename = photo_path.name
+            logger.info(f"JPEG file saved directly (no conversion, max quality preserved): {jpeg_filename}")
+        else:
+            # Converti l'immagine in JPEG (indipendentemente dal formato originale)
+            img = _read_image_from_bytes(content)
+            
+            # Genera nome file JPEG (mantieni nome originale ma cambia estensione)
+            original_name = Path(photo.filename).stem  # Nome senza estensione
+            jpeg_filename = f"{original_name}.jpg"
+            photo_path = PHOTOS_DIR / jpeg_filename
+            
+            # Evita duplicati: se esiste già, aggiungi un numero
+            counter = 1
+            while photo_path.exists():
+                jpeg_filename = f"{original_name}_{counter}.jpg"
+                photo_path = PHOTOS_DIR / jpeg_filename
+                counter += 1
+            
+            # Converti e salva come JPEG
+            from io import BytesIO
+            
+            # Converti OpenCV (BGR) in PIL (RGB)
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(img_rgb)
+            
+            # Salva come JPEG con qualità massima (100) e subsampling=0 (4:4:4, nessuna subsampling cromatica)
+            # Questo mantiene la massima qualità possibile in JPEG
+            pil_img.save(photo_path, 'JPEG', quality=100, optimize=False, subsampling=0)
+            
+            logger.info(f"Photo converted to JPEG (max quality, subsampling=0): {jpeg_filename} (original: {photo.filename})")
+        
+        # Leggi l'immagine per l'indicizzazione (usa il contenuto originale)
+        img = _read_image_from_bytes(content)
         
         # Indicizza foto (se face_app è disponibile)
         if face_app is not None:
-            img = _read_image_from_bytes(content)
             faces = face_app.get(img)
             
             if faces:
@@ -4646,7 +4741,7 @@ async def admin_upload(
                     # Aggiungi a meta (con tour_date se fornita)
                     record = {
                         "face_idx": len(meta_rows),
-                        "photo_id": photo.filename,
+                        "photo_id": jpeg_filename,  # Usa il nome JPEG convertito
                         "has_face": True,
                         "det_score": float(getattr(f, "det_score", 0.0)),
                         "bbox": [float(x) for x in f.bbox.tolist()],
@@ -4661,13 +4756,13 @@ async def admin_upload(
                 
                 # Salva indice aggiornato
                 if faiss_index is not None:
-                    faiss.write_index(faiss_index, INDEX_PATH)
+                    faiss.write_index(faiss_index, str(INDEX_PATH))
                 
                 logger.info(f"Photo indexed: {photo.filename} - {len(faces)} faces (tour_date: {tour_date})")
             else:
                 # Foto senza volti - aggiungi a back_photos
                 back_record = {
-                    "photo_id": photo.filename,
+                    "photo_id": jpeg_filename,  # Usa il nome JPEG convertito
                     "has_face": False,
                 }
                 if tour_date:
@@ -4678,11 +4773,59 @@ async def admin_upload(
                 with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
                     back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
                 
-                logger.info(f"Photo added as back photo (no faces): {photo.filename} (tour_date: {tour_date})")
+                logger.info(f"Photo added as back photo (no faces): {jpeg_filename} (original: {photo.filename}, tour_date: {tour_date})")
         
-        return {"ok": True, "filename": photo.filename}
+        return {"ok": True, "filename": jpeg_filename, "original_filename": photo.filename}
     except Exception as e:
         logger.error(f"Error uploading photo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/photos-by-date")
+async def admin_photos_by_date(password: str = Query(..., description="Password admin")):
+    """Ottieni tutte le foto organizzate per data del tour"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        photos_by_date = defaultdict(list)
+        
+        # Foto con volti (da meta_rows)
+        for record in meta_rows:
+            photo_id = record.get("photo_id")
+            tour_date = record.get("tour_date", "Senza data")
+            if photo_id:
+                # Evita duplicati
+                if not any(p["photo_id"] == photo_id for p in photos_by_date[tour_date]):
+                    photos_by_date[tour_date].append({
+                        "photo_id": photo_id,
+                        "has_face": True,
+                        "det_score": record.get("det_score", 0.0)
+                    })
+        
+        # Foto senza volti (da back_photos)
+        for record in back_photos:
+            photo_id = record.get("photo_id")
+            tour_date = record.get("tour_date", "Senza data")
+            if photo_id:
+                # Evita duplicati
+                if not any(p["photo_id"] == photo_id for p in photos_by_date[tour_date]):
+                    photos_by_date[tour_date].append({
+                        "photo_id": photo_id,
+                        "has_face": False
+                    })
+        
+        # Converti in lista ordinata per data (più recente prima)
+        result = []
+        for date in sorted(photos_by_date.keys(), reverse=True):
+            result.append({
+                "date": date,
+                "photos": photos_by_date[date],
+                "count": len(photos_by_date[date])
+            })
+        
+        return {"ok": True, "photos_by_date": result}
+    except Exception as e:
+        logger.error(f"Error getting photos by date: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/back-photos")
