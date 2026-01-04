@@ -1525,8 +1525,9 @@
         }
       }
       
-      // Se non abbiamo ancora mostrato la schermata data, mostrala ora
-      if(currentScreen !== 'date' && !urlParams.get('email')) {
+      // Assicurati che la schermata data sia sempre mostrata come prima schermata
+      // (a meno che non siamo in flussi speciali come post-pagamento o view_album)
+      if(refreshParam !== 'paid' && viewAlbumParam !== 'true') {
         showScreen('date');
       }
     }
