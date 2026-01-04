@@ -4496,7 +4496,15 @@ async def admin_panel():
     admin_path = STATIC_DIR / "admin.html"
     if not admin_path.exists():
         raise HTTPException(status_code=404, detail="Admin page not found")
-    return FileResponse(admin_path)
+    # Disabilita cache per assicurare che venga servita sempre la versione più recente
+    return FileResponse(
+        admin_path,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 @app.get("/admin/stats")
 async def admin_stats(password: str = Query(..., description="Password admin")):
