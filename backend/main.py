@@ -4577,6 +4577,43 @@ async def admin_panel():
         }
     )
 
+@app.get("/admin/debug")
+async def admin_debug(password: str = Query(..., description="Password admin")):
+    """Debug endpoint per verificare quale versione di admin.html è deployata"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    admin_path = STATIC_DIR / "admin.html"
+    if not admin_path.exists():
+        return {
+            "error": "File not found",
+            "path": str(admin_path.resolve())
+        }
+    
+    try:
+        with open(admin_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            version_2_1 = "VERSIONE 2.1" in content
+            version_2_0 = "VERSIONE 2.0" in content
+            has_date_selector = "dateSelector" in content
+            has_selettore_data = "Selettore Data" in content
+            
+            return {
+                "path": str(admin_path.resolve()),
+                "file_exists": True,
+                "version_2.1": version_2_1,
+                "version_2.0": version_2_0,
+                "has_date_selector": has_date_selector,
+                "has_selettore_data": has_selettore_data,
+                "file_size": len(content),
+                "first_200_chars": content[:200]
+            }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "path": str(admin_path.resolve())
+        }
+
 @app.get("/admin/stats")
 async def admin_stats(password: str = Query(..., description="Password admin")):
     """Statistiche dashboard admin"""
