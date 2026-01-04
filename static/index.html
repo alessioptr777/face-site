@@ -1,0 +1,3930 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Tenerife Stars Pictures - Trova le tue foto</title>
+  <style>
+    :root{
+      --bg-dark: #0a0e27;
+      --bg-dark2: #1a1f3a;
+      --bg-gradient: linear-gradient(180deg, #1a1f3a 0%, #0a0e27 100%);
+      --text-light: #ffffff;
+      --text-muted: #a0a8c0;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --purple: #a855f7;
+      --pink: #ec4899;
+      --radius: 16px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    *{box-sizing:border-box; margin:0; padding:0}
+    html, body{
+      margin:0;
+      padding:0;
+      height: 100%;
+      overflow: hidden;
+    }
+    body{
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;
+      color:var(--text-light);
+      height: 100dvh;
+      height: 100vh; /* Fallback per browser che non supportano dvh */
+      background: var(--bg-gradient);
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+    }
+    
+    /* Utility */
+    .screen{
+      height: 100dvh;
+      height: 100vh; /* Fallback */
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .screen.active{
+      display: flex;
+    }
+    
+    /* Language Selection Screen */
+    .language-screen{
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .language-title{
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 10px;
+    }
+    
+    .language-subtitle{
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+    
+    .language-grid{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      max-width: 400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    
+    .language-option{
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .language-option:hover{
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--accent);
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+    }
+    
+    .language-flag{
+      font-size: 48px;
+      line-height: 1;
+    }
+    
+    .language-name{
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-light);
+    }
+    
+    /* Email Screen */
+    .email-screen{
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .email-title{
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 10px;
+    }
+    
+    .email-subtitle{
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 30px;
+    }
+    
+    .email-input-container{
+      max-width: 400px;
+      width: 100%;
+      margin: 0 auto 30px;
+    }
+    
+    .email-input{
+      width: 100%;
+      padding: 16px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      color: var(--text-light);
+      font-size: 16px;
+      transition: all 0.3s ease;
+    }
+    
+    .email-input:focus{
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.08);
+    }
+    
+    .email-input::placeholder{
+      color: var(--text-muted);
+    }
+    
+    .email-error{
+      color: #ff4444;
+      font-size: 14px;
+      margin-top: 10px;
+      display: none;
+    }
+    
+    .email-error.show{
+      display: block;
+    }
+    
+    .email-loading{
+      margin-top: 20px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .email-loading p{
+      color: var(--text-muted);
+      font-size: 14px;
+      margin: 0;
+    }
+    
+    .loading-spinner{
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin{
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Welcome Screen */
+    .welcome-screen{
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .welcome-icon{
+      width: 120px;
+      height: 120px;
+      margin-bottom: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .welcome-icon svg{
+      width: 100%;
+      height: 100%;
+      stroke: var(--accent-light);
+      fill: none;
+      stroke-width: 2;
+    }
+    
+    .welcome-title{
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 20px;
+    }
+    
+    .welcome-text{
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 400px;
+      margin: 0 auto 40px;
+    }
+    
+    .welcome-privacy{
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 400px;
+      margin: 20px auto 0;
+    }
+    
+    .btn-primary{
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+      color: white;
+      border: none;
+      padding: 16px 48px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .btn-primary:active{
+      transform: scale(0.98);
+    }
+    
+    /* Selfie Screen */
+    .selfie-screen{
+      padding: 10px;
+      overflow: hidden;
+    }
+    
+    .selfie-header{
+      flex-shrink: 0;
+      padding: 10px 0;
+      text-align: center;
+    }
+    
+    .selfie-header h2{
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-light);
+      margin: 0;
+    }
+    
+    .selfie-preview{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      min-height: 0; /* Importante per flex */
+      overflow: hidden;
+    }
+    
+    .selfie-video{
+      width: 100%;
+      max-width: 100%;
+      aspect-ratio: 3 / 4; /* Aspect ratio fisso 3:4 verticale */
+      border-radius: 16px;
+      overflow: hidden;
+      background: #000;
+      flex-shrink: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    
+    .selfie-video video{
+      width: 100%;
+      height: 100%;
+      object-fit: cover; /* Copre tutto il contenitore senza bande nere */
+      display: block;
+      object-position: center center; /* Centra verticalmente sul volto */
+    }
+    
+    .selfie-controls{
+      flex-shrink: 0;
+      margin-top: 15px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    /* Upload Status Area - sempre visibile */
+    .upload-status{
+      flex-shrink: 0;
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.3);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .upload-status.active{
+      display: flex;
+    }
+    
+    .upload-status-text{
+      font-size: 14px;
+      color: var(--text-light);
+      text-align: center;
+      font-weight: 500;
+    }
+    
+    .upload-progress-container{
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    
+    .upload-progress-bar{
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--purple));
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 3px;
+    }
+    
+    .upload-percentage{
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    
+    .upload-spinner{
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    
+    .camera-btn{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: white;
+      border: 4px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    .camera-btn svg{
+      width: 40px;
+      height: 40px;
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+    
+    /* Confirm Selfie Screen */
+    .confirm-screen{
+      padding: 10px 20px;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    
+    .confirm-title{
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    .confirm-preview{
+      width: 100%;
+      max-width: 300px;
+      aspect-ratio: 3 / 4; /* Stesso aspect ratio del selfie catturato */
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 15px;
+      box-shadow: var(--shadow);
+      flex-shrink: 1;
+      background: #000;
+    }
+    
+    .confirm-preview img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover; /* Stesso comportamento del video */
+      object-position: center center;
+      display: block;
+    }
+    
+    .confirm-privacy{
+      max-width: 400px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 30px;
+      line-height: 1.6;
+    }
+    
+    .confirm-privacy a{
+      color: var(--accent-light);
+      text-decoration: underline;
+    }
+    
+    .confirm-buttons{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      max-width: 400px;
+    }
+    
+    .btn-confirm{
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .btn-retake{
+      background: transparent;
+      color: var(--text-light);
+      border: 2px solid var(--text-muted);
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    /* Add People Screen */
+    .add-people-screen{
+      padding: 40px 20px;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    
+    .add-people-title{
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 30px;
+    }
+    
+    .people-list{
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+    
+    .person-avatar{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--bg-dark2);
+      border: 3px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    
+    .person-avatar img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .add-person-btn{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 32px;
+      color: white;
+    }
+    
+    .add-people-buttons{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      max-width: 400px;
+    }
+    
+    /* Album Screen */
+    .album-screen{
+      padding: 0;
+      overflow-y: auto; /* Permetti scroll verticale */
+      -webkit-overflow-scrolling: touch; /* Smooth scroll su iOS */
+    }
+    
+    .album-header{
+      position: sticky;
+      top: 0;
+      background: var(--bg-dark2);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      z-index: 999; /* Sotto il banner sticky ma sopra il contenuto */
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    
+    .album-back{
+      background: none;
+      border: none;
+      color: var(--text-light);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 8px;
+    }
+    
+    .album-cart{
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    
+    .album-profile{
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .profile-avatar{
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--bg-dark2);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    
+    .profile-avatar img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .profile-info h3{
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 2px;
+      line-height: 1.2;
+    }
+    
+    .profile-info p{
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.3;
+      margin: 0;
+    }
+    
+    .album-tabs{
+      display: flex;
+      padding: 0 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .album-tab{
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      padding: 16px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    
+    .album-tab.active{
+      color: var(--accent-light);
+      border-bottom-color: var(--accent-light);
+    }
+    
+    .album-tab:hover{
+      color: var(--text-light);
+    }
+    
+    /* Listino prezzi */
+    .prices-list{
+      display: none;
+      padding: 15px 20px;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); /* Spazio per banner sticky */
+      max-width: 600px;
+      margin: 0 auto;
+      max-height: calc(100vh - 200px); /* Altezza massima per evitare overflow */
+      overflow-y: auto;
+    }
+    
+    .prices-list.active{
+      display: block;
+    }
+    
+    .prices-title{
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    
+    .prices-subtitle{
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    
+    .price-item{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: background 0.2s, transform 0.2s;
+    }
+    
+    .price-item:hover{
+      background: rgba(255, 255, 255, 0.08);
+      transform: translateX(4px);
+    }
+    
+    .price-item.highlight{
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%);
+      border-color: var(--purple);
+    }
+    
+    .price-item-info{
+      flex: 1;
+    }
+    
+    .price-item-count{
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-light);
+      margin-bottom: 2px;
+    }
+    
+    .price-item-desc{
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    
+    .price-item-value{
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent-light);
+    }
+    
+    .price-item-badge{
+      display: inline-block;
+      background: var(--purple);
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+      text-transform: uppercase;
+    }
+    
+    .album-tab.active{
+      color: var(--text-light);
+      border-bottom-color: var(--accent);
+    }
+    
+    .album-grid{
+      padding: 20px;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); /* Spazio per il banner sticky + safe area iPhone */
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 15px;
+    }
+    
+    .album-photo{
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 1;
+      background: var(--bg-dark2);
+    }
+    
+    .album-photo img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .album-photo img.loaded{
+      opacity: 1;
+    }
+    
+    .album-photo .photo-skeleton{
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, 
+        rgba(255,255,255,0.05) 0%, 
+        rgba(255,255,255,0.1) 50%, 
+        rgba(255,255,255,0.05) 100%);
+      background-size: 200% 100%;
+      animation: skeleton-loading 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes skeleton-loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    
+    .album-loading-overlay{
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      backdrop-filter: blur(4px);
+    }
+    
+    .album-loading-overlay.active{
+      display: flex;
+    }
+    
+    .album-loading-content{
+      text-align: center;
+      color: white;
+    }
+    
+    .album-loading-spinner{
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top-color: var(--purple);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    
+    .album-photo .add-cart{
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 2px solid rgba(255,255,255,0.3);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 0;
+      transition: all 0.3s ease;
+    }
+    
+    .album-photo .add-cart::before{
+      content: '';
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid white;
+      background: transparent;
+      transition: all 0.3s ease;
+    }
+    
+    .album-photo .add-cart.in-cart{
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    
+    .album-photo .add-cart.in-cart::before{
+      background: white;
+      border-color: white;
+    }
+    
+    .album-buy-all{
+      margin: 20px;
+      background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
+      color: white;
+      border: none;
+      padding: 20px;
+      border-radius: 16px;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 4px 20px rgba(168, 85, 247, 0.4);
+    }
+    
+    .album-buy-all .price{
+      font-size: 24px;
+    }
+    
+    .album-buy-all .subtitle{
+      font-size: 14px;
+      opacity: 0.9;
+      margin-top: 4px;
+    }
+    
+    /* Modal styles */
+    .ios-share-modal{
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1001;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    
+    .ios-share-modal.active{
+      opacity: 1;
+      visibility: visible;
+    }
+    
+    .ios-share-modal-content{
+      background: var(--bg-dark2);
+      padding: 30px;
+      border-radius: 20px;
+      text-align: center;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Sticky Offer Bar */
+    .sticky-offer-bar{
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
+      padding: 8px 12px;
+      padding-bottom: calc(8px + env(safe-area-inset-bottom)); /* Safe area iPhone */
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+      z-index: 1000; /* Z-index più alto per essere sopra tutto */
+      display: none;
+      transform: translateY(100%);
+      transition: transform 0.3s ease-out;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      /* Assicura che rimanga fisso durante lo scroll con accelerazione hardware */
+      will-change: transform;
+      -webkit-transform: translateZ(0);
+      transform: translateZ(0) translateY(100%);
+      min-height: 60px; /* Altezza minima ridotta */
+    }
+    
+    .sticky-offer-bar.active{
+      transform: translateZ(0) translateY(0);
+    }
+    
+    /* Mostra solo quando lo schermo album è attivo */
+    .album-screen.active ~ .sticky-offer-bar.active,
+    body:has(.album-screen.active) .sticky-offer-bar.active{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      animation: slideUp 0.4s ease-out forwards;
+    }
+    
+    @keyframes slideUp {
+      from {
+        transform: translateY(100%);
+      }
+      to {
+        transform: translateY(0);
+      }
+    }
+    
+    .sticky-offer-content{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    
+    .sticky-offer-text{
+      font-size: 12px;
+      font-weight: 600;
+      color: white;
+      line-height: 1.2;
+    }
+    
+    .sticky-offer-price{
+      font-size: 16px;
+      font-weight: 700;
+      color: white;
+    }
+    
+    .sticky-offer-actions{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .sticky-offer-btn{
+      background: white;
+      color: var(--purple);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+    
+    .sticky-offer-btn:active{
+      transform: scale(0.95);
+      opacity: 0.8;
+    }
+    
+    .sticky-offer-close{
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    
+    .sticky-offer-close:active{
+      background: rgba(255, 255, 255, 0.3);
+    }
+    
+    /* Paid Photos Countdown Banner */
+    .paid-countdown-banner{
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      padding: 12px 20px;
+      z-index: 90;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      transform: translateY(-100%);
+      transition: transform 0.3s ease;
+    }
+    
+    .paid-countdown-banner.show{
+      transform: translateY(0);
+    }
+    
+    .paid-countdown-content{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      max-width: 1200px;
+      margin: 0 auto;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .paid-countdown-icon{
+      font-size: 18px;
+    }
+    
+    .paid-countdown-text{
+      text-align: center;
+    }
+    
+    .paid-countdown-text strong{
+      font-weight: 700;
+      font-size: 16px;
+    }
+    
+    /* Album photo count banner sopra la griglia */
+    .album-photo-count{
+      padding: 12px 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-light);
+    }
+  </style>
+</head>
+<body>
+  <!-- Email Screen -->
+  <div class="screen email-screen" id="emailScreen">
+    <h1 class="email-title">Enter your email</h1>
+    <p class="email-subtitle">Your email is required to save and recover your photos</p>
+    <div class="email-input-container">
+      <input type="email" class="email-input" id="emailInput" placeholder="your@email.com">
+      <p class="email-error" id="emailError">Invalid email address</p>
+        </div>
+    <button class="btn-primary" id="emailContinueBtn">Continue</button>
+    <div class="email-loading" id="emailLoading" style="display: none;">
+      <div class="loading-spinner"></div>
+      <p>Checking your photos...</p>
+    </div>
+      </div>
+
+  <!-- Welcome Screen -->
+  <div class="screen welcome-screen" id="welcomeScreen">
+    <div class="welcome-icon">
+      <svg viewBox="0 0 100 100">
+        <rect x="20" y="25" width="60" height="50" rx="8"/>
+        <circle cx="50" cy="45" r="12"/>
+        <rect x="35" y="60" width="30" height="8" rx="4"/>
+        <circle cx="70" cy="35" r="4"/>
+      </svg>
+        </div>
+    <h1 class="welcome-title">Find your photos!</h1>
+    <p class="welcome-text">
+      In the next step you will be asked to enable the camera, to allow our system to deliver your event photos.
+    </p>
+    <button class="btn-primary" id="welcomeContinueBtn">Continue</button>
+    <p class="welcome-privacy">
+      We operate in full respect of Privacy and use your face exclusively to find photos that feature you.
+    </p>
+      </div>
+
+  <!-- Selfie Screen -->
+  <div class="screen selfie-screen" id="selfieScreen">
+    <div class="selfie-header">
+      <h2>Take your selfie</h2>
+    </div>
+    <div class="selfie-preview">
+      <div class="selfie-video">
+        <video id="video" autoplay playsinline muted webkit-playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="videoPlaceholder" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
+          <p style="font-size: 14px;">Camera not available</p>
+          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;">Retry</button>
+        </div>
+      </div>
+      <div class="selfie-controls">
+        <button class="camera-btn" id="captureBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10"/>
+          </svg>
+        </button>
+        <button class="btn-retake" id="switchCameraBtn" style="display:none;">Switch camera</button>
+      </div>
+    </div>
+    <!-- Upload Status Area - sempre visibile quando attiva -->
+    <div class="upload-status" id="uploadStatus">
+      <div class="upload-status-text">
+        <span class="upload-spinner"></span>
+        <span id="uploadStatusText">Loading photos...</span>
+      </div>
+      <div class="upload-progress-container">
+        <div class="upload-progress-bar" id="uploadProgressBar"></div>
+      </div>
+      <div class="upload-percentage" id="uploadPercentage">0%</div>
+        </div>
+      </div>
+
+  <!-- Confirm Selfie Screen -->
+  <div class="screen confirm-screen" id="confirmScreen">
+    <h2 class="confirm-title">Confirm selfie</h2>
+    <div class="confirm-preview">
+      <img id="confirmPreview" alt="Selfie preview">
+    </div>
+    <p class="confirm-privacy">
+      By selecting "Confirm" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.
+    </p>
+    <div class="confirm-buttons">
+      <button class="btn-confirm" id="confirmBtn">Confirm</button>
+      <button class="btn-retake" id="retakeBtn">Take again</button>
+    </div>
+    <!-- Loading indicator per ricerca foto -->
+    <div id="confirmLoadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
+      <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      <p style="color: var(--text-muted); margin-top: 15px;">Loading photos...</p>
+    </div>
+  </div>
+
+  <!-- Add People Screen -->
+  <div class="screen add-people-screen" id="addPeopleScreen">
+    <h2 class="add-people-title">Ottimo!</h2>
+    <p style="color: var(--text-muted); margin-bottom: 30px;">Vuoi aggiungere al tuo album altri membri della famiglia?</p>
+    <div class="people-list" id="peopleList">
+      <div class="person-avatar">
+        <img id="mainPersonAvatar" alt="Persona principale">
+      </div>
+      <button class="add-person-btn" id="addPersonBtn">+</button>
+    </div>
+    <div class="add-people-buttons">
+      <button class="btn-primary" id="addPersonConfirmBtn">Yes, add another person</button>
+      <button class="btn-retake" id="skipAddPersonBtn">Not now, go to album</button>
+    </div>
+    <!-- Loading indicator -->
+    <div id="loadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
+      <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      <p style="color: var(--text-muted); margin-top: 15px;">Loading photos...</p>
+    </div>
+  </div>
+
+  <!-- Album Screen -->
+  <div class="screen album-screen" id="albumScreen">
+    <div class="album-header">
+      <button class="album-back" id="albumBackBtn">←</button>
+      <button class="album-cart" id="albumCartBtn">
+        🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
+      </button>
+    </div>
+    <div class="album-profile">
+      <div class="profile-avatar">
+        <!-- Logo rimosso per evitare 404 - usa solo testo -->
+      </div>
+      <div class="profile-info">
+        <h3>Tenerife Stars Pictures</h3>
+        <p>Your photo session was taken by Metaproos</p>
+      </div>
+    </div>
+    <div class="album-tabs">
+      <button class="album-tab active" id="myContentTab">My content</button>
+      <button class="album-tab" id="pricesTab">Price list ↗</button>
+    </div>
+    <div class="album-photo-count" id="albumPhotoCount" style="display: none;">
+      <span>You found <span id="photoCountNumber">0</span> photos</span>
+    </div>
+    
+    <!-- Listino Prezzi -->
+    <div class="prices-list" id="pricesList">
+      <h2 class="prices-title">Price List</h2>
+      <p class="prices-subtitle">Choose the offer you prefer</p>
+      
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">1 <span>photo</span></div>
+          <div class="price-item-desc">Single photo</div>
+        </div>
+        <div class="price-item-value">€1</div>
+      </div>
+
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">2 <span>photos</span></div>
+          <div class="price-item-desc">Double</div>
+        </div>
+        <div class="price-item-value">€40</div>
+      </div>
+      
+      <div class="price-item highlight">
+        <div class="price-item-info">
+          <div class="price-item-count">3 <span>photos</span> <span class="price-item-badge">Discount</span></div>
+          <div class="price-item-desc">Special offer</div>
+      </div>
+        <div class="price-item-value">€35</div>
+    </div>
+
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">4 <span>photos</span></div>
+          <div class="price-item-desc">Package</div>
+        </div>
+        <div class="price-item-value">€40</div>
+      </div>
+      
+      <div class="price-item">
+        <div class="price-item-info">
+          <div class="price-item-count">5 <span >photos</span></div>
+          <div class="price-item-desc" >Package</div>
+        </div>
+        <div class="price-item-value">€45</div>
+      </div>
+      
+      <div class="price-item highlight">
+        <div class="price-item-info">
+          <div class="price-item-count">6-11 <span >photos</span> <span class="price-item-badge" >Best</span></div>
+          <div class="price-item-desc" >Complete package</div>
+        </div>
+        <div class="price-item-value">€50</div>
+      </div>
+      
+      <div class="price-item highlight">
+        <div class="price-item-info">
+          <div class="price-item-count">12+ <span >photos</span> <span class="price-item-badge" >Top</span></div>
+          <div class="price-item-desc" >All photos at the best price</div>
+        </div>
+        <div class="price-item-value">€60</div>
+      </div>
+    </div>
+    
+    <div class="album-grid" id="albumGrid">
+      <!-- Foto verranno aggiunte qui -->
+    </div>
+    
+    <!-- Overlay caricamento album -->
+    <div class="album-loading-overlay" id="albumLoadingOverlay">
+      <div class="album-loading-content">
+        <div class="album-loading-spinner"></div>
+        <p id="albumLoadingText">Loading photos...</p>
+      </div>
+    </div>
+    
+  </div>
+  
+  <!-- Sticky Offer Bar -->
+  <div class="sticky-offer-bar" id="stickyOfferBar">
+    <div class="sticky-offer-content">
+      <div class="sticky-offer-text" id="stickyOfferText">Buy all photos</div>
+      <div class="sticky-offer-price" id="stickyOfferPrice">€0</div>
+    </div>
+    <div class="sticky-offer-actions">
+      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Acquista</button>
+    </div>
+  </div>
+  
+  <!-- Paid Photos Countdown Banner -->
+  <div class="paid-countdown-banner" id="paidCountdownBanner" style="display: none;">
+    <div class="paid-countdown-content">
+      <span class="paid-countdown-icon">⏰</span>
+      <span class="paid-countdown-text" id="paidCountdownText">Your paid photos will expire in <strong id="paidCountdownDays">30</strong> days</span>
+    </div>
+  </div>
+
+  <!-- Lightbox per foto -->
+  <div class="ios-share-modal" id="photoLightbox" style="z-index: 2000;">
+    <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+      <button id="lightboxClose" style="position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.6); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10;">✕</button>
+      <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px;" id="photoCounter">1/1</div>
+      <button id="lightboxPrev" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">←</button>
+      <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
+      <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;">📥 Download</button>
+      <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none;" alt="Foto">
+    </div>
+  </div>
+  
+  <!-- Modal Carrello -->
+  <div class="ios-share-modal" id="cartModal">
+    <div class="ios-share-modal-content" style="max-width: 500px; width: 90%;">
+      <h3 style="margin-top: 0; font-size: 20px; color: var(--text-light);">🛒 Carrello</h3>
+      <div id="cartItems" style="max-height: 400px; overflow-y: auto; margin: 20px 0;">
+        <p style="text-align: center; color: var(--text-muted);">Il carrello è vuoto</p>
+      </div>
+      <div style="border-top: 2px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 15px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 18px; font-weight: 600; color: var(--text-light);">
+          <span>Totale:</span>
+          <span id="cartTotal">€0.00</span>
+        </div>
+        <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled>💳 Checkout</button>
+        <button class="btn-retake" id="closeCartBtn" style="width: 100%;">Chiudi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Offerte -->
+  <div class="ios-share-modal" id="offersModal">
+    <div class="ios-share-modal-content" style="max-width: 500px; width: 90%; background: var(--bg-dark2); border: 2px solid var(--accent);">
+      <h3 style="margin-top: 0; font-size: 24px; color: var(--text-light); text-align: center;">🎁 Offerta Speciale!</h3>
+      <div id="offersContent" style="text-align: center; padding: 20px 0;">
+        <p style="font-size: 18px; color: var(--text-light); margin-bottom: 15px;">
+          Hai trovato <strong id="offersPhotoCount" style="color: var(--accent-light);">0</strong> foto!
+        </p>
+        <div id="offersMessage" style="font-size: 16px; color: var(--text-muted); margin-bottom: 20px;">
+          <!-- Messaggio offerta dinamico -->
+        </div>
+        <div style="background: linear-gradient(135deg, var(--purple), var(--pink)); color: #fff; padding: 20px; border-radius: 12px; margin: 20px 0;">
+          <div style="font-size: 32px; font-weight: 900; margin-bottom: 10px;" id="offersPrice">€0</div>
+          <div style="font-size: 14px; opacity: 0.9;">per tutte le tue foto</div>
+        </div>
+        <button class="btn-primary" id="offersBuyBtn" style="width: 100%; margin-bottom: 10px; font-size: 18px; padding: 16px;">
+          💳 Buy All Photos
+        </button>
+        <button class="btn-retake" id="offersCloseBtn" style="width: 100%;">
+          Choose Single Photos
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== SISTEMA TRADUZIONI ==========
+
+    // Variabili globali
+    let currentScreen = 'email';
+    let stream = null;
+    let useFront = true;
+    let capturedBlob = null;
+    let sessionId = localStorage.getItem("cart_session_id") || "session_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem("cart_session_id", sessionId);
+    let currentCart = { photo_ids: [], count: 0, price_euros: 0 };
+    let allPhotos = [];
+    let currentPhotoIndex = 0;
+    let paidPhotos = []; // Array di photo_id pagate
+    let selfieCompleted = false; // Flag per tracciare se il selfie è stato completato
+
+    // Elementi DOM
+    const welcomeScreen = document.getElementById("welcomeScreen");
+    const selfieScreen = document.getElementById("selfieScreen");
+    const confirmScreen = document.getElementById("confirmScreen");
+    const addPeopleScreen = document.getElementById("addPeopleScreen");
+    const albumScreen = document.getElementById("albumScreen");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const confirmPreview = document.getElementById("confirmPreview");
+    const mainPersonAvatar = document.getElementById("mainPersonAvatar");
+    const albumGrid = document.getElementById("albumGrid");
+    const albumCartBtn = document.getElementById("albumCartBtn");
+    const albumCartCount = document.getElementById("albumCartCount");
+    const albumCartPrice = document.getElementById("albumCartPrice");
+    // buyAllBtn rimosso - ora si usa solo il banner sticky
+    const buyAllPrice = document.getElementById("buyAllPrice"); // Mantenuto per compatibilità se usato altrove
+    const photoLightbox = document.getElementById("photoLightbox");
+    const lightboxImage = photoLightbox ? photoLightbox.querySelector("img") : null;
+    const photoCounter = document.getElementById("photoCounter");
+
+    // Funzioni screen management
+    function showScreen(screenName) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const screen = document.getElementById(screenName + 'Screen');
+      if(screen) screen.classList.add('active');
+      currentScreen = screenName;
+    }
+
+    // Variabile globale per email utente
+    let userEmail = localStorage.getItem('userEmail') || null;
+    
+    // ========== INIZIALIZZAZIONE SEMPLIFICATA ==========
+    // Separazione netta tra flusso base e flusso post-pagamento
+    
+    async function initApp() {
+      // 1. Controlla se è ritorno dopo pagamento (parametri URL)
+      const urlParams = new URLSearchParams(window.location.search);
+      const emailParam = urlParams.get('email');
+      const refreshParam = urlParams.get('refresh');
+      const viewAlbumParam = urlParams.get('view_album'); // Nuovo parametro per forzare visualizzazione album
+      
+      if(refreshParam === 'paid' && emailParam) {
+        // FLUSSO POST-PAGAMENTO: carica album direttamente
+        await loadAlbumAfterPayment(emailParam);
+        return;
+      }
+      
+      // 2. Se c'è email nell'URL (da "Buy more photos"), controlla stato utente
+      if(emailParam) {
+        userEmail = emailParam;
+        localStorage.setItem('userEmail', emailParam);
+        
+        // Se view_album=true, vai DIRETTAMENTE all'album (salta email e selfie)
+        if(viewAlbumParam === 'true') {
+          // Mostra loading mentre carica
+          const loadingOverlay = document.getElementById('albumLoadingOverlay');
+          if(loadingOverlay) {
+            loadingOverlay.classList.add('active');
+          }
+          
+          // Vai direttamente all'album senza mostrare email/selfie
+          checkUserState(emailParam, true).then(userState => {
+            // Se ha foto trovate o messaggio mostrato, album già mostrato
+            if(userState.shown) {
+              return;
+            }
+            // Se non ha foto trovate, il messaggio è già mostrato da checkUserState
+            // Non serve fare nulla qui
+          }).catch(err => {
+            console.error('Error checking user state:', err);
+            // In caso di errore, mostra messaggio nell'album
+            showScreen('album');
+            const albumGrid = document.getElementById('albumGrid');
+            if(albumGrid) {
+              albumGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: white;">Loading error. Please try again later.</div>';
+            }
+          });
+          return; // Esci subito, non mostrare schermo email
+        } else {
+          // Comportamento normale: mostra email e controlla stato in background
+          const emailInput = document.getElementById('emailInput');
+          if(emailInput) {
+            emailInput.value = emailParam;
+          }
+          
+          // Controlla stato in background (non blocca UI)
+          checkUserState(emailParam).then(userState => {
+            // Se ha foto trovate (non pagate), mostra album
+            if(userState.shown) {
+              return; // Album già mostrato
+            }
+            
+            // Se ha foto pagate, redirecta
+            if(userState.redirect) {
+              return; // Redirect già fatto
+            }
+            
+            // Se non ha nulla, rimane sullo schermo email (già mostrato)
+          }).catch(err => {
+            console.error('Error checking user state in background:', err);
+            // In caso di errore, rimane sullo schermo email
+          });
+        }
+      }
+      
+      // 3. Email sempre vuota - utente deve sempre inserirla e cliccare Continue
+      // (rimosso auto-check e pre-compilazione per semplicità)
+      
+      // 4. FLUSSO BASE: email → selfie (no language selection)
+      // Mostra subito lo schermo email (non aspetta chiamate API)
+      showScreen('email');
+    }
+    
+    // Funzione separata per caricare album dopo pagamento
+    async function loadAlbumAfterPayment(email) {
+      userEmail = email;
+      localStorage.setItem('userEmail', email);
+      
+      // Prova fino a 3 volte (webhook potrebbe essere in ritardo)
+      for(let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+          const data = await res.json();
+          
+          if(data.ok) {
+            // Carica foto pagate
+            if(data.paid_photos && data.paid_photos.length > 0) {
+              paidPhotos = data.paid_photos;
+            }
+            
+            // Prepara foto da mostrare
+            let photosToShow = [];
+            
+            // Preferisci found_photos (hanno più info)
+            if(data.found_photos && data.found_photos.length > 0) {
+              photosToShow = data.found_photos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: p.status === 'paid'
+              }));
+              // Aggiungi foto pagate
+              const paidFromFound = data.found_photos
+                .filter(p => p.status === 'paid')
+                .map(p => p.photo_id);
+              paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
+            } 
+            // Se non ci sono found_photos, usa paid_photos
+            else if(data.paid_photos && data.paid_photos.length > 0) {
+              photosToShow = data.paid_photos.map(photoId => ({
+                photo_id: photoId,
+                score: 0,
+                has_face: true,
+                paid: true
+              }));
+            }
+            
+            if(photosToShow.length > 0) {
+              allPhotos = photosToShow;
+              showScreen('album');
+              await displayPhotos();
+              showStickyOfferBar(allPhotos.length);
+              return; // Successo, esci
+            }
+          }
+          
+          // Se non ci sono foto e non è l'ultimo tentativo, aspetta e riprova
+          if(attempt < 2) {
+            console.log(`No photos found, retrying in 2 seconds... (attempt ${attempt + 1}/3)`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        } catch(e) {
+          console.error(`Error loading album after payment (attempt ${attempt + 1}):`, e);
+          if(attempt < 2) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+      }
+      
+      // Se dopo 3 tentativi non ci sono foto, mostra email screen
+      console.warn("No paid photos found after 3 attempts");
+      showScreen('email');
+    }
+    
+    // Avvia inizializzazione quando DOM è pronto
+    if(document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        initApp();
+      });
+    } else {
+      initApp();
+    }
+    
+    // Event listener per email screen
+    const emailInput = document.getElementById('emailInput');
+    const emailError = document.getElementById('emailError');
+    const emailContinueBtn = document.getElementById('emailContinueBtn');
+    
+    // Funzione per controllare lo stato dell'utente e mostrare contenuto appropriato
+    async function checkUserState(email, forceAlbum = false) {
+      try {
+        // 1. Salva l'utente solo con email
+        try {
+          await fetch(`/user/register?email=${encodeURIComponent(email)}`, {
+            method: 'POST'
+          });
+          console.log('User registered/updated with email:', email);
+        } catch(e) {
+          console.error('Error registering user:', e);
+          // Continua comunque
+        }
+        
+        // 2. Controlla foto dell'utente
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        
+        console.log('checkUserState - API response:', data);
+        console.log('checkUserState - paid_photos:', data.paid_photos);
+        console.log('checkUserState - found_photos:', data.found_photos);
+        console.log('checkUserState - forceAlbum:', forceAlbum);
+        
+        if(!data.ok) {
+          console.log('checkUserState - API returned !ok');
+          return { hasPaid: false, hasFound: false }; // Nessuna foto
+        }
+        
+        const hasPaid = data.paid_photos && data.paid_photos.length > 0;
+        const hasFound = data.found_photos && data.found_photos.length > 0;
+        
+        // Controlla anche se ci sono foto trovate con status='paid'
+        const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
+        const hasAnyPaid = hasPaid || hasPaidInFound;
+        
+        // PULISCI CARRELLO: Se ha foto pagate, rimuovi tutte le foto dal carrello
+        // (potrebbero essere rimaste da una sessione precedente)
+        if(hasAnyPaid) {
+          try {
+            // Carica carrello corrente
+            const cartRes = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+            const cartData = await cartRes.json();
+            
+            if(cartData.ok && cartData.photo_ids && cartData.photo_ids.length > 0) {
+              // Raccogli tutte le foto pagate
+              const allPaidPhotoIds = new Set();
+              if(data.paid_photos) {
+                data.paid_photos.forEach(id => allPaidPhotoIds.add(id));
+              }
+              if(data.found_photos) {
+                data.found_photos.filter(p => p.status === 'paid').forEach(p => allPaidPhotoIds.add(p.photo_id));
+              }
+              
+              // Rimuovi tutte le foto pagate dal carrello
+              for(const photoId of cartData.photo_ids) {
+                if(allPaidPhotoIds.has(photoId)) {
+                  await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+                    method: "DELETE"
+                  });
+                }
+              }
+              
+              // Aggiorna carrello locale
+              const updatedCartRes = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+              const updatedCartData = await updatedCartRes.json();
+              if(updatedCartData.ok) {
+                currentCart = updatedCartData;
+                updateCart();
+              }
+            }
+          } catch(e) {
+            console.error('Error cleaning cart on return:', e);
+          }
+        }
+        
+        // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
+        // MA: se forceAlbum=true, mostra l'album invece di fare redirect
+        if(hasAnyPaid && !forceAlbum) {
+          const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
+          console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
+          window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+          return { hasPaid: true, hasFound: hasFound, redirect: true };
+        }
+        
+        // 4. Se ha foto trovate → mostra album
+        if(hasFound) {
+          userEmail = email;
+          localStorage.setItem('userEmail', email);
+          
+          // Se forceAlbum=true, mostra TUTTE le foto (pagate + non pagate)
+          // Se forceAlbum=false, mostra solo foto NON pagate
+          let photosToShow = [];
+          if(forceAlbum) {
+            // Mostra TUTTE le foto trovate (pagate e non pagate)
+            photosToShow = data.found_photos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: p.status === 'paid'
+            }));
+            console.log(`forceAlbum=true: showing ALL ${photosToShow.length} found photos (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
+          } else {
+            // Mostra solo foto NON pagate
+            const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
+            photosToShow = unpaidPhotos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: false
+            }));
+            console.log(`Showing ${photosToShow.length} unpaid found photos`);
+          }
+          
+          if(photosToShow.length > 0) {
+            allPhotos = photosToShow;
+            
+            // Mostra album
+            showScreen('album');
+            await displayPhotos();
+            
+            // Mostra sticky bar solo con conteggio foto NON pagate
+            const unpaidCount = photosToShow.filter(p => !p.paid).length;
+            if(unpaidCount > 0) {
+              showStickyOfferBar(unpaidCount);
+            } else {
+              // Nascondi sticky bar se tutte le foto sono pagate
+              const stickyBar = document.getElementById('stickyOfferBar');
+              if(stickyBar) {
+                stickyBar.style.display = 'none';
+              }
+            }
+            
+            return { hasPaid: hasAnyPaid, hasFound: true, shown: true };
+          } else {
+            // Nessuna foto trovata (tutte pagate o nessuna foto)
+            // Se forceAlbum=true, mostra messaggio nell'album invece del selfie
+            if(forceAlbum) {
+              console.log('No unpaid photos found, showing message in album');
+              userEmail = email;
+              localStorage.setItem('userEmail', email);
+              
+              // Mostra album con messaggio
+              showScreen('album');
+              
+              // Pulisci griglia e mostra messaggio
+              const albumGrid = document.getElementById('albumGrid');
+              if(albumGrid) {
+                albumGrid.innerHTML = '';
+                
+                // Crea messaggio
+                const messageDiv = document.createElement('div');
+                messageDiv.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 60px 20px; background: rgba(255, 255, 255, 0.05); border-radius: 16px; margin: 40px 0;';
+                
+                const icon = document.createElement('div');
+                icon.textContent = '✅';
+                icon.style.cssText = 'font-size: 64px; margin-bottom: 20px;';
+                
+                const title = document.createElement('h2');
+                title.textContent = 'You\'ve purchased all available photos!';
+                title.style.cssText = 'color: white; font-size: 24px; font-weight: 700; margin-bottom: 12px;';
+                
+                const subtitle = document.createElement('p');
+                subtitle.textContent = 'There are no more photos available for purchase at the moment.';
+                subtitle.style.cssText = 'color: rgba(255, 255, 255, 0.8); font-size: 16px; line-height: 1.6;';
+                
+                messageDiv.appendChild(icon);
+                messageDiv.appendChild(title);
+                messageDiv.appendChild(subtitle);
+                albumGrid.appendChild(messageDiv);
+              }
+              
+              // Nascondi sticky bar
+              const stickyBar = document.getElementById('stickyOfferBar');
+              if(stickyBar) {
+                stickyBar.style.display = 'none';
+              }
+              
+              return { hasPaid: hasAnyPaid, hasFound: false, shown: true };
+            } else {
+              // Redirecta a /my-photos se ha foto pagate, altrimenti selfie
+              if(hasAnyPaid) {
+                console.log('No found photos but has paid photos, redirecting to /my-photos');
+                window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+                return { hasPaid: true, hasFound: false, redirect: true };
+              } else {
+                console.log('No photos found, showing selfie');
+                showScreen('selfie');
+                await startCamera();
+                return { hasPaid: false, hasFound: false, shown: false };
+              }
+            }
+          }
+        }
+        
+        // 5. Non ha nulla → flusso normale
+        console.log('checkUserState - No photos found, continuing with normal flow');
+        return { hasPaid: false, hasFound: false };
+      } catch(e) {
+        console.error('Error checking user state:', e);
+        return { hasPaid: false, hasFound: false };
+      }
+    }
+    
+    emailContinueBtn.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      
+      // Validazione email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if(!email || !emailRegex.test(email)) {
+        emailError.classList.add('show');
+        emailInput.style.borderColor = '#ff4444';
+        return;
+      }
+
+      // Salva email
+      userEmail = email;
+      localStorage.setItem('userEmail', email);
+      emailError.classList.remove('show');
+      emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+      
+      // Mostra loading e disabilita pulsante
+      const emailLoading = document.getElementById('emailLoading');
+      emailContinueBtn.disabled = true;
+      emailContinueBtn.style.opacity = '0.6';
+      if(emailLoading) {
+        emailLoading.style.display = 'flex';
+      }
+      
+      try {
+        // 1. Salva l'utente solo con email
+        try {
+          await fetch(`/user/register?email=${encodeURIComponent(email)}`, {
+            method: 'POST'
+          });
+          console.log('User registered/updated with email:', email);
+        } catch(e) {
+          console.error('Error registering user:', e);
+          // Continua comunque
+        }
+        
+        // 2. Controlla foto dell'utente PRIMA di mostrare selfie
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        
+        console.log('User photos response:', data);
+        
+        // Nascondi loading
+        if(emailLoading) {
+          emailLoading.style.display = 'none';
+        }
+        emailContinueBtn.disabled = false;
+        emailContinueBtn.style.opacity = '1';
+        
+        if(data.ok) {
+          const hasPaid = data.paid_photos && data.paid_photos.length > 0;
+          const hasFound = data.found_photos && data.found_photos.length > 0;
+          
+          // Controlla anche se ci sono foto trovate con status='paid'
+          const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
+          const hasAnyPaid = hasPaid || hasPaidInFound;
+          
+          console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound=${hasPaidInFound}`);
+          
+          // PRIORITÀ ASSOLUTA: Se ha foto pagate (anche solo una) → redirect IMMEDIATO a /my-photos
+          // NON mostrare album, NON fare altri controlli, vai DIRETTAMENTE alle foto pagate
+          if(hasAnyPaid) {
+            console.log(`User has paid photos, redirecting immediately to /my-photos`);
+            window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+            return; // Esci subito, il redirect è in corso - NON fare altro
+          }
+          
+          // Se ha solo foto trovate (non pagate) → mostra album
+          if(hasFound) {
+            // FILTRA: mostra solo foto NON pagate
+            const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
+            
+            if(unpaidPhotos.length > 0) {
+              console.log(`User has ${unpaidPhotos.length} unpaid found photos, showing album`);
+              
+              // Prepara foto da mostrare (solo quelle non pagate)
+              allPhotos = unpaidPhotos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: false
+              }));
+              
+              // Mostra album
+              showScreen('album');
+              await displayPhotos();
+              showStickyOfferBar(allPhotos.length);
+              return; // Esci, album mostrato
+            } else {
+              // Tutte le foto trovate sono già pagate, redirecta a /my-photos
+              console.log('All found photos are already paid, redirecting to /my-photos');
+              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
+              return; // Esci, redirect in corso
+            }
+          }
+        }
+        
+        // Non ha nulla → flusso normale: vai al selfie
+        showScreen('selfie');
+      await startCamera();
+      } catch(e) {
+        console.error('Error checking user state:', e);
+        
+        // Nascondi loading anche in caso di errore
+        if(emailLoading) {
+          emailLoading.style.display = 'none';
+        }
+        emailContinueBtn.disabled = false;
+        emailContinueBtn.style.opacity = '1';
+        
+        // In caso di errore, vai comunque al selfie
+        showScreen('selfie');
+      await startCamera();
+      }
+      
+    });
+    
+    // Funzione per caricare album di test (salta camera)
+    async function loadTestAlbum() {
+      const email = emailInput.value.trim();
+      
+      // Validazione email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if(!email || !emailRegex.test(email)) {
+        emailError.classList.add('show');
+        emailInput.style.borderColor = '#ff4444';
+        return;
+      }
+
+      // Salva email
+      userEmail = email;
+      localStorage.setItem('userEmail', email);
+      emailError.classList.remove('show');
+      emailInput.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+      
+      // Mostra loading
+      const testBtn = document.getElementById('testAlbumBtn');
+      if(testBtn) {
+        testBtn.disabled = true;
+        testBtn.textContent = '⏳ Caricamento...';
+      }
+      
+      try {
+        // Chiama endpoint test-album
+        const res = await fetch(`/test-album?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        
+        if(data.ok && data.results && data.results.length > 0) {
+          console.log(`Test album: trovate ${data.results.length} foto`);
+          
+          allPhotos = data.results;
+          photosLoadedCount = 0;
+          
+          // Carica anche le foto già acquistate
+          if(userEmail) {
+            try {
+              const paidRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+              const paidData = await paidRes.json();
+              
+              if(paidData.ok && paidData.paid_photos && paidData.paid_photos.length > 0) {
+                paidPhotos = [...paidData.paid_photos];
+                console.log(`Caricate ${paidPhotos.length} foto pagate`);
+                
+                // Marca come pagate le foto nell'album
+                allPhotos.forEach(photo => {
+                  if(paidData.paid_photos.includes(photo.photo_id)) {
+                    photo.paid = true;
+                    if(!paidPhotos.includes(photo.photo_id)) {
+                      paidPhotos.push(photo.photo_id);
+                    }
+                  }
+                });
+              }
+            } catch(e) {
+              console.error('Errore caricamento foto pagate:', e);
+            }
+          }
+          
+          // Mostra album
+          showScreen('album');
+          await displayPhotos();
+          showStickyOfferBar(allPhotos.length);
+          applyTranslations();
+        } else {
+          alert('No photos found for test. Make sure there are photos in the photos folder.');
+        }
+      } catch(e) {
+        console.error('Errore caricamento test album:', e);
+        alert('Error loading test album: ' + e.message);
+      } finally {
+        if(testBtn) {
+          testBtn.disabled = false;
+          testBtn.textContent = '🧪 Test Album (salta camera)';
+        }
+      }
+    }
+    
+    
+    // Enter key su input email
+    emailInput.addEventListener('keypress', (e) => {
+      if(e.key === 'Enter') {
+        emailContinueBtn.click();
+      }
+    });
+
+    // Event listeners
+    // Rimosso pulsante "Continua" - vai direttamente al selfie quando si inserisce email
+    // Il pulsante welcomeContinueBtn non viene più usato, ma manteniamo il codice per compatibilità
+    const welcomeContinueBtn = document.getElementById("welcomeContinueBtn");
+    if(welcomeContinueBtn) {
+      welcomeContinueBtn.addEventListener("click", async () => {
+      // Prima verifica se utente esiste
+      if(userEmail && capturedBlob) {
+        try {
+          const fd = new FormData();
+          fd.append("selfie", capturedBlob, "selfie.jpg");
+          
+          const checkResponse = await fetch(`/check_user?email=${encodeURIComponent(userEmail)}`, {
+            method: 'POST',
+            body: fd
+          });
+          
+          const checkData = await checkResponse.json();
+          
+          if(checkData.ok && checkData.exists && checkData.match) {
+            // Utente esistente con selfie matchato - carica foto esistenti
+            if(checkData.found_photos && checkData.found_photos.length > 0) {
+              allPhotos = checkData.found_photos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: p.status === 'paid'
+              }));
+              
+              // Salva foto pagate
+              if(checkData.paid_photos && checkData.paid_photos.length > 0) {
+                paidPhotos = checkData.paid_photos;
+              } else {
+                // Estrai da found_photos quelle con status='paid'
+                paidPhotos = checkData.found_photos
+                  .filter(p => p.status === 'paid')
+                  .map(p => p.photo_id);
+              }
+              
+              photosLoadedCount = 0;
+              await displayPhotos();
+              showStickyOfferBar(allPhotos.length);
+              showScreen('album');
+        return;
+      }
+          }
+        } catch(e) {
+          console.error("Error checking user:", e);
+          // Continua con il flusso normale
+        }
+      }
+      
+      showScreen('selfie');
+      // Aspetta un attimo che lo schermo sia visibile, poi avvia la camera
+      setTimeout(async () => {
+      await startCamera();
+      }, 100);
+      });
+    }
+    
+    // Auto-avanzamento: dopo 2 secondi sulla welcome, vai automaticamente al selfie
+    // (ma solo se non c'è già un selfie salvato)
+    // Usa la variabile welcomeScreen già dichiarata sopra
+    if(welcomeScreen) {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if(mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            const isActive = welcomeScreen.classList.contains('active');
+            if(isActive && !capturedBlob) {
+              // Se la welcome è attiva e non c'è selfie, vai automaticamente al selfie dopo 2 secondi
+              setTimeout(() => {
+                if(currentScreen === 'welcome' && !capturedBlob) {
+                  showScreen('selfie');
+                  setTimeout(async () => {
+                    await startCamera();
+                  }, 100);
+                }
+              }, 2000);
+            }
+          }
+        });
+      });
+      observer.observe(welcomeScreen, { attributes: true });
+    }
+
+    document.getElementById("captureBtn").addEventListener("click", captureSelfie);
+    document.getElementById("confirmBtn").addEventListener("click", confirmSelfie);
+    document.getElementById("retakeBtn").addEventListener("click", () => {
+      startCamera();
+      showScreen('selfie');
+    });
+    document.getElementById("retryCameraBtn")?.addEventListener("click", async () => {
+      const placeholder = document.getElementById('videoPlaceholder');
+  const video = document.getElementById('video');
+      if(placeholder) placeholder.style.display = 'none';
+      if(video) video.style.display = 'block';
+      await startCamera();
+    });
+    document.getElementById("skipAddPersonBtn").addEventListener("click", async () => {
+      // Se le foto sono già state caricate, mostra direttamente l'album
+      if(allPhotos && allPhotos.length > 0) {
+        await displayPhotos();
+        updateCart();
+        showScreen('album');
+      } else {
+        matchPhotos();
+      }
+    });
+    document.getElementById("addPersonConfirmBtn").addEventListener("click", async () => {
+      // Per ora salta, poi implementeremo aggiunta persone
+      // Se le foto sono già state caricate, mostra direttamente l'album
+      if(allPhotos && allPhotos.length > 0) {
+        await displayPhotos();
+        updateCart();
+        showScreen('album');
+      } else {
+        matchPhotos();
+      }
+    });
+    // Pulsante buyAllBtn rimosso - ora si usa solo il banner sticky
+    const albumBackBtn = document.getElementById("albumBackBtn");
+    if(albumBackBtn) {
+      albumBackBtn.addEventListener("click", () => {
+        showScreen('welcome');
+      });
+    }
+    
+    if(albumCartBtn) {
+      albumCartBtn.addEventListener("click", () => {
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          updateCartModal();
+        }
+      });
+    }
+    
+    // Gestione tab album
+    const myContentTab = document.getElementById("myContentTab");
+    const pricesTab = document.getElementById("pricesTab");
+    const pricesList = document.getElementById("pricesList");
+    const closeCartBtn = document.getElementById("closeCartBtn");
+    const cartModal = document.getElementById('cartModal');
+    
+    if(myContentTab && pricesTab && albumGrid && pricesList) {
+      myContentTab.addEventListener("click", () => {
+        myContentTab.classList.add('active');
+        pricesTab.classList.remove('active');
+        if(albumGrid) albumGrid.style.display = 'grid';
+        pricesList.classList.remove('active');
+      });
+      
+      pricesTab.addEventListener("click", () => {
+        pricesTab.classList.add('active');
+        myContentTab.classList.remove('active');
+        if(albumGrid) albumGrid.style.display = 'none';
+        pricesList.classList.add('active');
+      });
+    }
+    
+    if(closeCartBtn && cartModal) {
+      closeCartBtn.addEventListener("click", () => {
+        cartModal.classList.remove('active');
+      });
+    }
+    const checkoutBtn = document.getElementById("checkoutBtn");
+    if(checkoutBtn) {
+      checkoutBtn.addEventListener("click", checkout);
+    }
+    
+    // Chiudi modal cliccando fuori
+    if(cartModal) {
+      cartModal.addEventListener('click', (e) => {
+        if(e.target.id === 'cartModal') {
+          cartModal.classList.remove('active');
+        }
+      });
+    }
+    
+    document.getElementById('offersModal').addEventListener('click', (e) => {
+      if(e.target.id === 'offersModal') {
+        document.getElementById('offersModal').classList.remove('active');
+      }
+    });
+
+    // Funzioni camera
+    async function startCamera() {
+      try {
+        // Verifica supporto camera
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert('Camera error');
+          return;
+        }
+
+        // Ferma stream precedente se esiste
+        if(stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+
+        console.log("Richiesta accesso camera...");
+      stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: useFront ? 'user' : 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+        audio: false
+      });
+        
+        console.log("Stream ottenuto, assegno al video...");
+      video.srcObject = stream;
+        
+        // Aspetta che il video sia pronto (importante su mobile)
+        await new Promise((resolve, reject) => {
+          let resolved = false;
+          
+          const onPlaying = () => {
+            if(!resolved && video.videoWidth > 0 && video.videoHeight > 0) {
+              console.log("Video in riproduzione, dimensioni:", video.videoWidth, "x", video.videoHeight);
+              resolved = true;
+              resolve();
+            }
+          };
+          
+          const checkReady = () => {
+            if(video.readyState >= 2 && !resolved) { // HAVE_CURRENT_DATA o superiore
+              console.log("Video metadata caricati, dimensioni:", video.videoWidth, "x", video.videoHeight);
+              video.play().then(() => {
+                console.log("Video play() chiamato");
+                // Su iOS a volte serve aspettare l'evento 'playing'
+                video.addEventListener('playing', onPlaying, { once: true });
+                // Fallback: controlla dopo un delay
+                setTimeout(() => {
+                  if(!resolved && video.videoWidth > 0 && video.videoHeight > 0) {
+                    onPlaying();
+                  }
+                }, 500);
+              }).catch((playErr) => {
+                console.error("Errore play():", playErr);
+                // Su iOS potrebbe essere necessario un interazione utente
+                if(playErr.name === 'NotAllowedError') {
+                  reject(new Error("Premi sul video per avviare la fotocamera"));
+                } else {
+                  reject(playErr);
+                }
+              });
+            }
+          };
+          
+          video.onloadedmetadata = checkReady;
+          video.onplaying = onPlaying;
+          video.onerror = (e) => {
+            console.error("Errore video:", e);
+            if(!resolved) {
+              resolved = true;
+              reject(new Error("Errore nel caricamento del video"));
+            }
+          };
+          
+          // Avvia il check
+          if(video.readyState >= 2) {
+            checkReady();
+          } else {
+            video.onloadedmetadata = checkReady;
+          }
+          
+          // Timeout dopo 10 secondi
+          setTimeout(() => {
+            if(!resolved) {
+              resolved = true;
+              reject(new Error("Timeout caricamento video"));
+            }
+          }, 10000);
+        });
+        
+        // Abilita il pulsante di cattura
+        const captureBtn = document.getElementById('captureBtn');
+        if(captureBtn) {
+      captureBtn.disabled = false;
+        }
+        
+        // Nascondi placeholder se visibile
+        const placeholder = document.getElementById('videoPlaceholder');
+        if(placeholder) {
+          placeholder.style.display = 'none';
+        }
+        
+      } catch (err) {
+        console.error("Errore accesso camera:", err);
+        
+        // Mostra placeholder
+        const placeholder = document.getElementById('videoPlaceholder');
+  const video = document.getElementById('video');
+        if(placeholder && video) {
+          placeholder.style.display = 'block';
+          video.style.display = 'none';
+        }
+        
+        // Disabilita pulsante cattura
+        const captureBtn = document.getElementById('captureBtn');
+        if(captureBtn) {
+          captureBtn.disabled = true;
+        }
+        
+        let errorMsg = "Camera access error.";
+        if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          errorMsg = "Camera permission denied. Enable camera access in browser settings.";
+        } else if(err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          errorMsg = "No camera found.";
+        } else if(err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          errorMsg = "Camera is already in use by another app.";
+        } else {
+          errorMsg = "Camera access error: " + err.message;
+        }
+        
+        // Mostra messaggio nel placeholder
+        if(placeholder) {
+          const msgEl = placeholder.querySelector('p');
+          if(msgEl) {
+            msgEl.textContent = errorMsg;
+          }
+        }
+    }
+  }
+
+  function captureSelfie() {
+      try {
+        // Verifica che il video sia pronto
+        if(!video || !video.videoWidth || !video.videoHeight) {
+          console.error("Video non pronto:", {
+            video: !!video,
+            width: video?.videoWidth,
+            height: video?.videoHeight,
+            readyState: video?.readyState
+          });
+          alert("Camera is not ready yet. Please wait a moment and try again.");
+      return;
+    }
+
+        console.log("Cattura selfie, dimensioni video:", video.videoWidth, "x", video.videoHeight);
+        
+        // Aspect ratio fisso 3:4 (verticale) - stesso del contenitore video
+        const targetAspectRatio = 3 / 4;
+        const videoAspectRatio = video.videoWidth / video.videoHeight;
+        
+        let sourceX = 0;
+        let sourceY = 0;
+        let sourceWidth = video.videoWidth;
+        let sourceHeight = video.videoHeight;
+        
+        // Calcola dimensioni canvas con aspect ratio 3:4
+        let canvasWidth, canvasHeight;
+        
+        if(videoAspectRatio > targetAspectRatio) {
+          // Video più largo: crop ai lati, mantieni altezza
+          canvasHeight = video.videoHeight;
+          canvasWidth = Math.round(canvasHeight * targetAspectRatio);
+          sourceX = Math.round((video.videoWidth - canvasWidth) / 2);
+          sourceY = 0;
+          sourceWidth = canvasWidth;  // Usa la larghezza del crop, non quella del video
+          sourceHeight = canvasHeight; // Usa l'altezza del crop
+        } else {
+          // Video più alto: crop sopra/sotto, mantieni larghezza
+          canvasWidth = video.videoWidth;
+          canvasHeight = Math.round(canvasWidth / targetAspectRatio);
+          sourceX = 0;
+          sourceY = Math.round((video.videoHeight - canvasHeight) / 2);
+          sourceWidth = canvasWidth;  // Usa la larghezza del crop
+          sourceHeight = canvasHeight; // Usa l'altezza del crop
+        }
+        
+        // Imposta dimensioni canvas
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        
+    const ctx = canvas.getContext('2d');
+        
+        // Disegna il frame corrente del video sul canvas con crop centrato
+        // Usa la stessa area che viene mostrata nel video (object-fit: cover)
+        ctx.drawImage(
+          video,
+          sourceX, sourceY, sourceWidth, sourceHeight,  // Area sorgente (crop) - CORRETTO
+          0, 0, canvasWidth, canvasHeight                // Area destinazione (canvas)
+        );
+        
+        console.log("Canvas creato, dimensioni:", canvas.width, "x", canvas.height);
+        console.log("Crop applicato:", { sourceX, sourceY, sourceWidth, sourceHeight });
+        
+        // Converti canvas in blob
+    canvas.toBlob((blob) => {
+          if(!blob) {
+            console.error("Error: blob not created");
+            alert("Error capturing photo. Please try again.");
+        return;
+      }
+          
+          console.log("Blob creato, dimensione:", blob.size, "bytes");
+          capturedBlob = blob;
+          const url = URL.createObjectURL(blob);
+          confirmPreview.src = url;
+          if(mainPersonAvatar) {
+            mainPersonAvatar.src = url;
+          }
+          
+          // Ferma lo stream
+          if(stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+          }
+          
+          showScreen('confirm');
+        }, 'image/jpeg', 0.9);
+        
+      } catch(err) {
+        console.error("Errore nella cattura selfie:", err);
+        alert("Error capturing photo: " + err.message);
+      }
+    }
+
+    async function confirmSelfie() {
+      // Marca selfie come completato (per non interrompere se le API finiscono dopo)
+      selfieCompleted = true;
+      
+      // Se abbiamo email e selfie, registra/aggiorna utente
+      if(userEmail && capturedBlob) {
+    try {
+      const fd = new FormData();
+          fd.append("selfie", capturedBlob, "selfie.jpg");
+          
+          await fetch(`/register_user?email=${encodeURIComponent(userEmail)}`, {
+            method: 'POST',
+            body: fd
+          });
+          
+          console.log("User registered/updated successfully");
+        } catch(e) {
+          console.error("Error registering user:", e);
+          // Continua comunque con il matching
+        }
+      }
+      
+      // Dopo la conferma del selfie, cerca direttamente le foto
+      matchPhotos();
+    }
+
+    // Funzioni matching
+    async function matchPhotos() {
+      if(!capturedBlob) {
+        console.error("capturedBlob è null!");
+        alert("Error: selfie not found. Please take it again.");
+        showScreen('selfie');
+        startCamera();
+      return;
+    }
+
+      // Mostra area upload status (torna allo schermo selfie se siamo in confirm)
+      showScreen('selfie');
+      const uploadStatus = document.getElementById('uploadStatus');
+      const uploadStatusText = document.getElementById('uploadStatusText');
+      const uploadProgressBar = document.getElementById('uploadProgressBar');
+      const uploadPercentage = document.getElementById('uploadPercentage');
+      const captureBtn = document.getElementById('captureBtn');
+      
+      // Mostra upload status e disabilita pulsante
+      if(uploadStatus) uploadStatus.classList.add('active');
+      if(uploadStatusText) uploadStatusText.textContent = 'Loading photos...';
+      if(uploadProgressBar) uploadProgressBar.style.width = '10%';
+      if(uploadPercentage) uploadPercentage.textContent = '10%';
+      if(captureBtn) {
+        captureBtn.disabled = true;
+        captureBtn.style.opacity = '0.5';
+      }
+      
+      try {
+        console.log("Inizio matchPhotos: invio selfie al server...");
+        
+        // Aggiorna progress
+        if(uploadProgressBar) uploadProgressBar.style.width = '30%';
+        if(uploadPercentage) uploadPercentage.textContent = '30%';
+        if(uploadStatusText) uploadStatusText.textContent = 'Sending selfie to server...';
+        
+      const fd = new FormData();
+        fd.append("selfie", capturedBlob, "selfie.jpg");
+        
+        // Simula progress durante upload (XMLHttpRequest per avere progress reale)
+        const xhr = new XMLHttpRequest();
+        
+        // Promise per gestire la risposta
+        const uploadPromise = new Promise((resolve, reject) => {
+          xhr.upload.addEventListener('progress', (e) => {
+            if(e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 50) + 30; // 30-80%
+              if(uploadProgressBar) uploadProgressBar.style.width = percent + '%';
+              if(uploadPercentage) uploadPercentage.textContent = percent + '%';
+            }
+          });
+          
+          xhr.addEventListener('load', () => {
+            if(xhr.status >= 200 && xhr.status < 300) {
+              resolve(xhr);
+            } else {
+              // Crea un errore con più informazioni
+              const error = new Error(`HTTP ${xhr.status}: ${xhr.statusText}`);
+              error.status = xhr.status;
+              error.statusText = xhr.statusText;
+              error.responseText = xhr.responseText;
+              reject(error);
+            }
+          });
+          
+          xhr.addEventListener('error', (e) => {
+            console.error("XMLHttpRequest error event:", e);
+            const error = new Error('Network error');
+            error.type = 'network';
+            reject(error);
+          });
+          
+          xhr.addEventListener('timeout', () => {
+            console.error("XMLHttpRequest timeout");
+            const error = new Error('Request timeout');
+            error.type = 'timeout';
+            reject(error);
+          });
+          
+          xhr.addEventListener('abort', () => {
+            const error = new Error('Upload aborted');
+            error.type = 'abort';
+            reject(error);
+          });
+          
+          // Imposta timeout di 120 secondi (Render può essere lento al risveglio)
+          xhr.timeout = 120000;
+          
+          // Aggiungi email se disponibile
+          let url = '/match_selfie?top_k_faces=120&min_score=0.25';
+          if(userEmail) {
+            url += `&email=${encodeURIComponent(userEmail)}`;
+          }
+          
+          xhr.open('POST', url);
+          xhr.send(fd);
+        });
+        
+        // Aggiorna progress
+        if(uploadProgressBar) uploadProgressBar.style.width = '80%';
+        if(uploadPercentage) uploadPercentage.textContent = '80%';
+        if(uploadStatusText) uploadStatusText.textContent = 'Analyzing photos...';
+        
+        await uploadPromise;
+        
+        const res = xhr;
+        console.log("✅ Risposta ricevuta, status:", res.status, "OK:", res.status >= 200 && res.status < 300);
+        console.log("Response text length:", res.responseText ? res.responseText.length : 0);
+        console.log("Response type:", res.responseType);
+        console.log("Response headers:", res.getAllResponseHeaders());
+        
+        // Log primi caratteri della risposta per debug
+        if(res.responseText && res.responseText.length > 0) {
+          console.log("Response preview (primi 200 char):", res.responseText.substring(0, 200));
+        }
+        
+        // Controlla se la risposta è OK
+        if(res.status < 200 || res.status >= 300) {
+          console.error("❌ Errore HTTP:", res.status, res.statusText);
+          console.error("Response text completo:", res.responseText);
+          
+          let errorMsg = "Error during processing. Please try again in a moment.";
+          
+          // Traduci messaggio in base alla lingua
+          if(currentLang === 'it') {
+            errorMsg = "Errore durante l'elaborazione. Riprova tra qualche istante.";
+          } else if(currentLang === 'fr') {
+            errorMsg = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
+          } else if(currentLang === 'de') {
+            errorMsg = "Fehler bei der Verarbeitung. Bitte versuchen Sie es in einem Moment erneut.";
+          } else if(currentLang === 'es') {
+            errorMsg = "Error durante el procesamiento. Por favor, inténtelo de nuevo en un momento.";
+          }
+          
+          try {
+            if(res.responseText && res.responseText.trim()) {
+              const errorData = JSON.parse(res.responseText);
+              console.error("Errore dal server (JSON):", errorData);
+              
+              // Se il server fornisce un messaggio specifico, usalo
+              if(errorData.detail) {
+                errorMsg = errorData.detail;
+              } else if(errorData.error && errorData.error.message) {
+                errorMsg = errorData.error.message;
+              } else if(errorData.message) {
+                errorMsg = errorData.message;
+              }
+            }
+          } catch(e) {
+            console.error("Errore nel parsing JSON di errore:", e);
+            console.error("Response text non-JSON:", res.responseText);
+            
+            // Messaggi specifici per diversi status code
+            if(res.status === 500) {
+              errorMsg = "Server error. Please try again in a moment.";
+              if(currentLang === 'it') errorMsg = "Errore del server. Riprova tra qualche istante.";
+              else if(currentLang === 'fr') errorMsg = "Erreur serveur. Veuillez réessayer dans un instant.";
+              else if(currentLang === 'de') errorMsg = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
+              else if(currentLang === 'es') errorMsg = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
+            } else if(res.status === 503) {
+              errorMsg = "Service temporarily unavailable. Please try again in a moment.";
+              if(currentLang === 'it') errorMsg = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
+              else if(currentLang === 'fr') errorMsg = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
+              else if(currentLang === 'de') errorMsg = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
+              else if(currentLang === 'es') errorMsg = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
+            } else if(res.status === 0 || res.statusText === '') {
+              // Status 0 o vuoto spesso indica un problema di rete
+              errorMsg = 'Connection error. Check your internet connection and try again.';
+            } else {
+              errorMsg = `Errore ${res.status}: ${res.statusText || 'Errore sconosciuto'}`;
+            }
+          }
+          console.error("💥 Errore finale mostrato all'utente:", errorMsg);
+          
+          // Aggiungi dettagli tecnici al messaggio per debug
+          const debugInfo = `\n\n[Dettagli tecnici: Status ${res.status}, ${res.statusText || 'N/A'}]`;
+          const fullErrorMsg = errorMsg + debugInfo;
+          
+          // Nascondi upload status
+          if(uploadStatus) uploadStatus.classList.remove('active');
+          if(captureBtn) {
+            captureBtn.disabled = false;
+            captureBtn.style.opacity = '1';
+          }
+          
+          alert(fullErrorMsg);
+          showScreen('selfie');
+          startCamera();
+          return;
+        }
+        
+        // Aggiorna progress finale
+        if(uploadProgressBar) uploadProgressBar.style.width = '100%';
+        if(uploadPercentage) uploadPercentage.textContent = '100%';
+        if(uploadStatusText) uploadStatusText.textContent = 'Completato!';
+        
+        // Verifica che la risposta non sia vuota
+        if(!res.responseText || res.responseText.trim() === '') {
+          console.error("Risposta vuota dal server");
+          throw new Error('Empty response from server');
+        }
+        
+        let data;
+        try {
+          data = JSON.parse(res.responseText);
+          console.log("Dati ricevuti:", { 
+            ok: data.ok, 
+            count: data.count, 
+            resultsLength: data.results ? data.results.length : 0,
+            matchesLength: data.matches ? data.matches.length : 0
+          });
+        } catch(parseError) {
+          console.error("Errore parsing JSON:", parseError);
+          console.error("Response text (primi 500 caratteri):", res.responseText.substring(0, 500));
+          throw new Error(`Invalid JSON response: ${parseError.message}`);
+        }
+        
+        // Usa results o matches (per compatibilità)
+        const photos = data.results || data.matches || [];
+        
+        if(data.ok && photos.length > 0) {
+          console.log(`Trovate ${photos.length} foto`);
+          if(uploadStatusText) uploadStatusText.textContent = `Found ${photos.length} photos!`;
+          
+          allPhotos = photos;
+          photosLoadedCount = 0; // Reset counter
+          
+          // Carica foto pagate e RIMUOVILE dall'album (non possono essere ricomprate)
+          if(userEmail) {
+            try {
+              const paidRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+              const paidData = await paidRes.json();
+              
+              if(paidData.ok && paidData.paid_photos && paidData.paid_photos.length > 0) {
+                // Aggiorna array foto pagate
+                paidPhotos = [...paidData.paid_photos];
+                console.log(`Caricate ${paidPhotos.length} foto pagate per ${userEmail}`);
+                
+                // RIMUOVI le foto già pagate dall'album (non possono essere ricomprate)
+                const paidPhotoIdsSet = new Set(paidData.paid_photos);
+                const beforeCount = allPhotos.length;
+                allPhotos = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id));
+                const removedCount = beforeCount - allPhotos.length;
+                
+                if(removedCount > 0) {
+                  console.log(`Rimosse ${removedCount} foto già pagate dall'album (non possono essere ricomprate)`);
+                }
+                
+                console.log(`Totale foto nell'album: ${allPhotos.length} (${paidPhotos.length} foto pagate rimosse)`);
+              }
+            } catch(e) {
+              console.error('Errore caricamento foto pagate:', e);
+              // Continua comunque con le foto trovate
+            }
+          }
+          
+          // NON aggiungere automaticamente al carrello - l'utente decide cosa aggiungere
+          
+          console.log("Mostro album...");
+          
+          // Nascondi upload status prima di cambiare schermo
+          setTimeout(() => {
+            if(uploadStatus) uploadStatus.classList.remove('active');
+            if(captureBtn) {
+              captureBtn.disabled = false;
+              captureBtn.style.opacity = '1';
+            }
+          }, 500);
+          
+          // Cambia schermo PRIMA di caricare le foto (così l'utente vede subito la griglia)
+          showScreen('album');
+          
+          // Aggiorna carrello
+          updateCart();
+          
+          // Carica le foto (con lazy loading)
+          await displayPhotos();
+          
+          // Mostra banner dopo che lo schermo è visibile
+          setTimeout(() => {
+            showStickyOfferBar(allPhotos.length);
+          }, 100);
+        } else {
+          console.warn("Nessuna foto trovata o risposta non valida:", data);
+          
+          // Controlla se ci sono foto già acquistate da mostrare
+          if(userEmail) {
+            try {
+              const paidRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+              const paidData = await paidRes.json();
+              
+              if(paidData.ok && paidData.paid_photos && paidData.paid_photos.length > 0) {
+                // Ci sono foto pagate - mostrale nell'album
+                paidPhotos = paidData.paid_photos;
+                allPhotos = paidData.paid_photos.map(photoId => ({
+                  photo_id: photoId,
+                  score: 0,
+                  has_face: true,
+                  paid: true
+                }));
+                
+                photosLoadedCount = 0;
+                
+                // Nascondi upload status
+                if(uploadStatus) uploadStatus.classList.remove('active');
+                if(captureBtn) {
+                  captureBtn.disabled = false;
+                  captureBtn.style.opacity = '1';
+                }
+                
+                // Mostra album con foto pagate
+                showScreen('album');
+                updateCart();
+                await displayPhotos();
+                showStickyOfferBar(allPhotos.length);
+                return; // Esci, abbiamo mostrato le foto pagate
+              }
+            } catch(e) {
+              console.error('Errore caricamento foto pagate:', e);
+            }
+          }
+          
+          // Nessuna foto trovata e nessuna foto pagata
+          // Nascondi upload status
+          if(uploadStatus) uploadStatus.classList.remove('active');
+          if(captureBtn) {
+            captureBtn.disabled = false;
+            captureBtn.style.opacity = '1';
+          }
+          
+          // NON tornare alla welcome se siamo già nell'album
+          // Solo se siamo ancora nella schermata selfie/confirm
+          if(currentScreen !== 'album') {
+            alert('No photos found. Try again.');
+            showScreen('selfie');
+            startCamera();
+          } else {
+            // Se siamo già nell'album, mostra solo un messaggio
+            alert('No photos found. Try again.');
+          }
+        }
+      } catch(err) {
+        console.error("Errore nel caricamento foto:", err);
+        console.error("Stack trace:", err.stack);
+        console.error("Tipo errore:", err.name, "Messaggio:", err.message);
+        console.error("Error type:", err.type, "Status:", err.status);
+        
+        // Nascondi upload status
+        if(uploadStatus) uploadStatus.classList.remove('active');
+        if(captureBtn) {
+          captureBtn.disabled = false;
+          captureBtn.style.opacity = '1';
+        }
+        
+        // Determina il tipo di errore e mostra messaggio appropriato
+        let errorMessage = 'Connection error. Check your internet connection and try again.'; // Default
+        
+        // Controlla il tipo di errore specifico
+        if(err.type === 'network') {
+          // Errore di rete reale (XMLHttpRequest error event)
+          errorMessage = 'Connection error. Check your internet connection and try again.';
+        } else if(err.type === 'timeout') {
+          // Timeout della richiesta
+          errorMessage = "La richiesta ha impiegato troppo tempo. Riprova.";
+          if(currentLang === 'en') errorMessage = "Request took too long. Please try again.";
+          else if(currentLang === 'fr') errorMessage = "La requête a pris trop de temps. Veuillez réessayer.";
+          else if(currentLang === 'de') errorMessage = "Die Anfrage hat zu lange gedauert. Bitte versuchen Sie es erneut.";
+          else if(currentLang === 'es') errorMessage = "La solicitud tardó demasiado. Por favor, inténtelo de nuevo.";
+        } else if(err.type === 'abort') {
+          // Upload annullato
+          errorMessage = "Upload annullato. Riprova.";
+          if(currentLang === 'en') errorMessage = "Upload cancelled. Please try again.";
+          else if(currentLang === 'fr') errorMessage = "Téléchargement annulé. Veuillez réessayer.";
+          else if(currentLang === 'de') errorMessage = "Upload abgebrochen. Bitte versuchen Sie es erneut.";
+          else if(currentLang === 'es') errorMessage = "Carga cancelada. Por favor, inténtelo de nuevo.";
+        } else if(err.status) {
+          // Errore HTTP con status code
+          if(err.status === 500) {
+            errorMessage = "Server error. Please try again in a moment.";
+            if(currentLang === 'it') errorMessage = "Errore del server. Riprova tra qualche istante.";
+            else if(currentLang === 'fr') errorMessage = "Erreur serveur. Veuillez réessayer dans un instant.";
+            else if(currentLang === 'de') errorMessage = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
+            else if(currentLang === 'es') errorMessage = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
+          } else if(err.status === 503) {
+            errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
+            if(currentLang === 'it') errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
+            else if(currentLang === 'fr') errorMessage = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
+            else if(currentLang === 'de') errorMessage = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
+            else if(currentLang === 'es') errorMessage = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
+          } else {
+            errorMessage = `Error ${err.status}: ${err.statusText || 'Server error'}`;
+          }
+        } else if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
+          // Errore di rete (fetch API)
+          errorMessage = 'Connection error. Check your internet connection and try again.';
+        } else if(err.message && err.message.includes('Network error')) {
+          // Errore di rete esplicito
+          errorMessage = 'Connection error. Check your internet connection and try again.';
+        } else {
+          // Other error type (parsing, etc.)
+          errorMessage = "Error during processing. Please try again in a moment.";
+          if(currentLang === 'it') {
+            errorMessage = "Errore durante l'elaborazione. Riprova tra qualche istante.";
+          } else if(currentLang === 'fr') {
+            errorMessage = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
+          } else if(currentLang === 'de') {
+            errorMessage = "Fehler bei der Verarbeitung. Bitte versuchen Sie es in einem Moment erneut.";
+          } else if(currentLang === 'es') {
+            errorMessage = "Error durante el procesamiento. Por favor, inténtelo de nuevo en un momento.";
+          }
+        }
+        
+        // In caso di errore, torna sempre alla schermata selfie per riprovare
+        // NON mostrare l'album vuoto
+        alert(errorMessage);
+        showScreen('selfie');
+        startCamera();
+        
+        // Reset delle variabili per evitare stati inconsistenti
+        allPhotos = [];
+        photosLoadedCount = 0;
+      }
+    }
+
+    // Intersection Observer per lazy loading
+    let imageObserver = null;
+    
+    function initImageObserver() {
+      if(imageObserver) {
+        imageObserver.disconnect();
+      }
+      
+      imageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if(entry.isIntersecting) {
+            const img = entry.target;
+            const photoId = img.dataset.photoId;
+            const index = parseInt(img.dataset.index);
+            
+            // Carica l'immagine solo quando entra nel viewport
+            if(!img.dataset.loaded) {
+              img.dataset.loaded = 'true';
+              const imgElement = new Image();
+              
+              imgElement.onload = () => {
+                img.src = imgElement.src;
+                img.classList.add('loaded');
+                // Rimuovi skeleton
+                const skeleton = img.parentElement.querySelector('.photo-skeleton');
+                if(skeleton) skeleton.remove();
+              };
+              
+              imgElement.onerror = () => {
+                console.error('Errore caricamento foto:', photoId);
+                img.style.display = 'none';
+                const skeleton = img.parentElement.querySelector('.photo-skeleton');
+                if(skeleton) {
+                  skeleton.style.background = 'rgba(255,0,0,0.1)';
+                  skeleton.innerHTML = '<div style="padding: 10px; text-align: center; color: #ff4444; font-size: 12px;">Error</div>';
+                }
+              };
+              
+              // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
+              const isPaid = paidPhotos.includes(photoId);
+              let photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=${isPaid}`;
+              if(userEmail && isPaid) {
+                photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+              }
+              imgElement.src = photoUrl;
+            }
+            
+            imageObserver.unobserve(img);
+          }
+        });
+      }, {
+        rootMargin: '50px' // Inizia a caricare 50px prima che entri nel viewport
+      });
+    }
+    
+    function checkAllPhotosLoaded() {
+      photosLoadedCount++;
+      // Quando tutte le prime immagini sono caricate, nascondi overlay
+      const preloadCount = Math.min(9, allPhotos.length);
+      if(photosLoadedCount >= preloadCount) {
+        const loadingOverlay = document.getElementById('albumLoadingOverlay');
+        if(loadingOverlay) {
+          loadingOverlay.classList.remove('active');
+        }
+        enableAlbumInteractions();
+      }
+    }
+    
+    function disableAlbumInteractions() {
+      // Disabilita SOLO i pulsanti, NON lo scroll
+      // NON bloccare pointer-events sull'albumScreen per permettere lo scroll
+      
+      // Disabilita pulsanti specifici
+      const albumCartBtn = document.getElementById('albumCartBtn');
+      const albumBackBtn = document.getElementById('albumBackBtn');
+      const myContentTab = document.getElementById('myContentTab');
+      const pricesTab = document.getElementById('pricesTab');
+      if(albumCartBtn) {
+        albumCartBtn.style.pointerEvents = 'none';
+        albumCartBtn.style.opacity = '0.5';
+      }
+      if(albumBackBtn) {
+        albumBackBtn.style.pointerEvents = 'none';
+        albumBackBtn.style.opacity = '0.5';
+      }
+      if(myContentTab) {
+        myContentTab.style.pointerEvents = 'none';
+        myContentTab.style.opacity = '0.5';
+      }
+      if(pricesTab) {
+        pricesTab.style.pointerEvents = 'none';
+        pricesTab.style.opacity = '0.5';
+      }
+      
+      // Disabilita click sulle foto durante il caricamento
+      const photos = albumGrid.querySelectorAll('.album-photo');
+      photos.forEach(photo => {
+        photo.style.pointerEvents = 'none';
+      });
+    }
+    
+    function enableAlbumInteractions() {
+      // Riabilita pulsanti
+      const albumCartBtn = document.getElementById('albumCartBtn');
+      const albumBackBtn = document.getElementById('albumBackBtn');
+      const myContentTab = document.getElementById('myContentTab');
+      const pricesTab = document.getElementById('pricesTab');
+      if(albumCartBtn) {
+        albumCartBtn.style.pointerEvents = 'auto';
+        albumCartBtn.style.opacity = '1';
+      }
+      if(albumBackBtn) {
+        albumBackBtn.style.pointerEvents = 'auto';
+        albumBackBtn.style.opacity = '1';
+      }
+      if(myContentTab) {
+        myContentTab.style.pointerEvents = 'auto';
+        myContentTab.style.opacity = '1';
+      }
+      if(pricesTab) {
+        pricesTab.style.pointerEvents = 'auto';
+        pricesTab.style.opacity = '1';
+      }
+      
+      // Riabilita click sulle foto
+      const photos = albumGrid.querySelectorAll('.album-photo');
+      photos.forEach(photo => {
+        photo.style.pointerEvents = 'auto';
+      });
+    }
+    
+    // Funzione semplificata per caricare foto pagate
+    async function loadPaidPhotos() {
+      if(!userEmail) {
+        userEmail = localStorage.getItem('userEmail');
+      }
+      if(!userEmail) return paidPhotos;
+      
+      try {
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
+      const data = await res.json();
+        if(data.ok) {
+          paidPhotos = [];
+          if(data.paid_photos) paidPhotos = [...data.paid_photos];
+          if(data.found_photos) {
+            const paidFromFound = data.found_photos
+              .filter(p => p.status === 'paid')
+              .map(p => p.photo_id);
+            paidPhotos = [...new Set([...paidPhotos, ...paidFromFound])];
+          }
+        }
+      } catch(e) {
+        console.error("Error loading paid photos:", e);
+      }
+      return paidPhotos;
+    }
+    
+    async function displayPhotos() {
+      if(!allPhotos || allPhotos.length === 0) {
+        console.warn("displayPhotos chiamato ma non ci sono foto!");
+        alert('No photos found. Try again.');
+        showScreen('selfie');
+        startCamera();
+        return;
+      }
+
+      // Carica foto pagate prima di renderizzare
+      await loadPaidPhotos();
+      
+      // NON rimuovere le foto pagate dall'album - le mostriamo con badge "Acquistata"
+      // Le foto pagate saranno visibili ma non selezionabili per il carrello
+      const paidPhotoIdsSet = new Set(paidPhotos);
+      const unpaidPhotos = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id));
+      const paidCount = allPhotos.length - unpaidPhotos.length;
+      
+      if(paidCount > 0) {
+        console.log(`Mostrando ${paidCount} foto pagate nell'album con badge "Acquistata"`);
+      }
+      
+      const loadingOverlay = document.getElementById('albumLoadingOverlay');
+      const loadingText = document.getElementById('albumLoadingText');
+      
+      // Reset counter
+      photosLoadedCount = 0;
+      
+      // Mostra overlay di caricamento
+      if(loadingOverlay) {
+        loadingOverlay.classList.add('active');
+        if(loadingText) loadingText.textContent = 'Loading photos...';
+      }
+      
+      // Disabilita interazioni
+      disableAlbumInteractions();
+      
+      albumGrid.innerHTML = '';
+      
+      // Lazy loading ottimizzato: preload delle prime foto visibili
+      // Con ~10-12 foto per utente, non serve virtual scrolling
+      const PRELOAD_COUNT = Math.min(6, allPhotos.length); // Preload prime 6 foto (quelle visibili subito)
+      
+      // Nascondi overlay dopo che le prime 6 foto sono caricate (per percepire velocità)
+      let firstPhotosLoaded = 0;
+      const hideOverlayAfter = 6;
+      
+      // Renderizza tutte le foto (con lazy loading per quelle non visibili)
+      allPhotos.forEach((photo, index) => {
+        const div = document.createElement('div');
+        div.className = 'album-photo';
+
+        const img = document.createElement('img');
+        img.dataset.photoId = photo.photo_id;
+        img.dataset.index = index;
+        img.alt = photo.photo_id;
+        
+        // Skeleton loader
+        const skeleton = document.createElement('div');
+        skeleton.className = 'photo-skeleton';
+        
+        // Per le prime immagini visibili, carica subito con priorità alta
+        if(index < PRELOAD_COUNT) {
+          img.dataset.loaded = 'true';
+          const imgElement = new Image();
+          imgElement.onload = () => {
+            img.src = imgElement.src;
+            img.classList.add('loaded');
+            skeleton.remove();
+            firstPhotosLoaded++;
+            
+            // Nascondi overlay dopo le prime foto caricate (per percepire velocità)
+            if(firstPhotosLoaded >= hideOverlayAfter && loadingOverlay && loadingOverlay.classList.contains('active')) {
+              loadingOverlay.classList.remove('active');
+              enableAlbumInteractions();
+            }
+            
+            checkAllPhotosLoaded();
+          };
+          imgElement.onerror = () => {
+            console.error('Errore caricamento foto:', photo.photo_id);
+            skeleton.style.background = 'rgba(255,0,0,0.1)';
+            skeleton.innerHTML = '<div style="padding: 10px; text-align: center; color: #ff4444; font-size: 12px;">Error</div>';
+            firstPhotosLoaded++;
+            checkAllPhotosLoaded();
+          };
+          // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
+          const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
+          let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+          if(userEmail && isPaid) {
+            photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+          }
+          
+          // Per le prime 6 foto, usa fetchpriority per caricamento più veloce
+          if(index < 6) {
+            img.fetchPriority = 'high';
+          }
+          
+          imgElement.src = photoUrl;
+        }
+        
+        const addCartBtn = document.createElement('button');
+        addCartBtn.className = 'add-cart';
+        addCartBtn.dataset.photoId = photo.photo_id;
+        
+        // Se la foto è pagata, mostra solo testo "già acquistata"
+        // Controlla sia paidPhotos che photo.paid per sicurezza
+        const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
+        if(isPaid) {
+          addCartBtn.style.display = 'none';
+          // Assicurati che la foto sia in paidPhotos
+          if(!paidPhotos.includes(photo.photo_id)) {
+            paidPhotos.push(photo.photo_id);
+          }
+          // Aggiungi solo testo semplice "già acquistata"
+          const paidText = document.createElement('div');
+          paidText.className = 'photo-paid-text';
+          paidText.textContent = 'already purchased';
+          paidText.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; z-index: 10; pointer-events: none;';
+          div.appendChild(paidText);
+          
+          // Aggiungi classe per identificare foto pagata (per stili CSS)
+          div.classList.add('photo-paid');
+        } else {
+          // Verifica se la foto è già nel carrello
+          if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
+            addCartBtn.classList.add('in-cart');
+          }
+          addCartBtn.onclick = () => toggleCart(photo.photo_id, addCartBtn);
+        }
+        
+        div.appendChild(skeleton);
+        div.appendChild(img);
+        div.appendChild(addCartBtn);
+        
+        img.addEventListener('click', () => openLightbox(index));
+        albumGrid.appendChild(div);
+      });
+      
+      // Inizializza observer dopo che tutti gli elementi sono nel DOM
+      setTimeout(() => {
+        initImageObserver();
+        // Osserva tutte le immagini non ancora caricate
+        albumGrid.querySelectorAll('img:not([data-loaded="true"])').forEach(img => {
+          imageObserver.observe(img);
+        });
+      }, 100);
+      
+      // Fallback: nascondi overlay dopo max 2 secondi se non è già stato nascosto
+      setTimeout(() => {
+        if(loadingOverlay && loadingOverlay.classList.contains('active')) {
+          loadingOverlay.classList.remove('active');
+          enableAlbumInteractions();
+        }
+      }, 2000);
+      
+      // Mostra sticky bar con conteggio solo delle foto NON pagate (disponibili da comprare)
+      const unpaidPhotosCount = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id)).length;
+      if(unpaidPhotosCount > 0) {
+        showStickyOfferBar(unpaidPhotosCount);
+      } else {
+        // Nascondi sticky bar se tutte le foto sono pagate
+        const stickyBar = document.getElementById('stickyOfferBar');
+        if(stickyBar) {
+          stickyBar.style.display = 'none';
+        }
+      }
+    }
+
+    function showStickyOfferBar(photoCount) {
+      const stickyBar = document.getElementById('stickyOfferBar');
+      const stickyText = document.getElementById('stickyOfferText');
+      const stickyPrice = document.getElementById('stickyOfferPrice');
+      const stickyBuyBtn = document.getElementById('stickyOfferBuyBtn');
+      const photoCountBanner = document.getElementById('albumPhotoCount');
+      const photoCountNumber = document.getElementById('photoCountNumber');
+      const albumScreen = document.getElementById('albumScreen');
+      
+      if(!stickyBar) {
+        console.warn("Sticky offer bar non trovato");
+        return;
+      }
+      
+      // Verifica che lo schermo album sia attivo
+      if(!albumScreen || !albumScreen.classList.contains('active')) {
+        console.warn("Schermo album non attivo, aspetto...");
+        setTimeout(() => showStickyOfferBar(photoCount), 200);
+        return;
+      }
+      
+      // Mostra banner conteggio foto sopra la griglia
+      if(photoCountBanner && photoCountNumber) {
+        photoCountNumber.textContent = photoCount;
+        const foundText = `You found ${photoCount} photos`;
+        photoCountBanner.innerHTML = foundText;
+        photoCountBanner.style.display = 'block';
+      }
+      
+      // Calcola prezzo
+      const priceCents = calculatePrice(photoCount);
+      const priceEuros = (priceCents / 100).toFixed(2);
+      
+      // Messaggio personalizzato in base al numero di foto (tradotto)
+      let message = "";
+      if(photoCount === 1) {
+        message = 'Buy your photo';
+      } else if(photoCount <= 5) {
+        message = `Buy all ${photoCount} photos`;
+      } else if(photoCount <= 11) {
+        message = `Buy all ${photoCount} photos and save`;
+      } else {
+        message = `Buy all ${photoCount} photos at the best price`;
+      }
+      
+      if(stickyText) {
+        stickyText.textContent = message;
+      }
+      
+      if(stickyPrice) {
+        stickyPrice.textContent = `€${priceEuros}`;
+      }
+      
+      if(stickyBuyBtn) {
+        stickyBuyBtn.textContent = 'Buy';
+      }
+      
+      // Event listener per pulsante acquista (se non già presente)
+      if(stickyBuyBtn && !stickyBuyBtn.dataset.listenerAdded) {
+        stickyBuyBtn.addEventListener('click', () => {
+          checkoutAllPhotos(); // Usa funzione separata per acquistare TUTTE le foto
+        });
+        stickyBuyBtn.dataset.listenerAdded = 'true';
+      }
+      
+      // Pulsante chiudi rimosso - il banner rimane sempre visibile
+      
+      // Mostra banner con animazione
+      stickyBar.style.display = 'flex';
+      stickyBar.classList.add('active');
+      
+      // Mostra countdown banner se ci sono foto pagate
+      showPaidCountdownBanner();
+    }
+    
+    function showPaidCountdownBanner() {
+      const countdownBanner = document.getElementById('paidCountdownBanner');
+      const countdownText = document.getElementById('paidCountdownText');
+      const countdownDays = document.getElementById('paidCountdownDays');
+      
+      if(!countdownBanner || paidPhotos.length === 0) {
+      return;
+    }
+
+      // Calcola giorni rimanenti (30 giorni dalla data di pagamento)
+      // Per ora usiamo una stima: assumiamo che le foto siano state pagate oggi
+      // In futuro potremmo recuperare la data di scadenza dal server
+      const daysRemaining = 30; // Default, in futuro recuperare da server
+      
+      if(daysRemaining > 0) {
+        // Traduci il messaggio
+        let message = "";
+        if(currentLang === 'en') {
+          message = `Your paid photos will expire in <strong>${daysRemaining}</strong> days`;
+        } else if(currentLang === 'it') {
+          message = `Le tue foto pagate scadranno tra <strong>${daysRemaining}</strong> giorni`;
+        } else if(currentLang === 'fr') {
+          message = `Vos photos payées expireront dans <strong>${daysRemaining}</strong> jours`;
+        } else if(currentLang === 'de') {
+          message = `Ihre bezahlten Fotos laufen in <strong>${daysRemaining}</strong> Tagen ab`;
+        } else if(currentLang === 'es') {
+          message = `Tus fotos pagadas expirarán en <strong>${daysRemaining}</strong> días`;
+        } else {
+          message = `Le tue foto pagate scadranno tra <strong>${daysRemaining}</strong> giorni`;
+        }
+        
+        if(countdownText) {
+          countdownText.innerHTML = message;
+        }
+        if(countdownDays) {
+          countdownDays.textContent = daysRemaining;
+        }
+        
+        // Mostra banner con animazione
+        setTimeout(() => {
+          countdownBanner.classList.add('show');
+        }, 500);
+      }
+    }
+
+    function openLightbox(index) {
+      // Previeni l'apertura se le foto stanno ancora caricando
+      const loadingOverlay = document.getElementById('albumLoadingOverlay');
+      if(loadingOverlay && loadingOverlay.classList.contains('active')) {
+        return; // Non fare nulla se sta caricando
+      }
+      
+      currentPhotoIndex = index;
+      const photo = allPhotos[index];
+      
+      // Verifica che lightboxImage e photoLightbox esistano
+      if(!lightboxImage || !photoLightbox) {
+        console.error('Lightbox elements not found');
+        return;
+      }
+      
+      // Preload dell'immagine prima di mostrarla
+      const img = new Image();
+      img.onload = () => {
+        if(lightboxImage) {
+          lightboxImage.src = img.src;
+        }
+        updateLightboxCounter();
+        if(photoLightbox) {
+          photoLightbox.classList.add('active');
+        }
+      };
+      img.onerror = () => {
+        alert('Connection error. Check your internet connection and try again.');
+      };
+      
+      // Usa paid=true se la foto è pagata E passa sempre l'email per verifica backend
+      const isPaid = paidPhotos.includes(photo.photo_id);
+      let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+      if(userEmail && isPaid) {
+        photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+      }
+      img.src = photoUrl;
+      
+      // Mostra/nascondi frecce
+      const prevBtn = document.getElementById('lightboxPrev');
+      const nextBtn = document.getElementById('lightboxNext');
+      const downloadBtn = document.getElementById('lightboxDownload');
+      if(prevBtn) {
+        prevBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
+      }
+      if(nextBtn) {
+        nextBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
+      }
+      
+      // Mostra pulsante download solo se foto è pagata
+      if(downloadBtn) {
+        if(isPaid) {
+          downloadBtn.style.display = 'block';
+          downloadBtn.onclick = () => downloadPhoto(photo.photo_id);
+        } else {
+          downloadBtn.style.display = 'none';
+        }
+      }
+    }
+    
+    function updateLightboxCounter() {
+      if(photoCounter) {
+        photoCounter.textContent = `${currentPhotoIndex + 1}/${allPhotos.length}`;
+      }
+    }
+    
+    function nextPhoto() {
+      if(!lightboxImage) return;
+      if(currentPhotoIndex < allPhotos.length - 1) {
+        currentPhotoIndex++;
+        const photo = allPhotos[currentPhotoIndex];
+        const isPaid = paidPhotos.includes(photo.photo_id);
+        let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+        if(userEmail && isPaid) {
+          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        }
+        lightboxImage.src = photoUrl;
+        updateLightboxCounter();
+        updateDownloadButton(photo.photo_id);
+      }
+    }
+    
+    function prevPhoto() {
+      if(!lightboxImage) return;
+      if(currentPhotoIndex > 0) {
+        currentPhotoIndex--;
+        const photo = allPhotos[currentPhotoIndex];
+        const isPaid = paidPhotos.includes(photo.photo_id);
+        let photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
+        if(userEmail && isPaid) {
+          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        }
+        lightboxImage.src = photoUrl;
+        updateLightboxCounter();
+        updateDownloadButton(photo.photo_id);
+      }
+    }
+    
+    function updateDownloadButton(photoId) {
+      const downloadBtn = document.getElementById('lightboxDownload');
+      if(paidPhotos.includes(photoId)) {
+        downloadBtn.style.display = 'block';
+        downloadBtn.onclick = () => downloadPhoto(photoId);
+      } else {
+        downloadBtn.style.display = 'none';
+      }
+    }
+    
+    // Rileva se è iOS
+    function isIOS() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+    
+    // Rileva se è Android
+    function isAndroid() {
+      return /Android/i.test(navigator.userAgent);
+    }
+    
+    async function downloadPhoto(photoId) {
+      try {
+        // Verifica che la foto sia pagata
+        if(!paidPhotos.includes(photoId)) {
+          alert("This photo has not been paid yet");
+      return;
+    }
+
+        // Passa SEMPRE email per verifica backend (obbligatorio per foto pagate)
+        if(!userEmail) {
+          userEmail = localStorage.getItem('userEmail');
+        }
+        
+        if(!userEmail) {
+          alert("Email not found. Please log in again.");
+        return;
+      }
+
+        const filename = `${photoId}.jpg`;
+        
+        // Costruisci URL con paid=true, email e download=true per verifica backend e forzare download
+        const photoUrl = `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(userEmail)}&download=true`;
+        
+        // Su iOS: usa approccio semplice e diretto
+        if(isIOS()) {
+          try {
+            // Prova prima con Web Share API (salva direttamente nella galleria)
+            const response = await fetch(photoUrl);
+            if(!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            const file = new File([blob], filename, { type: 'image/jpeg' });
+            
+            if(navigator.share && navigator.canShare) {
+              try {
+                if(navigator.canShare({ files: [file] })) {
+                  await navigator.share({
+                    files: [file],
+                    title: 'Salva foto',
+                    text: 'Salva questa foto nella galleria'
+                  });
+                  return;
+                }
+              } catch(shareErr) {
+                console.log('Web Share error:', shareErr);
+              }
+            }
+          } catch(fetchError) {
+            console.error('Errore fetch:', fetchError);
+            alert('Error loading photo. Please try again.');
+        return;
+      }
+
+          // Fallback: apri l'immagine direttamente usando l'URL
+          // Su iOS Safari, questo permette all'utente di fare long-press e salvare
+          const imgWindow = window.open(photoUrl, '_blank');
+          
+          if(imgWindow) {
+            // Mostra istruzioni dopo un breve delay
+            setTimeout(() => {
+              alert('📱 Touch and hold the image, then select "Save to Photos" to save it to your gallery.');
+            }, 800);
+          } else {
+            // Se popup bloccato, mostra istruzioni alternative
+            alert('📱 Popup blocked. To save the photo:\n1. Touch and hold the image\n2. Select "Save to Photos"\n\nOr open this page in Safari.');
+          }
+        }
+        // Su Android: download diretto (salva automaticamente nella galleria)
+        else if(isAndroid()) {
+          // photoUrl già contiene download=true
+          const link = document.createElement('a');
+          link.href = photoUrl;
+          link.download = filename;
+          link.style.display = 'none';
+          link.target = '_self';
+          document.body.appendChild(link);
+          link.click();
+          
+          setTimeout(() => {
+            document.body.removeChild(link);
+          }, 1000);
+        }
+        // Desktop: download normale
+        else {
+          // photoUrl già contiene download=true
+          const response = await fetch(photoUrl);
+          if(!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
+        }
+      } catch(e) {
+        console.error("Error downloading photo:", e);
+        alert("Error downloading photo. Please try again.");
+      }
+    }
+
+    async function toggleCart(photoId, buttonElement) {
+      // Previeni l'aggiunta di foto pagate al carrello
+      if(paidPhotos.includes(photoId)) {
+        console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
+        return;
+      }
+      try {
+        // Previeni l'aggiunta di foto pagate al carrello
+        if(paidPhotos.includes(photoId)) {
+          console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
+          alert("This photo has already been purchased. You can download it by clicking 'Download'.");
+          return;
+        }
+        
+        // Verifica se la foto è già nel carrello
+        const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
+        
+        let res;
+        if(isInCart) {
+          // Rimuovi dal carrello
+          res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+            method: "DELETE"
+          });
+        } else {
+          // Aggiungi al carrello - passa sempre email per validazione backend
+          let url = `/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`;
+          if(userEmail) {
+            url += `&email=${encodeURIComponent(userEmail)}`;
+          }
+          res = await fetch(url, {
+            method: "POST"
+          });
+        }
+        
+        const data = await res.json();
+        
+        // Se il backend ha rifiutato perché la foto è pagata, aggiorna paidPhotos
+        if(!data.ok && data.error && (data.error.includes("già stata acquistata") || data.error.includes("already paid"))) {
+          if(!paidPhotos.includes(photoId)) {
+            paidPhotos.push(photoId);
+          }
+          // Aggiorna anche allPhotos
+          const photo = allPhotos.find(p => p.photo_id === photoId);
+          if(photo) {
+            photo.paid = true;
+          }
+          // Ricarica le foto per aggiornare i pulsanti
+          await displayPhotos();
+          alert(data.error || "This photo has already been purchased.");
+          return;
+        }
+        
+        if(data.ok) {
+          currentCart = data;
+          updateCart();
+          updateCartModal();
+          
+          // Aggiorna lo stato visivo del pulsante
+          if(buttonElement) {
+            if(isInCart) {
+              buttonElement.classList.remove('in-cart');
+            } else {
+              buttonElement.classList.add('in-cart');
+            }
+          } else {
+            // Se non abbiamo il riferimento diretto, cerca il pulsante
+            const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
+            if(btn) {
+              if(isInCart) {
+                btn.classList.remove('in-cart');
+              } else {
+                btn.classList.add('in-cart');
+              }
+            }
+          }
+        }
+      } catch(err) {
+        console.error("Error toggling cart:", err);
+      }
+    }
+    
+    async function addToCart(photoId) {
+      // Previeni l'aggiunta di foto pagate al carrello
+      if(paidPhotos.includes(photoId)) {
+        console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
+        return;
+      }
+      // Manteniamo questa funzione per compatibilità, ma usa toggleCart
+      const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
+      await toggleCart(photoId, btn);
+    }
+
+    function updateCart() {
+      if(albumCartCount) {
+        albumCartCount.textContent = currentCart.count || 0;
+      }
+      if(albumCartPrice) {
+        albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      }
+      // buyAllPrice rimosso insieme al pulsante buyAllBtn
+      if(buyAllPrice) {
+        buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      }
+    }
+    
+    function updateCartModal() {
+      const cartItems = document.getElementById('cartItems');
+      const cartTotal = document.getElementById('cartTotal');
+      const checkoutBtn = document.getElementById('checkoutBtn');
+      
+      if(!cartItems || !cartTotal || !checkoutBtn) {
+        console.warn('Cart modal elements not found');
+        return;
+      }
+      
+      if(currentCart.photo_ids && currentCart.photo_ids.length > 0) {
+        cartItems.innerHTML = '';
+        currentCart.photo_ids.forEach(photoId => {
+          const div = document.createElement('div');
+          div.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);';
+          div.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <img src="/photo/${encodeURIComponent(photoId)}?paid=false" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;" />
+              <span style="font-size: 14px; color: var(--text-light);">${photoId}</span>
+  </div>
+            <button onclick="removeFromCart('${photoId}')" style="background: #ff4444; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;">Rimuovi</button>
+          `;
+          cartItems.appendChild(div);
+        });
+        cartTotal.textContent = `€${currentCart.price_euros.toFixed(2)}`;
+        checkoutBtn.disabled = false;
+      } else {
+        cartItems.innerHTML = '<p style="text-align: center; color: var(--text-muted);">Il carrello è vuoto</p>';
+        cartTotal.textContent = "€0.00";
+        checkoutBtn.disabled = true;
+      }
+    }
+    
+    async function removeFromCart(photoId) {
+      try {
+        const res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+          method: "DELETE"
+        });
+        const data = await res.json();
+        if(data.ok) {
+          currentCart = data;
+          updateCart();
+          updateCartModal();
+          
+          // Aggiorna lo stato visivo del pulsante nella griglia
+          const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
+          if(btn) {
+            btn.classList.remove('in-cart');
+          }
+        }
+      } catch(err) {
+        console.error("Error removing from cart:", err);
+      }
+    }
+
+    function calculatePrice(count) {
+      // TEST MODE: tutte le foto costano 50 centesimi (minimo Stripe)
+      return 50; // €0.50 (TEST MODE - minimo Stripe, cambiare per produzione)
+      
+      // Prezzi produzione (commentati):
+      // if(count === 1) return 2000; // €20.00
+      // if(count === 2) return 4000; // €40.00
+      // if(count === 3) return 3500; // €35.00
+      // if(count === 4) return 4000; // €40.00
+      // if(count === 5) return 4500; // €45.00
+      // if(count >= 6 && count <= 11) return 5000; // €50.00
+      // return 6000; // €60.00
+    }
+
+    async function checkout() {
+      // Checkout normale: usa il carrello corrente
+      if(!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
+        alert('Cart is empty');
+        return;
+      }
+      
+      if(!userEmail) {
+        alert("Email is required");
+        showScreen('email');
+      return;
+    }
+
+      // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout
+      if(paidPhotos.length > 0) {
+        const paidPhotoIdsSet = new Set(paidPhotos);
+        const unpaidInCart = currentCart.photo_ids.filter(photoId => !paidPhotoIdsSet.has(photoId));
+        
+        if(unpaidInCart.length !== currentCart.photo_ids.length) {
+          console.log(`Rimosse ${currentCart.photo_ids.length - unpaidInCart.length} foto pagate dal carrello prima del checkout`);
+          
+          // Rimuovi foto pagate dal carrello backend
+          for(const paidPhotoId of currentCart.photo_ids) {
+            if(paidPhotoIdsSet.has(paidPhotoId)) {
+              try {
+                await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(paidPhotoId)}`, {
+                  method: "DELETE"
+                });
+              } catch(e) {
+                console.error('Error removing paid photo from cart:', e);
+              }
+            }
+          }
+          
+          // Aggiorna carrello locale
+          const res = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+          const cartData = await res.json();
+          if(cartData.ok) {
+            currentCart = cartData;
+            updateCart();
+            
+            // Se carrello vuoto dopo filtro, avvisa
+            if(currentCart.photo_ids.length === 0) {
+              alert("All selected photos have already been purchased. You can download them from the 'My Photos' page.");
+        return;
+            }
+          }
+        }
+      }
+      
+      const checkoutBtn = document.getElementById("checkoutBtn");
+      if(checkoutBtn) {
+        checkoutBtn.disabled = true;
+        checkoutBtn.textContent = "⏳ Caricamento...";
+      }
+      
+      try {
+        console.log("Inizio checkout:", { sessionId, userEmail, photoCount: currentCart.photo_ids.length });
+        
+        // Prova prima checkout normale, se fallisce (503) usa test-checkout
+        let res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}&email=${encodeURIComponent(userEmail)}`, {
+          method: "POST"
+        });
+        
+        console.log("Checkout response status:", res.status);
+        
+        // Se Stripe non è configurato (503), usa test-checkout
+        if(res.status === 503) {
+          console.log("Stripe not configured, using test-checkout...");
+          res = await fetch(`/test-checkout?session_id=${encodeURIComponent(sessionId)}&email=${encodeURIComponent(userEmail)}`, {
+            method: "POST"
+          });
+          console.log("Test-checkout response status:", res.status);
+        }
+        
+        if(!res.ok) {
+          const errorText = await res.text();
+          console.error("Checkout error response:", errorText);
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch(e) {
+            errorData = { detail: errorText || `Errore ${res.status}` };
+          }
+          throw new Error(errorData.detail || `Errore ${res.status}: ${res.statusText}`);
+        }
+        
+        const data = await res.json();
+        console.log("Checkout data:", data);
+        
+        if(data.checkout_url) {
+          console.log("Redirecting to Stripe:", data.checkout_url);
+          window.location.href = data.checkout_url;
+        } else {
+          throw new Error("URL di checkout non ricevuto dal server");
+        }
+      } catch(err) {
+        console.error("Checkout error:", err);
+        alert("Error during payment: " + err.message + "\n\nCheck the console for details.");
+        if(checkoutBtn) {
+          checkoutBtn.disabled = false;
+          checkoutBtn.textContent = "💳 Vai al Pagamento";
+        }
+      }
+    }
+    
+    async function checkoutAllPhotos() {
+      // Checkout per TUTTE le foto: ignora il carrello e usa tutte le foto trovate
+      if(!allPhotos || allPhotos.length === 0) {
+        alert("No photos available!");
+    return;
+  }
+
+      // Crea un carrello temporaneo con TUTTE le foto
+      const allPhotoIds = allPhotos.map(photo => photo.photo_id);
+      const totalCount = allPhotoIds.length;
+      const totalPriceCents = calculatePrice(totalCount);
+      const totalPriceEuros = (totalPriceCents / 100).toFixed(2);
+      
+      // Aggiungi tutte le foto al carrello temporaneamente per il checkout
+      // Usiamo una sessione separata o aggiungiamo direttamente tutte le foto
+      try {
+        // Prima, aggiungi tutte le foto al carrello (sovrascrive il carrello corrente)
+        // Oppure crea una nuova sessione per questo checkout
+        const checkoutSessionId = "checkout_all_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+        
+        // Aggiungi tutte le foto una per una al carrello di checkout
+        for(const photoId of allPhotoIds) {
+          await fetch(`/cart/add?session_id=${encodeURIComponent(checkoutSessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+            method: "POST"
+          });
+        }
+        
+        // Verifica email
+        if(!userEmail) {
+          alert("Email is required");
+          showScreen('email');
+    return;
+  }
+
+        // Ora fai il checkout con questa sessione che contiene tutte le foto
+        const res = await fetch(`/checkout?session_id=${encodeURIComponent(checkoutSessionId)}&email=${encodeURIComponent(userEmail)}`, {
+          method: "POST"
+        });
+        
+        const data = await res.json();
+        if(data.checkout_url) {
+          window.location.href = data.checkout_url;
+        } else {
+          alert("Error during checkout. Please try again.");
+        }
+      } catch(err) {
+        console.error("Errore checkout tutte le foto:", err);
+        alert("Errore durante il checkout. Riprova.");
+      }
+    }
+
+    // Lightbox controls (solo se elementi esistono)
+    const lightboxClose = document.getElementById('lightboxClose');
+    const lightboxPrev = document.getElementById('lightboxPrev');
+    const lightboxNext = document.getElementById('lightboxNext');
+    
+    if(lightboxClose && photoLightbox) {
+      lightboxClose.addEventListener('click', () => {
+        photoLightbox.classList.remove('active');
+      });
+    }
+    
+    if(lightboxPrev) {
+      lightboxPrev.addEventListener('click', prevPhoto);
+    }
+    
+    if(lightboxNext) {
+      lightboxNext.addEventListener('click', nextPhoto);
+    }
+    
+    // Navigazione con tastiera
+    document.addEventListener('keydown', (e) => {
+      if(photoLightbox && photoLightbox.classList.contains('active')) {
+        if(e.key === 'ArrowLeft') prevPhoto();
+        if(e.key === 'ArrowRight') nextPhoto();
+        if(e.key === 'Escape') photoLightbox.classList.remove('active');
+      }
+    });
+
+    if(photoLightbox) {
+      photoLightbox.addEventListener('click', (e) => {
+        if(e.target === photoLightbox) {
+          photoLightbox.classList.remove('active');
+        }
+      });
+    }
+    
+    // Blocca salvataggio foto (solo se lightboxImage esiste)
+    if(lightboxImage) {
+      lightboxImage.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        alert('⚠️ Purchase the photo to download it!');
+      });
+      
+      lightboxImage.addEventListener('dragstart', (e) => {
+        e.preventDefault();
+      });
+    }
+    
+
+    // Boot
+    window.addEventListener('load', () => {
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("This browser does not support the camera.");
+      }
+    });
+  </script>
+</body>
+</html>
+

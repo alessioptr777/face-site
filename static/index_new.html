@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Tenerife Stars Pictures - Trova le tue foto</title>
+  <style>
+    :root{
+      --bg-dark: #0a0e27;
+      --bg-dark2: #1a1f3a;
+      --bg-gradient: linear-gradient(180deg, #1a1f3a 0%, #0a0e27 100%);
+      --text-light: #ffffff;
+      --text-muted: #a0a8c0;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --purple: #a855f7;
+      --pink: #ec4899;
+      --radius: 16px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    *{box-sizing:border-box; margin:0; padding:0}
+    body{
+      margin:0;
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;
+      color:var(--text-light);
+      min-height:100vh;
+      background: var(--bg-gradient);
+      padding:0;
+      overflow-x: hidden;
+    }
+    
+    /* Utility */
+    .screen{
+      min-height: 100vh;
+      display: none;
+      flex-direction: column;
+    }
+    .screen.active{
+      display: flex;
+    }
+    
+    /* Welcome Screen */
+    .welcome-screen{
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .welcome-icon{
+      width: 120px;
+      height: 120px;
+      margin-bottom: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .welcome-icon svg{
+      width: 100%;
+      height: 100%;
+      stroke: var(--accent-light);
+      fill: none;
+      stroke-width: 2;
+    }
+    
+    .welcome-title{
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 20px;
+    }
+    
+    .welcome-text{
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 400px;
+      margin: 0 auto 40px;
+    }
+    
+    .welcome-privacy{
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 400px;
+      margin: 20px auto 0;
+    }
+    
+    .btn-primary{
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+      color: white;
+      border: none;
+      padding: 16px 48px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .btn-primary:active{
+      transform: scale(0.98);
+    }
+    
+    /* Selfie Screen */
+    .selfie-screen{
+      padding: 20px;
+    }
+    
+    .selfie-preview{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    
+    .selfie-video{
+      width: 100%;
+      max-width: 500px;
+      border-radius: 20px;
+      overflow: hidden;
+      background: #000;
+    }
+    
+    .selfie-video video{
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    
+    .selfie-controls{
+      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    
+    .camera-btn{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: white;
+      border: 4px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    .camera-btn svg{
+      width: 40px;
+      height: 40px;
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+    
+    /* Confirm Selfie Screen */
+    .confirm-screen{
+      padding: 20px;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .confirm-title{
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    .confirm-preview{
+      width: 100%;
+      max-width: 300px;
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 30px;
+      box-shadow: var(--shadow);
+    }
+    
+    .confirm-preview img{
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    
+    .confirm-privacy{
+      max-width: 400px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 30px;
+      line-height: 1.6;
+    }
+    
+    .confirm-privacy a{
+      color: var(--accent-light);
+      text-decoration: underline;
+    }
+    
+    .confirm-buttons{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      max-width: 400px;
+    }
+    
+    .btn-confirm{
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .btn-retake{
+      background: transparent;
+      color: var(--text-light);
+      border: 2px solid var(--text-muted);
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    /* Add People Screen */
+    .add-people-screen{
+      padding: 40px 20px;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    
+    .add-people-title{
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 30px;
+    }
+    
+    .people-list{
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+    
+    .person-avatar{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--bg-dark2);
+      border: 3px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    
+    .person-avatar img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .add-person-btn{
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 32px;
+      color: white;
+    }
+    
+    .add-people-buttons{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      max-width: 400px;
+    }
+    
+    /* Album Screen */
+    .album-screen{
+      padding: 0;
+    }
+    
+    .album-header{
+      background: var(--bg-dark2);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .album-back{
+      background: none;
+      border: none;
+      color: var(--text-light);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 8px;
+    }
+    
+    .album-cart{
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    
+    .album-profile{
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .profile-avatar{
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: var(--bg-dark2);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .profile-avatar img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .profile-info h3{
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    
+    .profile-info p{
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    
+    .album-tabs{
+      display: flex;
+      padding: 0 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .album-tab{
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      padding: 16px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    
+    .album-tab.active{
+      color: var(--text-light);
+      border-bottom-color: var(--accent);
+    }
+    
+    .album-grid{
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 15px;
+    }
+    
+    .album-photo{
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 1;
+      background: var(--bg-dark2);
+    }
+    
+    .album-photo img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .album-photo .add-cart{
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: none;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+    }
+    
+    .album-buy-all{
+      margin: 20px;
+      background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
+      color: white;
+      border: none;
+      padding: 20px;
+      border-radius: 16px;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 4px 20px rgba(168, 85, 247, 0.4);
+    }
+    
+    .album-buy-all .price{
+      font-size: 24px;
+    }
+    
+    .album-buy-all .subtitle{
+      font-size: 14px;
+      opacity: 0.9;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Welcome Screen -->
+  <div class="screen welcome-screen active" id="welcomeScreen">
+    <div class="welcome-icon">
+      <svg viewBox="0 0 100 100">
+        <rect x="20" y="25" width="60" height="50" rx="8"/>
+        <circle cx="50" cy="45" r="12"/>
+        <rect x="35" y="60" width="30" height="8" rx="4"/>
+        <circle cx="70" cy="35" r="4"/>
+      </svg>
+    </div>
+    <h1 class="welcome-title">Trova le tue foto!</h1>
+    <p class="welcome-text">
+      Nel prossimo passaggio ti sarà chiesto di abilitare la fotocamera, per permettere al nostro sistema di consegnare le tue foto dell'evento.
+    </p>
+    <button class="btn-primary" id="welcomeContinueBtn">Continua</button>
+    <p class="welcome-privacy">
+      Operiamo nel totale rispetto della Privacy ed utilizziamo il tuo viso esclusivamente per trovare le foto che ti ritraggono.
+    </p>
+  </div>
+
+  <!-- Selfie Screen -->
+  <div class="screen selfie-screen" id="selfieScreen">
+    <div class="selfie-preview">
+      <div class="selfie-video">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+      </div>
+      <div class="selfie-controls">
+        <button class="camera-btn" id="captureBtn">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10"/>
+          </svg>
+        </button>
+        <button class="btn-retake" id="switchCameraBtn" style="display:none;">Cambia camera</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Selfie Screen -->
+  <div class="screen confirm-screen" id="confirmScreen">
+    <h2 class="confirm-title">Conferma selfie</h2>
+    <div class="confirm-preview">
+      <img id="confirmPreview" alt="Selfie preview">
+    </div>
+    <p class="confirm-privacy">
+      Selezionando "Conferma" acconsenti al trattamento dei dati biometrici per le finalità di Rilevazione e Riconoscimento come da <a href="#">Privacy Policy</a>.
+    </p>
+    <div class="confirm-buttons">
+      <button class="btn-confirm" id="confirmBtn">Conferma</button>
+      <button class="btn-retake" id="retakeBtn">Scatta di nuovo</button>
+    </div>
+  </div>
+
+  <!-- Add People Screen -->
+  <div class="screen add-people-screen" id="addPeopleScreen">
+    <h2 class="add-people-title">Ottimo!</h2>
+    <p style="color: var(--text-muted); margin-bottom: 30px;">Vuoi aggiungere al tuo album altri membri della famiglia?</p>
+    <div class="people-list" id="peopleList">
+      <div class="person-avatar">
+        <img id="mainPersonAvatar" alt="Persona principale">
+      </div>
+      <button class="add-person-btn" id="addPersonBtn">+</button>
+    </div>
+    <div class="add-people-buttons">
+      <button class="btn-primary" id="addPersonConfirmBtn">Sì, aggiungi un'altra persona</button>
+      <button class="btn-retake" id="skipAddPersonBtn">Non ora, vai all'album</button>
+    </div>
+  </div>
+
+  <!-- Album Screen -->
+  <div class="screen album-screen" id="albumScreen">
+    <div class="album-header">
+      <button class="album-back" id="albumBackBtn">←</button>
+      <button class="album-cart" id="albumCartBtn">
+        🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
+      </button>
+    </div>
+    <div class="album-profile">
+      <div class="profile-avatar">
+        <img src="/static/logo.png" alt="Tenerife Stars Pictures" onerror="this.style.display='none'">
+      </div>
+      <div class="profile-info">
+        <h3>Tenerife Stars Pictures</h3>
+        <p>Tu sesión de fotos fue realizada por Metaproos</p>
+      </div>
+    </div>
+    <div class="album-tabs">
+      <button class="album-tab active" id="myContentTab">I miei contenuti</button>
+      <button class="album-tab" id="pricesTab">Listino prezzi ↗</button>
+    </div>
+    <div class="album-grid" id="albumGrid">
+      <!-- Foto verranno aggiunte qui -->
+    </div>
+    <button class="album-buy-all" id="buyAllBtn">
+      <div>
+        <div>Acquista tutte le foto a <span class="price" id="buyAllPrice">€0</span></div>
+        <div class="subtitle">in formato digitale</div>
+      </div>
+      <span>→</span>
+    </button>
+  </div>
+
+  <!-- Lightbox per foto -->
+  <div class="ios-share-modal" id="photoLightbox" style="z-index: 2000;">
+    <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+      <button style="position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.6); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10;">✕</button>
+      <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10;" id="photoCounter">1/1</div>
+      <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain;" alt="Foto">
+    </div>
+  </div>
+
+  <script>
+    // Variabili globali
+    let currentScreen = 'welcome';
+    let stream = null;
+    let useFront = true;
+    let capturedBlob = null;
+    let sessionId = localStorage.getItem("cart_session_id") || "session_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem("cart_session_id", sessionId);
+    let currentCart = { photo_ids: [], count: 0, price_euros: 0 };
+    let allPhotos = [];
+    let currentPhotoIndex = 0;
+
+    // Elementi DOM
+    const welcomeScreen = document.getElementById("welcomeScreen");
+    const selfieScreen = document.getElementById("selfieScreen");
+    const confirmScreen = document.getElementById("confirmScreen");
+    const addPeopleScreen = document.getElementById("addPeopleScreen");
+    const albumScreen = document.getElementById("albumScreen");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const confirmPreview = document.getElementById("confirmPreview");
+    const mainPersonAvatar = document.getElementById("mainPersonAvatar");
+    const albumGrid = document.getElementById("albumGrid");
+    const albumCartBtn = document.getElementById("albumCartBtn");
+    const albumCartCount = document.getElementById("albumCartCount");
+    const albumCartPrice = document.getElementById("albumCartPrice");
+    const buyAllBtn = document.getElementById("buyAllBtn");
+    const buyAllPrice = document.getElementById("buyAllPrice");
+    const photoLightbox = document.getElementById("photoLightbox");
+    const lightboxImage = document.getElementById("photoLightbox").querySelector("img");
+    const photoCounter = document.getElementById("photoCounter");
+
+    // Funzioni screen management
+    function showScreen(screenName) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const screen = document.getElementById(screenName + 'Screen');
+      if(screen) screen.classList.add('active');
+      currentScreen = screenName;
+    }
+
+    // Event listeners
+    document.getElementById("welcomeContinueBtn").addEventListener("click", () => {
+      startCamera();
+      showScreen('selfie');
+    });
+
+    document.getElementById("captureBtn").addEventListener("click", captureSelfie);
+    document.getElementById("confirmBtn").addEventListener("click", confirmSelfie);
+    document.getElementById("retakeBtn").addEventListener("click", () => {
+      startCamera();
+      showScreen('selfie');
+    });
+    document.getElementById("skipAddPersonBtn").addEventListener("click", () => {
+      matchPhotos();
+    });
+    document.getElementById("addPersonConfirmBtn").addEventListener("click", () => {
+      // Per ora salta, poi implementeremo aggiunta persone
+      matchPhotos();
+    });
+    document.getElementById("buyAllBtn").addEventListener("click", checkout);
+    document.getElementById("albumBackBtn").addEventListener("click", () => {
+      showScreen('welcome');
+    });
+
+    // Funzioni camera
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: useFront ? 'user' : 'environment' }
+        });
+        video.srcObject = stream;
+      } catch (err) {
+        alert("Errore accesso camera: " + err.message);
+      }
+    }
+
+    function captureSelfie() {
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      
+      canvas.toBlob((blob) => {
+        capturedBlob = blob;
+        const url = URL.createObjectURL(blob);
+        confirmPreview.src = url;
+        mainPersonAvatar.src = url;
+        if(stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        showScreen('confirm');
+      }, 'image/jpeg', 0.9);
+    }
+
+    function confirmSelfie() {
+      showScreen('addPeople');
+    }
+
+    // Funzioni matching
+    async function matchPhotos() {
+      if(!capturedBlob) return;
+      
+      try {
+        const fd = new FormData();
+        fd.append("selfie", capturedBlob, "selfie.jpg");
+        
+        const res = await fetch("/match_selfie?top_k_faces=120&min_score=0.08", {
+          method: "POST",
+          body: fd
+        });
+        
+        const data = await res.json();
+        if(data.ok && data.results && data.results.length > 0) {
+          allPhotos = data.results;
+          displayPhotos();
+          updateCart();
+          showOffersPopup(data.results.length);
+          showScreen('album');
+        } else {
+          alert("Nessuna foto trovata. Riprova.");
+          showScreen('selfie');
+          startCamera();
+        }
+      } catch(err) {
+        console.error(err);
+        alert("Errore nel caricamento foto.");
+      }
+    }
+
+    function displayPhotos() {
+      albumGrid.innerHTML = '';
+      allPhotos.forEach((photo, index) => {
+        const div = document.createElement('div');
+        div.className = 'album-photo';
+        div.innerHTML = `
+          <img src="/photo/${encodeURIComponent(photo.photo_id)}?paid=false" alt="${photo.photo_id}">
+          <button class="add-cart" onclick="addToCart('${photo.photo_id}')">+</button>
+        `;
+        div.querySelector('img').addEventListener('click', () => openLightbox(index));
+        albumGrid.appendChild(div);
+      });
+    }
+
+    function openLightbox(index) {
+      currentPhotoIndex = index;
+      const photo = allPhotos[index];
+      lightboxImage.src = `/photo/${encodeURIComponent(photo.photo_id)}?paid=false`;
+      photoCounter.textContent = `${index + 1}/${allPhotos.length}`;
+      photoLightbox.classList.add('active');
+    }
+
+    function addToCart(photoId) {
+      fetch(`/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+        method: "POST"
+      }).then(res => res.json()).then(data => {
+        currentCart = data;
+        updateCart();
+      });
+    }
+
+    function updateCart() {
+      albumCartCount.textContent = currentCart.count || 0;
+      albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+    }
+
+    function showOffersPopup(count) {
+      // Popup offerte già implementato
+      const priceCents = calculatePrice(count);
+      const priceEuros = priceCents / 100;
+      buyAllPrice.textContent = `€${priceEuros.toFixed(2)}`;
+    }
+
+    function calculatePrice(count) {
+      if(count === 1) return 2000;
+      if(count === 2) return 4000;
+      if(count === 3) return 3500;
+      if(count === 4) return 4000;
+      if(count === 5) return 4500;
+      if(count >= 6 && count <= 11) return 5000;
+      return 6000;
+    }
+
+    async function checkout() {
+      if(!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
+        alert("Aggiungi foto al carrello!");
+        return;
+      }
+      
+      const res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}`, {
+        method: "POST"
+      });
+      
+      const data = await res.json();
+      if(data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    }
+
+    // Chiudi lightbox
+    photoLightbox.querySelector('button').addEventListener('click', () => {
+      photoLightbox.classList.remove('active');
+    });
+
+    photoLightbox.addEventListener('click', (e) => {
+      if(e.target === photoLightbox) {
+        photoLightbox.classList.remove('active');
+      }
+    });
+
+    // Boot
+    window.addEventListener('load', () => {
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Questo browser non supporta la camera.");
+      }
+    });
+  </script>
+</body>
+</html>
+
+
