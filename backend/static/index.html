@@ -1451,6 +1451,19 @@
     // Separazione netta tra flusso base e flusso post-pagamento
     
     async function initApp() {
+      // PRIMA DI TUTTO: nascondi tutte le schermate e mostra solo quella data
+      document.querySelectorAll('.screen').forEach(s => {
+        s.classList.remove('active');
+        s.style.display = 'none';
+      });
+      
+      // Mostra SEMPRE la schermata data come prima cosa
+      const dateScreenEl = document.getElementById('dateScreen');
+      if(dateScreenEl) {
+        dateScreenEl.classList.add('active');
+        dateScreenEl.style.display = 'flex';
+      }
+      
       // 1. Controlla se è ritorno dopo pagamento (parametri URL)
       const urlParams = new URLSearchParams(window.location.search);
       const emailParam = urlParams.get('email');
