@@ -333,11 +333,11 @@
     <div id="adminPanel" style="display: none;">
         <div class="container">
             <div class="tabs">
-                <button class="tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
-                <button class="tab" onclick="showTab('orders')">💳 Ordini</button>
-                <button class="tab" onclick="showTab('sales')">📈 Analisi Vendite</button>
-                <button class="tab" onclick="showTab('upload')">📤 Carica Foto</button>
-                <button class="tab" onclick="showTab('backPhotos')">📷 Foto di Spalle</button>
+                <button class="tab active" onclick="showTab('dashboard', event)">📊 Dashboard</button>
+                <button class="tab" onclick="showTab('orders', event)">💳 Ordini</button>
+                <button class="tab" onclick="showTab('sales', event)">📈 Analisi Vendite</button>
+                <button class="tab" onclick="showTab('upload', event)">📤 Carica Foto</button>
+                <button class="tab" onclick="showTab('backPhotos', event)">📷 Foto di Spalle</button>
             </div>
             
             <!-- Dashboard -->
@@ -389,8 +389,13 @@
                 <h2>Upload e Indicizzazione Foto</h2>
                 <p>Carica le foto che vuoi vendere. Verranno automaticamente indicizzate per il face matching.</p>
                 
+                <!-- DEBUG: Se vedi questo, la tab upload è visibile -->
+                <div style="margin-bottom: 20px; padding: 15px; background: #22c55e; color: white; border-radius: 8px; font-weight: bold; text-align: center;">
+                    ✅ SE VEDI QUESTO, LA TAB UPLOAD FUNZIONA ✅
+                </div>
+                
                 <!-- Selettore Data -->
-                <div style="margin-bottom: 30px; padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+                <div style="margin-bottom: 30px; padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); display: block !important; visibility: visible !important;">
                     <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
                         <div style="flex: 1; min-width: 250px;">
                             <label for="dateSelector" style="display: block; margin-bottom: 10px; font-weight: 700; font-size: 16px; color: white;">📅 Seleziona Data del Tour:</label>
@@ -476,17 +481,36 @@
             }
         }
         
-        function showTab(tabName) {
+        function showTab(tabName, evt) {
+            console.log('showTab chiamato con:', tabName);
+            
+            // Rimuovi active da tutte le tab
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             
-            event.target.classList.add('active');
-            document.getElementById(tabName).classList.add('active');
+            // Aggiungi active alla tab cliccata
+            const clickedTab = evt && evt.target ? evt.target : document.querySelector(`button[onclick*="showTab('${tabName}')"]`);
+            if(clickedTab) {
+                clickedTab.classList.add('active');
+            }
             
+            // Mostra il contenuto della tab
+            const tabContent = document.getElementById(tabName);
+            if(tabContent) {
+                tabContent.classList.add('active');
+                console.log('Tab content trovato e attivato:', tabName);
+            } else {
+                console.error('Tab content non trovato:', tabName);
+            }
+            
+            // Carica dati specifici per la tab
             if(tabName === 'orders') loadOrders();
             if(tabName === 'sales') loadSalesAnalysis();
             if(tabName === 'backPhotos') loadBackPhotos();
-            if(tabName === 'upload') loadPhotosByDate();
+            if(tabName === 'upload') {
+                console.log('Caricamento date per upload...');
+                loadPhotosByDate();
+            }
         }
         
         // Carica le date disponibili e popola il selettore
@@ -783,13 +807,15 @@
             }
         }
         
-        // Enter key per login
-        document.getElementById('adminPassword').addEventListener('keypress', (e) => {
-            if(e.key === 'Enter') login();
-        });
-        
-        // Gestione selettore data e input date
+        // Gestione selettore data e input date - aspetta che il DOM sia caricato
         document.addEventListener('DOMContentLoaded', function() {
+            // Enter key per login
+            const adminPasswordInput = document.getElementById('adminPassword');
+            if(adminPasswordInput) {
+                adminPasswordInput.addEventListener('keypress', (e) => {
+                    if(e.key === 'Enter') login();
+                });
+            }
             const dateSelector = document.getElementById('dateSelector');
             const tourDateInput = document.getElementById('tourDateInput');
             
