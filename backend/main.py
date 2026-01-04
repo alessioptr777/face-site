@@ -4554,28 +4554,42 @@ async def admin_panel():
         raise HTTPException(status_code=404, detail="Admin page not found")
     # Log per debug: verifica quale file viene servito
     logger.info(f"Serving admin.html from: {admin_path.resolve()}")
-    # Leggi il contenuto per verificare la versione
+    # Leggi il contenuto per verificare la versione e servirlo direttamente
+    # Questo bypassa eventuali problemi di cache di FileResponse
     try:
         with open(admin_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            if "VERSIONE 2.1" in content:
-                logger.info("✅ Admin.html contiene VERSIONE 2.1")
+            if "VERSIONE 2.2" in content:
+                logger.info("✅ Admin.html contiene VERSIONE 2.2 (aggiornata)")
+            elif "VERSIONE 2.1" in content:
+                logger.info("⚠️ Admin.html contiene VERSIONE 2.1 (vecchia)")
             elif "VERSIONE 2.0" in content:
-                logger.info("⚠️ Admin.html contiene VERSIONE 2.0 (vecchia)")
+                logger.info("⚠️ Admin.html contiene VERSIONE 2.0 (molto vecchia)")
             else:
                 logger.warning("⚠️ Admin.html non contiene marker di versione")
+        
+        # Servi il contenuto direttamente come HTMLResponse invece di FileResponse
+        # Questo bypassa eventuali problemi di cache del file system
+        return HTMLResponse(
+            content=content,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-Content-Version": "2.2"  # Header custom per debug
+            }
+        )
     except Exception as e:
         logger.error(f"Errore leggendo admin.html: {e}")
-    # Disabilita cache per assicurare che venga servita sempre la versione più recente
-    return FileResponse(
-        admin_path,
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-            "X-Content-Version": "2.1"  # Header custom per debug
-        }
-    )
+        # Fallback a FileResponse se la lettura fallisce
+        return FileResponse(
+            admin_path,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
 
 @app.get("/admin/debug")
 async def admin_debug(password: str = Query(..., description="Password admin")):
