@@ -335,27 +335,16 @@
             <!-- Dashboard -->
             <div id="dashboard" class="tab-content active">
                 <h2>Dashboard</h2>
-                <div class="stats-grid" id="statsGrid">
-                    <div class="stat-card">
-                        <h3 id="totalOrders">-</h3>
-                        <p>Ordini Totali</p>
-                    </div>
+                <div class="stats-grid" id="statsGrid" style="grid-template-columns: repeat(2, 1fr); max-width: 600px;">
                     <div class="stat-card success">
                         <h3 id="totalRevenue">-</h3>
                         <p>Ricavi Totali</p>
                     </div>
-                    <div class="stat-card warning">
-                        <h3 id="totalUsers">-</h3>
-                        <p>Utenti</p>
-                    </div>
-                    <div class="stat-card info">
-                        <h3 id="totalPhotos">-</h3>
-                        <p>Foto Totali</p>
+                    <div class="stat-card">
+                        <h3 id="totalOrders">-</h3>
+                        <p>Ordini Totali</p>
                     </div>
                 </div>
-                
-                <h3 style="margin-top: 30px;">Ordini Recenti</h3>
-                <div id="recentOrders" class="loading">Caricamento...</div>
             </div>
             
             <!-- Ordini -->
@@ -371,44 +360,20 @@
             
             <!-- Sales Analysis -->
             <div id="sales" class="tab-content">
-                <h2>📈 Analisi Vendite - Performance Pacchetti</h2>
-                <p>Analizza quali pacchetti foto vendono meglio e confronta con le tue offerte</p>
+                <h2>📈 Analisi Vendite</h2>
                 
-                <!-- Date Filter -->
-                <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Filtra per Periodo</h3>
-                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-                        <div>
-                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Data Inizio:</label>
-                            <input type="date" id="salesStartDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Data Fine:</label>
-                            <input type="date" id="salesEndDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
-                        </div>
-                        <div style="display: flex; gap: 10px; align-items: flex-end;">
-                            <button class="btn btn-primary" onclick="loadSalesAnalysis()">Applica Filtro</button>
-                            <button class="btn" onclick="clearSalesFilter()" style="background: #e5e7eb; color: #333;">Cancella</button>
-                        </div>
-                    </div>
-                </div>
+                <!-- Suggestions - PRIMA, più visibili -->
+                <div id="salesSuggestions" style="margin-bottom: 30px;"></div>
                 
-                <!-- Summary Cards -->
-                <div class="stats-grid" id="salesSummary" style="margin-bottom: 30px;">
-                    <!-- Will be populated by JavaScript -->
-                </div>
+                <!-- Top 3 Pacchetti -->
+                <h3 style="margin-top: 20px;">Top 3 Pacchetti Più Venduti</h3>
+                <div id="topPackages" class="loading">Caricamento...</div>
                 
-                <!-- Package Sales Table -->
-                <h3 style="margin-top: 30px;">Distribuzione Vendite per Pacchetto</h3>
-                <div id="packagesTable" class="loading">Caricamento...</div>
-                
-                <!-- Monthly Trend -->
-                <h3 style="margin-top: 40px;">Trend Mensile (Ultimi 12 Mesi)</h3>
-                <div id="monthlyTrend" class="loading">Caricamento...</div>
-                
-                <!-- Suggestions -->
-                <h3 style="margin-top: 40px;">💡 Suggerimenti</h3>
-                <div id="salesSuggestions"></div>
+                <!-- Trend Mensile - Nascosto di default, mostrato su richiesta -->
+                <details style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <summary style="cursor: pointer; font-weight: 600; font-size: 16px; color: #667eea;">📅 Vedi Trend Mensile (Ultimi 12 Mesi)</summary>
+                    <div id="monthlyTrend" class="loading" style="margin-top: 15px;">Caricamento...</div>
+                </details>
             </div>
             
             <!-- Upload Foto -->
@@ -488,25 +453,6 @@
                 
                 document.getElementById('totalOrders').textContent = data.total_orders || 0;
                 document.getElementById('totalRevenue').textContent = '€' + ((data.total_revenue || 0) / 100).toFixed(2);
-                document.getElementById('totalUsers').textContent = data.total_users || 0;
-                document.getElementById('totalPhotos').textContent = data.total_photos || 0;
-                
-                // Ordini recenti
-                if(data.recent_orders && data.recent_orders.length > 0) {
-                    let html = '<table><tr><th>Data</th><th>Email</th><th>Foto</th><th>Importo</th></tr>';
-                    data.recent_orders.forEach(order => {
-                        html += `<tr>
-                            <td>${new Date(order.paid_at).toLocaleDateString('it-IT')}</td>
-                            <td>${order.email}</td>
-                            <td>${order.photo_count}</td>
-                            <td>€${(order.amount_cents / 100).toFixed(2)}</td>
-                        </tr>`;
-                    });
-                    html += '</table>';
-                    document.getElementById('recentOrders').innerHTML = html;
-                } else {
-                    document.getElementById('recentOrders').innerHTML = '<p>Nessun ordine recente</p>';
-                }
             } catch(e) {
                 console.error('Error loading dashboard:', e);
             }
@@ -663,99 +609,76 @@
             if(e.key === 'Enter') login();
         });
         
-        // Sales Analysis Functions
+        // Sales Analysis Functions - Semplificata
         async function loadSalesAnalysis() {
-            const startDate = document.getElementById('salesStartDate').value;
-            const endDate = document.getElementById('salesEndDate').value;
-            
-            let url = `/admin/packages?password=${encodeURIComponent(adminPassword)}`;
-            if(startDate) url += `&start_date=${startDate}`;
-            if(endDate) url += `&end_date=${endDate}`;
-            
             try {
-                const res = await fetch(url);
+                const res = await fetch(`/admin/packages?password=${encodeURIComponent(adminPassword)}`);
                 const data = await res.json();
                 
                 if(data.ok) {
-                    // Summary Cards
-                    const summaryDiv = document.getElementById('salesSummary');
-                    summaryDiv.innerHTML = `
-                        <div class="stat-card">
-                            <h3>${data.total_orders || 0}</h3>
-                            <p>Ordini Totali</p>
-                        </div>
-                        <div class="stat-card success">
-                            <h3>€${(data.total_revenue_euros || 0).toFixed(2)}</h3>
-                            <p>Ricavi Totali</p>
-                        </div>
-                        <div class="stat-card info">
-                            <h3>${data.packages.reduce((sum, p) => sum + p.total_photos, 0)}</h3>
-                            <p>Foto Vendute Totali</p>
-                        </div>
-                        <div class="stat-card warning">
-                            <h3>€${data.packages.length > 0 && data.total_orders > 0 ? (data.total_revenue_euros / data.total_orders).toFixed(2) : '0.00'}</h3>
-                            <p>Valore Medio Ordine</p>
-                        </div>
-                    `;
+                    // Suggerimenti PRIMA (più visibili)
+                    const suggestionsDiv = document.getElementById('salesSuggestions');
+                    if(data.suggestions && data.suggestions.length > 0) {
+                        // Mostra solo i suggerimenti più importanti (success e warning)
+                        const importantSuggestions = data.suggestions.filter(s => s.type === 'success' || s.type === 'warning');
+                        if(importantSuggestions.length > 0) {
+                            let html = '<h3 style="margin-bottom: 15px;">💡 Suggerimenti</h3>';
+                            importantSuggestions.forEach(sugg => {
+                                const alertClass = sugg.type === 'success' ? 'alert-success' : 'alert-error';
+                                html += `<div class="alert ${alertClass}" style="display: block; margin: 10px 0; padding: 15px; font-size: 15px;">${sugg.message}</div>`;
+                            });
+                            suggestionsDiv.innerHTML = html;
+                        } else {
+                            suggestionsDiv.innerHTML = '';
+                        }
+                    } else {
+                        suggestionsDiv.innerHTML = '';
+                    }
                     
-                    // Packages Table
-                    const packagesDiv = document.getElementById('packagesTable');
+                    // Top 3 Pacchetti - Solo 3 colonne
+                    const topPackagesDiv = document.getElementById('topPackages');
                     if(data.packages && data.packages.length > 0) {
+                        // Prendi solo i top 3
+                        const top3 = data.packages.slice(0, 3);
                         let html = `
                             <table>
                                 <tr>
                                     <th>Pacchetto</th>
                                     <th>Vendite</th>
                                     <th>Ricavi</th>
-                                    <th>Prezzo Medio</th>
-                                    <th>Prezzo Offerto</th>
-                                    <th>Corrispondenza</th>
-                                    <th>% sul Totale</th>
                                 </tr>
                         `;
                         
-                        data.packages.forEach(pkg => {
-                            const matchIcon = pkg.price_match === true ? '✅' : (pkg.price_match === false ? '⚠️' : '');
-                            const matchText = pkg.price_match === true ? 'Corrisponde' : (pkg.price_match === false ? 'Differisce' : 'N/D');
-                            const highlight = pkg.sales === Math.max(...data.packages.map(p => p.sales)) ? 'style="background: #d1fae5;"' : '';
-                            
+                        top3.forEach((pkg, index) => {
+                            const medal = index === 0 ? '🥇' : (index === 1 ? '🥈' : '🥉');
                             html += `
-                                <tr ${highlight}>
-                                    <td><strong>${pkg.package}</strong></td>
+                                <tr style="background: ${index === 0 ? '#d1fae5' : 'transparent'};">
+                                    <td><strong>${medal} ${pkg.package}</strong></td>
                                     <td>${pkg.sales}</td>
                                     <td>€${pkg.revenue_euros.toFixed(2)}</td>
-                                    <td>€${pkg.avg_price_euros.toFixed(2)}</td>
-                                    <td>€${pkg.offered_price_euros ? pkg.offered_price_euros.toFixed(2) : 'N/D'}</td>
-                                    <td>${matchIcon} ${matchText}</td>
-                                    <td><strong>${pkg.percentage}%</strong></td>
                                 </tr>
                             `;
                         });
                         
                         html += '</table>';
-                        packagesDiv.innerHTML = html;
+                        topPackagesDiv.innerHTML = html;
                     } else {
-                        packagesDiv.innerHTML = '<p>Nessun dato di vendita disponibile</p>';
+                        topPackagesDiv.innerHTML = '<p>Nessun dato di vendita disponibile</p>';
                     }
                     
-                    // Monthly Trend
+                    // Monthly Trend - Caricato solo quando l'utente apre il details
                     const monthlyDiv = document.getElementById('monthlyTrend');
                     if(data.monthly_trend && data.monthly_trend.length > 0) {
-                        let html = '<table><tr><th>Mese</th><th>Ordini</th><th>Ricavi</th><th>Foto</th><th>Pacchetto Top</th></tr>';
+                        let html = '<table><tr><th>Mese</th><th>Ordini</th><th>Ricavi</th><th>Foto</th></tr>';
                         
                         data.monthly_trend.forEach(month => {
                             if(month.orders > 0) {
-                                const topPackage = Object.keys(month.packages).length > 0 
-                                    ? Object.entries(month.packages).sort((a, b) => b[1] - a[1])[0]
-                                    : null;
-                                
                                 html += `
                                     <tr>
                                         <td><strong>${month.month_name}</strong></td>
                                         <td>${month.orders}</td>
                                         <td>€${month.revenue_euros.toFixed(2)}</td>
                                         <td>${month.photos}</td>
-                                        <td>${topPackage ? `${topPackage[0]} (${topPackage[1]})` : 'N/D'}</td>
                                     </tr>
                                 `;
                             }
@@ -766,32 +689,13 @@
                     } else {
                         monthlyDiv.innerHTML = '<p>Nessun dato di trend mensile disponibile</p>';
                     }
-                    
-                    // Suggestions
-                    const suggestionsDiv = document.getElementById('salesSuggestions');
-                    if(data.suggestions && data.suggestions.length > 0) {
-                        let html = '';
-                        data.suggestions.forEach(sugg => {
-                            const alertClass = sugg.type === 'success' ? 'alert-success' : (sugg.type === 'warning' ? 'alert-error' : 'alert');
-                            html += `<div class="alert ${alertClass}" style="display: block; margin: 10px 0;">${sugg.message}</div>`;
-                        });
-                        suggestionsDiv.innerHTML = html;
-                    } else {
-                        suggestionsDiv.innerHTML = '<p>Nessun suggerimento al momento</p>';
-                    }
                 } else {
-                    document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Errore nel caricamento dei dati di vendita</p>';
+                    document.getElementById('topPackages').innerHTML = '<p class="alert alert-error">Errore nel caricamento dei dati</p>';
                 }
             } catch(e) {
                 console.error('Error loading sales analysis:', e);
-                document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Errore nel caricamento dell\'analisi vendite</p>';
+                document.getElementById('topPackages').innerHTML = '<p class="alert alert-error">Errore nel caricamento</p>';
             }
-        }
-        
-        function clearSalesFilter() {
-            document.getElementById('salesStartDate').value = '';
-            document.getElementById('salesEndDate').value = '';
-            loadSalesAnalysis();
         }
         
         // Fix All Orders Function
