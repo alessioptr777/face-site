@@ -4552,13 +4552,28 @@ async def admin_panel():
     admin_path = STATIC_DIR / "admin.html"
     if not admin_path.exists():
         raise HTTPException(status_code=404, detail="Admin page not found")
+    # Log per debug: verifica quale file viene servito
+    logger.info(f"Serving admin.html from: {admin_path.resolve()}")
+    # Leggi il contenuto per verificare la versione
+    try:
+        with open(admin_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            if "VERSIONE 2.1" in content:
+                logger.info("✅ Admin.html contiene VERSIONE 2.1")
+            elif "VERSIONE 2.0" in content:
+                logger.info("⚠️ Admin.html contiene VERSIONE 2.0 (vecchia)")
+            else:
+                logger.warning("⚠️ Admin.html non contiene marker di versione")
+    except Exception as e:
+        logger.error(f"Errore leggendo admin.html: {e}")
     # Disabilita cache per assicurare che venga servita sempre la versione più recente
     return FileResponse(
         admin_path,
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            "Expires": "0"
+            "Expires": "0",
+            "X-Content-Version": "2.1"  # Header custom per debug
         }
     )
 
