@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+data/
+
+# Environment variables (NON committare mai!)
+.env
+.env.local
+

@@ -1,0 +1,1435 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>TenerifePictures - Trova le tue foto</title>
+  <style>
+    :root{
+      --bg-dark: #0a0e27;
+      --bg-dark2: #1a1f3a;
+      --bg-gradient: linear-gradient(180deg, #1a1f3a 0%, #0a0e27 100%);
+      --text-light: #ffffff;
+      --text-muted: #a0a8c0;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --purple: #a855f7;
+      --pink: #ec4899;
+      --radius: 16px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;
+      color:var(--text-light);
+      min-height:100vh;
+      background: var(--bg-gradient);
+      padding:0;
+    }
+    
+    /* Pagina iniziale - Welcome Screen */
+    .welcome-screen{
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .welcome-icon{
+      width: 120px;
+      height: 120px;
+      margin-bottom: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .welcome-icon svg{
+      width: 100%;
+      height: 100%;
+      stroke: var(--accent-light);
+      fill: none;
+      stroke-width: 2;
+    }
+    
+    .welcome-title{
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-light);
+      margin-bottom: 20px;
+    }
+    
+    .welcome-text{
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 400px;
+      margin-bottom: 40px;
+    }
+    
+    .welcome-privacy{
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 400px;
+      margin-top: 20px;
+    }
+    
+    .btn-primary{
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+      color: white;
+      border: none;
+      padding: 16px 48px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .btn-primary:active{
+      transform: scale(0.98);
+    }
+    
+    /* Pagina selfie */
+    .selfie-screen{
+      min-height: 100vh;
+      display: none;
+      flex-direction: column;
+    }
+    
+    .selfie-screen.active{
+      display: flex;
+    }
+    
+    .shell{
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    
+    @media (min-width: 980px){
+      .shell{
+        grid-template-columns: 420px 1fr;
+        align-items: start;
+      }
+      body{
+        padding-bottom: 18px;
+      }
+    }
+    
+    .leftCol, .rightCol{
+      width: 100%;
+    }
+    
+    .card{
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(10px);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 26px 18px 18px;
+      position:relative;
+      overflow:hidden;
+      margin-bottom: 20px;
+    }
+    
+    .brandCard{
+      text-align: center;
+      padding: 32px 24px;
+    }
+    
+    .brandLogo{
+      width: 120px;
+      height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      background: transparent;
+    }
+    .brandLogo img{
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+    
+    .brandTitle{
+      font-size: 32px;
+      font-weight: 900;
+      margin: 0 0 8px;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+    
+    .brandSubtitle{
+      font-size: 16px;
+      color: var(--muted);
+      margin: 0;
+      font-weight: 500;
+    }
+    
+    .title{
+      text-align:center;
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing:.2px;
+      margin: 0 0 18px;
+    }
+    
+    .how{
+      display:flex;
+      gap:14px;
+      align-items:flex-start;
+      padding:14px 14px 12px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.75);
+      border: 1px solid rgba(30,60,120,.08);
+      margin: 0 6px 18px;
+    }
+    .how .bar{
+      width:4px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(58,134,255,.9), rgba(58,134,255,.25));
+      margin-top: 6px;
+      flex:0 0 4px;
+      height: 132px;
+    }
+    .how h3{
+      margin:0 0 8px;
+      font-size: 18px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .steps{
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:grid;
+      gap:10px;
+      color: var(--text);
+    }
+    .steps li{
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      font-size: 16px;
+      line-height:1.25;
+    }
+    .ico{
+      width:22px;height:22px;
+      border-radius: 50%;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 22px;
+      background: rgba(58,134,255,.12);
+      color: var(--accent);
+      font-weight:700;
+      font-size:13px;
+      margin-top:1px;
+    }
+
+    .circleWrap{
+      display:flex;
+      justify-content:center;
+      margin: 10px 0 10px;
+    }
+    .circle{
+      width: 250px;
+      height: 250px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.75);
+      border: 10px solid rgba(255,255,255,.85);
+      box-shadow: 0 18px 40px rgba(0,0,0,.18);
+      position:relative;
+      overflow:hidden;
+    }
+    video{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      background: #000;
+    }
+    canvas{display:none}
+    .circleHint{
+      text-align:center;
+      color: var(--muted);
+      font-style: italic;
+      margin: 8px 8px 10px;
+      font-size: 15px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+    }
+
+    .btn{
+      width: calc(100% - 20px);
+      margin: 12px auto 8px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 0;
+      background: linear-gradient(180deg, var(--green), var(--green2));
+      color: #fff;
+      font-size: 18px;
+      font-weight: 800;
+      box-shadow: 0 14px 30px rgba(30,164,99,.32);
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+      z-index: 10;
+    }
+    .btn:active{transform: translateY(1px)}
+    .btn[disabled]{
+      opacity:.55;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
+    .smallRow{
+      display:flex;
+      justify-content:center;
+      gap:10px;
+      margin-top:6px;
+    }
+    .mini{
+      border:0;
+      background: rgba(11,22,48,.06);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor:pointer;
+      position: relative;
+      z-index: 10;
+    }
+    .mini:active{transform: translateY(1px)}
+
+    .status{
+      text-align:center;
+      margin: 10px 10px 2px;
+      color: var(--muted);
+      font-size: 14px;
+      min-height: 18px;
+    }
+
+    .results{
+      margin-top: 14px;
+      padding: 10px 6px 4px;
+      min-height: 200px;
+    }
+    .resultsTitle{
+      font-weight: 900;
+      font-size: 20px;
+      margin: 0 0 16px;
+      color: var(--text);
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+      padding: 0 6px 10px;
+    }
+    .ph{
+      background: rgba(255,255,255,.85);
+      border: 1px solid rgba(20,40,90,.10);
+      border-radius: 14px;
+      overflow:hidden;
+      position:relative;
+      box-shadow: 0 8px 20px rgba(0,0,0,.08);
+    }
+    .ph img{
+      width:100%;
+      height:140px;
+      object-fit: cover;
+      display:block;
+      background:#f2f4f8;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .ph img:hover{
+      opacity: 0.9;
+    }
+    .meta{
+      padding: 8px 8px 9px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dl{
+      border:0;
+      background: rgba(58,134,255,.10);
+      color: var(--accent);
+      font-weight: 900;
+      border-radius: 10px;
+      padding: 7px 10px;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .dl:active{transform: translateY(1px)}
+
+    /* Lightbox per foto a schermo intero */
+    .lightbox{
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.95);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .lightbox.active{
+      display: flex;
+      flex-direction: column;
+    }
+    .lightboxImg{
+      max-width: 100%;
+      max-height: calc(100vh - 120px);
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .lightboxControls{
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 12px;
+      z-index: 2001;
+    }
+    .lightboxBtn{
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 0;
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(10px);
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    .lightboxBtn:hover{
+      background: rgba(255,255,255,0.3);
+    }
+    .lightboxBtn:active{
+      transform: scale(0.95);
+    }
+    .lightboxSave{
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 14px 28px;
+      border-radius: 999px;
+      border: 0;
+      background: linear-gradient(180deg, var(--green), var(--green2));
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(30,164,99,.4);
+      z-index: 2001;
+    }
+    .lightboxSave:active{
+      transform: translateX(-50%) scale(0.98);
+    }
+
+    /* Modal istruzioni iOS */
+    .iosHint{
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 3000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .iosHint.active{
+      display: flex;
+    }
+    .iosHintContent{
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 32px 24px;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .iosHintTitle{
+      font-size: 22px;
+      font-weight: 800;
+      margin: 0 0 16px;
+      color: var(--text);
+    }
+    .iosHintSteps{
+      text-align: left;
+      margin: 20px 0;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+    .iosHintSteps li{
+      margin: 12px 0;
+      padding-left: 8px;
+    }
+    .iosHintBtn{
+      margin-top: 20px;
+      padding: 14px 28px;
+      border-radius: 999px;
+      border: 0;
+      background: linear-gradient(180deg, var(--green), var(--green2));
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(30,164,99,.4);
+    }
+    .iosHintBtn:active{
+      transform: scale(0.98);
+    }
+
+    .footerNote{
+      text-align:center;
+      font-size:12px;
+      color: rgba(255,255,255,.9);
+      margin-top: 10px;
+      opacity:.9;
+    }
+    
+    .bottomBar{
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(0,0,0,.08);
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      align-items: center;
+      z-index: 1000;
+      box-shadow: 0 -4px 20px rgba(0,0,0,.08);
+    }
+    
+    .bottomBar .btn{
+      width: auto;
+      flex: 1;
+      max-width: 200px;
+      margin: 0;
+      font-size: 16px;
+      padding: 12px 16px;
+    }
+    
+    @media (min-width: 980px){
+      .bottomBar{
+        display: none;
+      }
+    }
+
+    @media (max-width:380px){
+      .brandTitle{font-size: 28px}
+      .title{font-size: 24px}
+      .circle{width:230px;height:230px}
+      .grid{grid-template-columns: repeat(2, 1fr);}
+      .ph img{height:140px}
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="leftCol">
+      <div class="card brandCard">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <div style="flex: 1;">
+            <div class="brandLogo">
+              <img src="/static/logo.png" alt="Tenerife Stars Pictures" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+              <div style="display: none; width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--bg1)); display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 36px; font-weight: 900; color: #fff;">T</div>
+            </div>
+            <h1 class="brandTitle">Tenerife Stars Pictures</h1>
+            <p class="brandSubtitle">Trova le tue foto in 10 secondi</p>
+          </div>
+          <button id="cartBtn" style="position: relative; background: none; border: none; cursor: pointer; padding: 8px; font-size: 24px; color: var(--text);">
+            🛒
+            <span id="cartBadge" style="display: none; position: absolute; top: 0; right: 0; background: var(--accent); color: #fff; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: 600;">0</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="title">Trova le Tue Foto</div>
+
+        <div class="how">
+          <div class="bar"></div>
+          <div>
+            <h3><span class="ico">i</span>Come Funziona</h3>
+            <ul class="steps">
+              <li><span class="ico">👤</span>La camera si attiva automaticamente</li>
+              <li><span class="ico">📷</span>Scatta un selfie chiaro</li>
+              <li><span class="ico">🔍</span>Il sistema trova le tue foto</li>
+              <li><span class="ico">⬇️</span>Scarica le foto in alta qualità</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="circleWrap">
+          <div class="circle" aria-label="Anteprima camera">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+          </div>
+        </div>
+
+        <div class="circleHint">💡 Posizionati bene davanti alla camera e guarda l'obiettivo</div>
+
+        <div style="margin: 20px 0;">
+          <label for="tourDate" style="display: block; font-size: 14px; color: var(--muted); margin-bottom: 8px; font-weight: 500;">
+            📅 Data del Tour (opzionale)
+          </label>
+          <input 
+            type="date" 
+            id="tourDate" 
+            style="width: 100%; padding: 12px; border: 2px solid #e0e4ea; border-radius: 12px; font-size: 16px; background: #fff; color: var(--text);"
+            placeholder="YYYY-MM-DD"
+          />
+          <div style="font-size: 12px; color: var(--muted); margin-top: 6px;">
+            Inserisci la data per vedere anche le foto di spalle di quel giorno
+          </div>
+        </div>
+
+        <button class="btn" id="shootBtn">
+          📸 Scatta Selfie
+        </button>
+
+        <div class="smallRow">
+          <button class="mini" id="switchBtn" type="button">Cambia camera</button>
+          <button class="mini" id="retryBtn" type="button">Riprova</button>
+        </div>
+
+        <div class="status" id="status"></div>
+      </div>
+
+      <div class="footerNote">Se la camera non parte, apri il sito in Safari/Chrome e consenti l'accesso alla camera.</div>
+    </div>
+
+    <div class="rightCol">
+      <div class="card">
+        <div class="results" id="results" style="display:none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div class="resultsTitle">Le Tue Foto</div>
+            <button id="backToSelfieBtn" class="btn" style="padding: 8px 16px; font-size: 14px; display: none;">
+              ← Torna al Selfie
+            </button>
+          </div>
+          <div class="grid" id="grid"></div>
+        </div>
+        <div id="resultsPlaceholder" style="text-align: center; padding: 40px 20px; color: var(--muted);">
+          <p style="font-size: 16px; margin: 0;">Scatta un selfie per vedere le tue foto qui</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottomBar">
+    <button class="btn" id="bottomShootBtn">📸 Scatta Selfie</button>
+  </div>
+
+  <!-- Lightbox per foto a schermo intero -->
+  <div class="lightbox" id="lightbox">
+    <div class="lightboxControls">
+      <button class="lightboxBtn" id="lightboxClose" aria-label="Chiudi">✕</button>
+    </div>
+    <img class="lightboxImg" id="lightboxImg" alt="Foto a schermo intero" />
+    <button class="lightboxSave" id="lightboxSave">💾 Salva in Galleria</button>
+  </div>
+
+  <!-- Modal Offerte Marketing -->
+  <div class="ios-share-modal" id="offersModal">
+    <div class="ios-share-modal-content" style="max-width: 500px; width: 90%;">
+      <h3 style="margin-top: 0; font-size: 24px; color: var(--text); text-align: center;">🎁 Offerta Speciale!</h3>
+      <div id="offersContent" style="text-align: center; padding: 20px 0;">
+        <p style="font-size: 18px; color: var(--text); margin-bottom: 15px;">
+          Hai trovato <strong id="offersPhotoCount">0</strong> foto!
+        </p>
+        <div id="offersMessage" style="font-size: 16px; color: var(--muted); margin-bottom: 20px;">
+          <!-- Messaggio offerta dinamico -->
+        </div>
+        <div style="background: linear-gradient(135deg, var(--accent), var(--bg1)); color: #fff; padding: 20px; border-radius: 12px; margin: 20px 0;">
+          <div style="font-size: 32px; font-weight: 900; margin-bottom: 10px;" id="offersPrice">€0</div>
+          <div style="font-size: 14px; opacity: 0.9;">per tutte le tue foto</div>
+        </div>
+        <button class="btn" id="offersBuyBtn" style="width: 100%; margin-bottom: 10px; font-size: 18px; padding: 16px;">
+          💳 Acquista Tutte le Foto
+        </button>
+        <button class="btn" id="offersCloseBtn" style="width: 100%; background: var(--muted);">
+          Scegli Foto Singole
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Carrello -->
+  <div class="ios-share-modal" id="cartModal">
+    <div class="ios-share-modal-content" style="max-width: 500px; width: 90%;">
+      <h3 style="margin-top: 0; font-size: 20px; color: var(--text);">🛒 Carrello</h3>
+      <div id="cartItems" style="max-height: 400px; overflow-y: auto; margin: 20px 0;">
+        <p style="text-align: center; color: var(--muted);">Il carrello è vuoto</p>
+      </div>
+      <div style="border-top: 2px solid #e0e4ea; padding-top: 15px; margin-top: 15px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 18px; font-weight: 600;">
+          <span>Totale:</span>
+          <span id="cartTotal">€0.00</span>
+        </div>
+        <button class="btn" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled>💳 Vai al Pagamento</button>
+        <button class="btn" id="closeCartBtn" style="width: 100%; background: var(--muted);">Chiudi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal istruzioni iOS -->
+  <div class="iosHint" id="iosHint">
+    <div class="iosHintContent">
+      <div class="iosHintTitle">📱 Come salvare su iPhone</div>
+      <ol class="iosHintSteps">
+        <li>L'immagine si è aperta in una nuova scheda</li>
+        <li>Tieni premuto sull'immagine</li>
+        <li>Seleziona "Salva immagine"</li>
+        <li>La foto sarà nella tua Galleria!</li>
+      </ol>
+      <button class="iosHintBtn" id="iosHintClose">Ho capito ✓</button>
+    </div>
+  </div>
+
+  <script>
+    // --- CONFIG ---
+    const API_MATCH = "/match_selfie";
+    const TOP_K = 120;
+    const MIN_SCORE = 0.08;
+
+    // --- UI refs ---
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const shootBtn = document.getElementById("shootBtn");
+    const switchBtn = document.getElementById("switchBtn");
+    const retryBtn = document.getElementById("retryBtn");
+    const statusEl = document.getElementById("status");
+    const resultsEl = document.getElementById("results");
+    const gridEl = document.getElementById("grid");
+    const bottomShootBtn = document.getElementById("bottomShootBtn");
+    const resultsPlaceholder = document.getElementById("resultsPlaceholder");
+    const lightbox = document.getElementById("lightbox");
+    const lightboxImg = document.getElementById("lightboxImg");
+    const lightboxClose = document.getElementById("lightboxClose");
+    const lightboxSave = document.getElementById("lightboxSave");
+    const iosHint = document.getElementById("iosHint");
+    const iosHintClose = document.getElementById("iosHintClose");
+    const cartBtn = document.getElementById("cartBtn");
+    const cartBadge = document.getElementById("cartBadge");
+    const cartModal = document.getElementById("cartModal");
+    const cartItems = document.getElementById("cartItems");
+    const cartTotal = document.getElementById("cartTotal");
+    const checkoutBtn = document.getElementById("checkoutBtn");
+    const closeCartBtn = document.getElementById("closeCartBtn");
+    const backToSelfieBtn = document.getElementById("backToSelfieBtn");
+    const offersModal = document.getElementById("offersModal");
+
+    // --- Session ID (persistente) ---
+    let sessionId = localStorage.getItem("cart_session_id");
+    if (!sessionId) {
+      sessionId = "session_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem("cart_session_id", sessionId);
+    }
+
+    let stream = null;
+    let useFront = true;
+    let currentPhotoUrl = null;
+    let currentCart = { photo_ids: [], count: 0, price_euros: 0 };
+
+    function setStatus(msg){
+      statusEl.textContent = msg || "";
+    }
+
+    async function stopStream(){
+      if (stream){
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+    }
+
+    async function startCamera(){
+      setStatus("Apro la camera...");
+      shootBtn.disabled = true;
+      bottomShootBtn.disabled = true;
+
+      await stopStream();
+
+      try{
+        const constraints = {
+          audio:false,
+          video: {
+            facingMode: useFront ? "user" : "environment"
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+
+        await video.play().catch(()=>{});
+
+        shootBtn.disabled = false;
+        bottomShootBtn.disabled = false;
+        setStatus("");
+      }catch(err){
+        console.error(err);
+        shootBtn.disabled = true;
+        bottomShootBtn.disabled = true;
+        setStatus("Camera non disponibile. Controlla permessi e riprova.");
+      }
+    }
+
+    function captureBlob(){
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if(!w || !h) return null;
+
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext("2d");
+      if (useFront){
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, 0, 0, w, h);
+
+      return new Promise(resolve=>{
+        canvas.toBlob(b=>resolve(b), "image/jpeg", 0.92);
+      });
+    }
+    
+    function clearResults(){
+      gridEl.innerHTML = "";
+      resultsEl.style.display = "none";
+      if (resultsPlaceholder) {
+        resultsPlaceholder.style.display = "block";
+      }
+    }
+
+    function addPhotoCard(photoId, score, isBackPhoto = false){
+      const wrap = document.createElement("div");
+      wrap.className = "ph";
+
+      const img = document.createElement("img");
+      // Aggiungi ?paid=false per forzare watermark
+      const photoUrl = "/photo/" + encodeURIComponent(photoId) + "?paid=false";
+      img.src = photoUrl;
+      img.alt = photoId;
+
+      // Blocca click destro e altre azioni di salvataggio
+      img.oncontextmenu = (e) => {
+        e.preventDefault();
+        alert("⚠️ Acquista la foto per scaricarla!");
+        return false;
+      };
+      
+      // Blocca drag & drop
+      img.ondragstart = (e) => {
+        e.preventDefault();
+        return false;
+      };
+      
+      // Click sulla foto → apre lightbox
+      img.onclick = () => {
+        openLightbox(photoUrl, photoId);
+      };
+
+      img.onerror = () => {
+        img.style.display = "none";
+        const err = document.createElement("div");
+        err.style.padding = "14px";
+        err.style.fontSize = "12px";
+        err.style.color = "#b00020";
+        err.textContent = "Immagine non trovata: " + photoId;
+        wrap.prepend(err);
+      };
+
+      // Badge per foto di spalle
+      if (isBackPhoto) {
+        const badge = document.createElement("div");
+        badge.style.position = "absolute";
+        badge.style.top = "8px";
+        badge.style.right = "8px";
+        badge.style.background = "rgba(58, 134, 255, 0.9)";
+        badge.style.color = "#fff";
+        badge.style.padding = "4px 8px";
+        badge.style.borderRadius = "6px";
+        badge.style.fontSize = "11px";
+        badge.style.fontWeight = "600";
+        badge.textContent = "📷 Di spalle";
+        badge.style.zIndex = "10";
+        wrap.style.position = "relative";
+        wrap.appendChild(badge);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+
+      const left = document.createElement("div");
+      if (isBackPhoto) {
+        left.textContent = "Foto di gruppo";
+      } else {
+        left.textContent = (score !== null && score !== undefined && score > 0)
+          ? ("score " + Number(score).toFixed(3))
+          : "";
+      }
+
+      // Pulsante aggiungi al carrello
+      const addToCartBtn = document.createElement("button");
+      addToCartBtn.textContent = "➕";
+      addToCartBtn.style.cssText = "position: absolute; bottom: 8px; right: 8px; background: var(--accent); color: #fff; border: none; border-radius: 50%; width: 32px; height: 32px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 5;";
+      addToCartBtn.title = "Aggiungi al carrello";
+      addToCartBtn.onclick = (e) => {
+        e.stopPropagation();
+        addToCart(photoId);
+      };
+
+      wrap.style.position = "relative";
+      wrap.appendChild(img);
+      wrap.appendChild(meta);
+      wrap.appendChild(addToCartBtn);
+      gridEl.appendChild(wrap);
+    }
+
+    function openLightbox(photoUrl, photoId){
+      currentPhotoUrl = photoUrl;
+      lightboxImg.src = photoUrl;
+      lightboxImg.alt = photoId;
+      lightbox.classList.add("active");
+      document.body.style.overflow = "hidden"; // Previeni scroll
+      
+      // Disabilita pulsante salva se foto ha watermark
+      if(photoUrl.includes("?paid=false") || !photoUrl.includes("?paid=true")){
+        lightboxSave.disabled = true;
+        lightboxSave.style.opacity = "0.5";
+        lightboxSave.style.cursor = "not-allowed";
+        lightboxSave.title = "Acquista la foto per scaricarla";
+      } else {
+        lightboxSave.disabled = false;
+        lightboxSave.style.opacity = "1";
+        lightboxSave.style.cursor = "pointer";
+        lightboxSave.title = "";
+      }
+    }
+
+    function closeLightbox(){
+      lightbox.classList.remove("active");
+      document.body.style.overflow = ""; // Ripristina scroll
+      currentPhotoUrl = null;
+    }
+
+    // Rileva se è iOS
+    function isIOS(){
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    async function saveToGallery(){
+      if(!currentPhotoUrl) return;
+      
+      // BLOCCA SALVATAGGIO se la foto ha watermark (non pagata)
+      // Controlla se l'URL contiene ?paid=false o non ha ?paid=true
+      if(currentPhotoUrl.includes("?paid=false") || !currentPhotoUrl.includes("?paid=true")){
+        alert("⚠️ Acquista la foto per scaricarla senza watermark!");
+        return;
+      }
+      
+      // Se è iOS e supporta Web Share API, usala
+      if(isIOS() && navigator.share){
+        try {
+          const response = await fetch(currentPhotoUrl);
+          const blob = await response.blob();
+          const file = new File([blob], currentPhotoUrl.split("/").pop() || "photo.jpg", { type: "image/jpeg" });
+          
+          if(navigator.canShare && navigator.canShare({ files: [file] })){
+            await navigator.share({
+              files: [file],
+              title: "Salva foto"
+            });
+            closeLightbox();
+            return;
+          }
+        } catch (error) {
+          // Se share fallisce, continua con il metodo normale
+          console.log("Web Share non disponibile, uso metodo alternativo");
+        }
+      }
+      
+      try {
+        // Scarica l'immagine come blob
+        const response = await fetch(currentPhotoUrl);
+        const blob = await response.blob();
+        
+        // Crea un blob URL
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // Estrai il nome del file dall'URL
+        const filename = currentPhotoUrl.split("/").pop() || "photo.jpg";
+        
+        // Su iOS Safari, apri in nuova tab con istruzioni
+        if(isIOS()){
+          // Apri l'immagine in una nuova tab
+          window.open(blobUrl, "_blank");
+          
+          // Mostra modal con istruzioni
+          setTimeout(() => {
+            iosHint.classList.add("active");
+            document.body.style.overflow = "hidden";
+          }, 300);
+          
+          // Chiudi il lightbox
+          closeLightbox();
+          
+          // Pulisci blob URL dopo un delay
+          setTimeout(() => {
+            URL.revokeObjectURL(blobUrl);
+          }, 2000);
+        } else {
+          // Su Android/Desktop: download diretto
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = filename;
+          a.style.display = "none";
+          
+          document.body.appendChild(a);
+          a.click();
+          
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+            closeLightbox();
+          }, 100);
+        }
+        
+      } catch (error) {
+        console.error("Errore nel salvataggio:", error);
+        // Fallback: apri in nuova tab
+        window.open(currentPhotoUrl, "_blank");
+        setTimeout(() => {
+          closeLightbox();
+        }, 300);
+      }
+    }
+
+    // Event listeners per lightbox
+    lightboxClose.addEventListener("click", closeLightbox);
+    lightboxSave.addEventListener("click", saveToGallery);
+    
+    // Chiudi modal iOS
+    iosHintClose.addEventListener("click", () => {
+      iosHint.classList.remove("active");
+      document.body.style.overflow = "";
+    });
+    
+    // Chiudi modal iOS cliccando sullo sfondo
+    iosHint.addEventListener("click", (e) => {
+      if(e.target === iosHint){
+        iosHint.classList.remove("active");
+        document.body.style.overflow = "";
+      }
+    });
+    
+    // Chiudi con ESC
+    document.addEventListener("keydown", (e) => {
+      if(e.key === "Escape" && lightbox.classList.contains("active")){
+        closeLightbox();
+      }
+    });
+    
+    // Chiudi cliccando sullo sfondo (ma non sull'immagine)
+    lightbox.addEventListener("click", (e) => {
+      if(e.target === lightbox){
+        closeLightbox();
+      }
+    });
+
+    async function matchSelfie(blob){
+      setStatus("Cerco le tue foto...");
+      clearResults();
+      shootBtn.disabled = true;
+      bottomShootBtn.disabled = true;
+
+      try{
+        // Leggi data del tour se fornita
+        const tourDateInput = document.getElementById("tourDate");
+        const tourDate = tourDateInput ? tourDateInput.value : null;
+        
+        let url = API_MATCH + "?top_k_faces=" + encodeURIComponent(TOP_K) + "&min_score=" + encodeURIComponent(MIN_SCORE);
+        if (tourDate) {
+          url += "&tour_date=" + encodeURIComponent(tourDate);
+        }
+
+        const fd = new FormData();
+        fd.append("selfie", blob, "selfie.jpg");
+
+        const res = await fetch(url, { method:"POST", body: fd });
+        
+        if(!res.ok){
+          const errorData = await res.json().catch(()=>({}));
+          console.error("API error", res.status, errorData);
+          setStatus("Errore server. Riprova tra poco.");
+          shootBtn.disabled = false;
+          bottomShootBtn.disabled = false;
+          return;
+        }
+
+        const data = await res.json().catch(()=>null);
+        if(!data || data.ok !== true){
+          console.error("API error", res.status, data);
+          setStatus("Errore server. Riprova tra poco.");
+          shootBtn.disabled = false;
+          bottomShootBtn.disabled = false;
+          return;
+        }
+
+        const results = data.matches || data.results || [];
+        const count = data.count || results.length;
+
+        if(!results.length){
+          setStatus("Nessuna foto trovata. Prova con più luce e guarda la camera.");
+          shootBtn.disabled = false;
+          bottomShootBtn.disabled = false;
+          return;
+        }
+
+        // NASCONDI sezione selfie e mostra sezione album
+        const leftCol = document.querySelector(".leftCol");
+        if(leftCol) {
+          leftCol.style.display = "none";
+          // Mostra pulsante torna indietro
+          if(backToSelfieBtn) backToSelfieBtn.style.display = "block";
+        }
+        
+        resultsEl.style.display = "block";
+        if (resultsPlaceholder) {
+          resultsPlaceholder.style.display = "none";
+        }
+
+        // Aggiungi tutte le foto al carrello automaticamente per l'offerta
+        results.forEach(r => {
+          addPhotoCard(r.photo_id, r.score, r.has_face === false);
+          // Aggiungi automaticamente al carrello
+          addToCart(r.photo_id);
+        });
+        
+        // Mostra popup con offerte marketing
+        showOffersPopup(count);
+
+        shootBtn.disabled = false;
+        bottomShootBtn.disabled = false;
+      }catch(err){
+        console.error(err);
+        setStatus("Errore di rete. Riprova.");
+        shootBtn.disabled = false;
+        bottomShootBtn.disabled = false;
+      }
+    }
+
+    // --- EVENTS ---
+    async function handleShoot(){
+      const blob = await captureBlob();
+      if(!blob){
+        setStatus("Aspetta 1 secondo: la camera si sta avviando.");
+        return;
+      }
+      await matchSelfie(blob);
+    }
+
+    shootBtn.addEventListener("click", handleShoot);
+    bottomShootBtn.addEventListener("click", handleShoot);
+
+    switchBtn.addEventListener("click", async ()=>{
+      useFront = !useFront;
+      clearResults();
+      await startCamera();
+    });
+
+    retryBtn.addEventListener("click", async ()=>{
+      clearResults();
+      await startCamera();
+    });
+
+    // --- CARRELLO ---
+    async function addToCart(photoId) {
+      try {
+        const res = await fetch(`/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+          method: "POST"
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentCart = data;
+          updateCartUI();
+          setStatus(`Foto aggiunta al carrello! (${data.count} foto)`);
+        }
+      } catch (err) {
+        console.error("Error adding to cart:", err);
+      }
+    }
+
+    async function removeFromCart(photoId) {
+      try {
+        const res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
+          method: "DELETE"
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentCart = data;
+          updateCartUI();
+        }
+      } catch (err) {
+        console.error("Error removing from cart:", err);
+      }
+    }
+
+    async function getCart() {
+      try {
+        const res = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          currentCart = data;
+          updateCartUI();
+        }
+      } catch (err) {
+        console.error("Error getting cart:", err);
+      }
+    }
+
+    function updateCartUI() {
+      // Aggiorna badge
+      if (currentCart.count > 0) {
+        cartBadge.textContent = currentCart.count;
+        cartBadge.style.display = "flex";
+      } else {
+        cartBadge.style.display = "none";
+      }
+
+      // Aggiorna modal carrello
+      if (currentCart.photo_ids && currentCart.photo_ids.length > 0) {
+        cartItems.innerHTML = "";
+        currentCart.photo_ids.forEach(photoId => {
+          const itemDiv = document.createElement("div");
+          itemDiv.style.cssText = "display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #e0e4ea;";
+          
+          const leftDiv = document.createElement("div");
+          leftDiv.style.cssText = "display: flex; align-items: center; gap: 12px;";
+          
+          const img = document.createElement("img");
+          img.src = `/photo/${encodeURIComponent(photoId)}?paid=false`;
+          img.style.cssText = "width: 60px; height: 60px; object-fit: cover; border-radius: 8px;";
+          
+          const span = document.createElement("span");
+          span.textContent = photoId;
+          span.style.cssText = "font-size: 14px; color: var(--text);";
+          
+          leftDiv.appendChild(img);
+          leftDiv.appendChild(span);
+          
+          const removeBtn = document.createElement("button");
+          removeBtn.textContent = "Rimuovi";
+          removeBtn.style.cssText = "background: #ff4444; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;";
+          removeBtn.onclick = () => removeFromCart(photoId);
+          
+          itemDiv.appendChild(leftDiv);
+          itemDiv.appendChild(removeBtn);
+          cartItems.appendChild(itemDiv);
+        });
+        cartTotal.textContent = `€${currentCart.price_euros.toFixed(2)}`;
+        checkoutBtn.disabled = false;
+      } else {
+        cartItems.innerHTML = '<p style="text-align: center; color: var(--muted);">Il carrello è vuoto</p>';
+        cartTotal.textContent = "€0.00";
+        checkoutBtn.disabled = true;
+      }
+    }
+
+    async function checkout() {
+      if (!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
+        alert("Il carrello è vuoto!");
+        return;
+      }
+
+      try {
+        checkoutBtn.disabled = true;
+        checkoutBtn.textContent = "Caricamento...";
+        
+        const res = await fetch(`/checkout?session_id=${encodeURIComponent(sessionId)}`, {
+          method: "POST"
+        });
+
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          throw new Error(error.detail || "Errore durante il checkout");
+        }
+
+        const data = await res.json();
+        if (data.checkout_url) {
+          // Redirect a Stripe Checkout
+          window.location.href = data.checkout_url;
+        } else {
+          throw new Error("URL di checkout non ricevuto");
+        }
+      } catch (err) {
+        console.error("Checkout error:", err);
+        alert("Errore durante il pagamento: " + err.message);
+        checkoutBtn.disabled = false;
+        checkoutBtn.textContent = "💳 Vai al Pagamento";
+      }
+    }
+
+    // Event listeners carrello
+    cartBtn.addEventListener("click", () => {
+      cartModal.classList.add("active");
+      getCart();
+    });
+
+    closeCartBtn.addEventListener("click", () => {
+      cartModal.classList.remove("active");
+    });
+
+    checkoutBtn.addEventListener("click", checkout);
+
+    // Chiudi modal cliccando fuori
+    cartModal.addEventListener("click", (e) => {
+      if (e.target === cartModal) {
+        cartModal.classList.remove("active");
+      }
+    });
+    
+    // Chiudi popup offerte cliccando fuori
+    if(offersModal) {
+      offersModal.addEventListener("click", (e) => {
+        if (e.target === offersModal) {
+          offersModal.classList.remove("active");
+        }
+      });
+    }
+    
+    // Pulsante torna al selfie
+    if(backToSelfieBtn) {
+      backToSelfieBtn.addEventListener("click", () => {
+        const leftCol = document.querySelector(".leftCol");
+        if(leftCol) leftCol.style.display = "block";
+        backToSelfieBtn.style.display = "none";
+        clearResults();
+        resultsEl.style.display = "none";
+        if (resultsPlaceholder) {
+          resultsPlaceholder.style.display = "block";
+        }
+      });
+    }
+
+    // --- OFFERTE MARKETING ---
+    function showOffersPopup(photoCount) {
+      const offersModal = document.getElementById("offersModal");
+      const offersPhotoCount = document.getElementById("offersPhotoCount");
+      const offersMessage = document.getElementById("offersMessage");
+      const offersPrice = document.getElementById("offersPrice");
+      const offersBuyBtn = document.getElementById("offersBuyBtn");
+      const offersCloseBtn = document.getElementById("offersCloseBtn");
+      
+      if(!offersModal) return;
+      
+      // Calcola prezzo totale
+      const priceCents = calculatePrice(photoCount);
+      const priceEuros = priceCents / 100;
+      
+      // Messaggi marketing basati sul numero di foto
+      let message = "";
+      if(photoCount === 1) {
+        message = "Una foto unica del tuo tour!";
+      } else if(photoCount <= 3) {
+        message = `Acquista tutte le ${photoCount} foto e risparmia!`;
+      } else if(photoCount <= 5) {
+        message = `Pacchetto completo: ${photoCount} foto del tuo tour!`;
+      } else if(photoCount <= 11) {
+        message = `Offerta speciale: tutte le ${photoCount} foto in un unico pacchetto!`;
+      } else {
+        message = `Mega offerta: ${photoCount} foto del tuo tour a prezzo speciale!`;
+      }
+      
+      // Aggiorna contenuto popup
+      offersPhotoCount.textContent = photoCount;
+      offersMessage.textContent = message;
+      offersPrice.textContent = `€${priceEuros.toFixed(2)}`;
+      
+      // Event listeners
+      offersBuyBtn.onclick = () => {
+        offersModal.classList.remove("active");
+        checkout();
+      };
+      
+      offersCloseBtn.onclick = () => {
+        offersModal.classList.remove("active");
+      };
+      
+      // Mostra popup
+      offersModal.classList.add("active");
+    }
+    
+    function calculatePrice(count) {
+      // Stessa logica del backend
+      if(count === 1) return 2000;
+      if(count === 2) return 4000;
+      if(count === 3) return 3500;
+      if(count === 4) return 4000;
+      if(count === 5) return 4500;
+      if(count >= 6 && count <= 11) return 5000;
+      return 6000; // 12+
+    }
+
+    // Carica carrello all'avvio
+    getCart();
+
+    // --- BOOT ---
+    window.addEventListener("load", async ()=>{
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        setStatus("Questo browser non supporta la camera.");
+        shootBtn.disabled = true;
+        bottomShootBtn.disabled = true;
+        return;
+      }
+      await startCamera();
+    });
+  </script>
+</body>
+</html>
