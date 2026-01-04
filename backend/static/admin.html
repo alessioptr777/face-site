@@ -537,11 +537,13 @@
             
             for(const file of files) {
                 const formData = new FormData();
+                formData.append('password', adminPassword);
                 formData.append('photo', file);
-                formData.append('tour_date', tourDate);
+                if(tourDate) {
+                    formData.append('tour_date', tourDate);
+                }
                 
                 try {
-                    formData.append('password', adminPassword);
                     const res = await fetch('/admin/upload', {
                         method: 'POST',
                         body: formData
