@@ -1439,8 +1439,12 @@
     function showScreen(screenName) {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const screen = document.getElementById(screenName + 'Screen');
-      if(screen) screen.classList.add('active');
-      currentScreen = screenName;
+      if(screen) {
+        screen.classList.add('active');
+        currentScreen = screenName;
+      } else {
+        console.warn(`Screen ${screenName}Screen not found`);
+      }
     }
 
     // Variabile globale per email utente
@@ -1528,7 +1532,15 @@
       // Assicurati che la schermata data sia sempre mostrata come prima schermata
       // (a meno che non siamo in flussi speciali come post-pagamento o view_album)
       if(refreshParam !== 'paid' && viewAlbumParam !== 'true') {
-        showScreen('date');
+        // Usa setTimeout per assicurarsi che il DOM sia completamente pronto
+        setTimeout(() => {
+          const dateScreenEl = document.getElementById('dateScreen');
+          if(dateScreenEl) {
+            showScreen('date');
+          } else {
+            console.error('dateScreen element not found');
+          }
+        }, 0);
       }
     }
     
