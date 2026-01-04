@@ -1085,26 +1085,27 @@
   </style>
 </head>
 <body>
-  <!-- Date Selection Screen (PRIMA PAGINA) -->
-  <div class="screen date-screen active" id="dateScreen">
-    <h1 class="email-title">📅 Quando hai fatto il tour?</h1>
-    <p class="email-subtitle">Seleziona la data del tuo tour per trovare le tue foto</p>
-    
-    <div class="email-input-container" style="margin-bottom: 30px;">
-      <input 
-        type="date" 
-        class="email-input" 
-        id="tourDateInput" 
-        style="font-size: 20px; padding: 18px; text-align: center; width: 100%; max-width: 350px; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; background: rgba(255, 255, 255, 0.1); color: white;"
-      >
-      <p class="email-error" id="dateError" style="display: none;"></p>
+  <!-- Date Selection Screen (PRIMA PAGINA) - Stile semplice come schermata lingue -->
+  <div class="screen date-screen active" id="dateScreen" style="display: flex !important; align-items: center; justify-content: center; padding: 40px 20px; text-align: center;">
+    <div style="max-width: 500px; width: 100%;">
+      <h1 style="font-size: 28px; font-weight: 700; color: var(--text-light); margin-bottom: 10px;">📅 Quando hai fatto il tour?</h1>
+      <p style="font-size: 16px; color: var(--text-muted); margin-bottom: 40px;">Seleziona la data del tuo tour</p>
+      
+      <div style="max-width: 400px; width: 100%; margin: 0 auto 30px;">
+        <input 
+          type="date" 
+          id="tourDateInput" 
+          style="width: 100%; padding: 20px; background: rgba(255, 255, 255, 0.05); border: 2px solid rgba(255, 255, 255, 0.1); border-radius: 12px; color: var(--text-light); font-size: 18px; text-align: center; transition: all 0.3s ease;"
+        >
+        <p class="email-error" id="dateError" style="display: none; margin-top: 10px;"></p>
+      </div>
+      
+      <button class="btn-primary" id="dateContinueBtn" disabled style="opacity: 0.5; cursor: not-allowed;">Continua</button>
     </div>
-    
-    <button class="btn-primary" id="dateContinueBtn" disabled style="opacity: 0.5; cursor: not-allowed; margin-top: 20px;">Continua</button>
   </div>
   
   <!-- Email Screen -->
-  <div class="screen email-screen" id="emailScreen">
+  <div class="screen email-screen" id="emailScreen" style="display: none;">
     <h1 class="email-title">Inserisci la tua email</h1>
     <p class="email-subtitle">La tua email è necessaria per salvare e recuperare le tue foto</p>
     <div class="email-input-container">
