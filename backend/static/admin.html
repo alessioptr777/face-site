@@ -381,11 +381,12 @@
                 <h2>Upload e Indicizzazione Foto</h2>
                 <p>Carica le foto che vuoi vendere. Verranno automaticamente indicizzate per il face matching.</p>
                 
-                <!-- CAMPO DATA TOUR - DEVE ESSERE VISIBILE -->
-                <div style="margin-bottom: 30px; padding: 25px; background: #fff3cd !important; border-radius: 8px; border: 3px solid #ffc107 !important; box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3); display: block !important; visibility: visible !important;">
-                    <label for="tourDateInput" style="display: block !important; margin-bottom: 15px; font-weight: 700; font-size: 18px; color: #856404;">📅 Data del Tour (OBBLIGATORIA):</label>
-                    <input type="date" id="tourDateInput" required style="width: 100%; max-width: 400px; padding: 15px; border: 3px solid #ffc107; border-radius: 8px; font-size: 18px; background: white; color: #333; font-weight: 600; display: block !important; visibility: visible !important;" />
-                    <p style="margin-top: 15px; font-size: 15px; color: #856404; font-weight: 600;">⚠️ <strong>IMPORTANTE:</strong> Seleziona la data del tour prima di caricare le foto!</p>
+                <!-- ⚠️⚠️⚠️ CAMPO DATA TOUR - TEST VISIBILITÀ ⚠️⚠️⚠️ -->
+                <div style="margin: 30px 0; padding: 30px; background: #ff0000 !important; border: 5px solid #000000 !important; border-radius: 12px; display: block !important; visibility: visible !important; z-index: 9999 !important; position: relative !important;">
+                    <h3 style="color: white; font-size: 24px; margin-bottom: 20px; text-align: center;">🔴 TEST CAMPO DATA - SE VEDI QUESTO IL FILE È AGGIORNATO 🔴</h3>
+                    <label for="tourDateInput" style="display: block !important; margin-bottom: 15px; font-weight: 700; font-size: 20px; color: white;">📅 Data del Tour (OBBLIGATORIA):</label>
+                    <input type="date" id="tourDateInput" required style="width: 100%; max-width: 500px; padding: 20px; border: 5px solid #000000; border-radius: 12px; font-size: 24px; background: white; color: #333; font-weight: 700; display: block !important; visibility: visible !important; margin: 0 auto;" />
+                    <p style="margin-top: 20px; font-size: 18px; color: white; font-weight: 700; text-align: center;">⚠️ <strong>IMPORTANTE:</strong> Seleziona la data del tour prima di caricare le foto!</p>
                 </div>
                 
                 <div class="upload-area" id="uploadArea" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
