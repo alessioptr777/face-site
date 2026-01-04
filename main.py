@@ -4883,13 +4883,13 @@ async def admin_packages(
             if most_sold['sales'] > 0:
                 suggestions.append({
                     'type': 'success',
-                    'message': f"Most sold package: {most_sold['package']} ({most_sold['sales']} sales, {most_sold['percentage']}%) - Consider promoting this more!"
+                    'message': f"Pacchetto più venduto: {most_sold['package']} ({most_sold['sales']} vendite, {most_sold['percentage']}%) - Considera di promuoverlo di più!"
                 })
             
             if least_sold['sales'] < 3 and total_orders > 20:
                 suggestions.append({
                     'type': 'warning',
-                    'message': f"Underperforming package: {least_sold['package']} (only {least_sold['sales']} sales) - Consider adjusting price or removing it"
+                    'message': f"Pacchetto sottoperformante: {least_sold['package']} (solo {least_sold['sales']} vendite) - Considera di modificare il prezzo o rimuoverlo"
                 })
             
             # Controlla se i prezzi corrispondono
@@ -4897,7 +4897,7 @@ async def admin_packages(
                 if pkg['price_match'] is False:
                     suggestions.append({
                         'type': 'info',
-                        'message': f"{pkg['package']}: Average price €{pkg['avg_price_euros']:.2f} differs from offered €{pkg['offered_price_euros']:.2f} - Check pricing logic"
+                        'message': f"{pkg['package']}: Prezzo medio €{pkg['avg_price_euros']:.2f} differisce da quello offerto €{pkg['offered_price_euros']:.2f} - Controlla la logica dei prezzi"
                     })
         
         return {
