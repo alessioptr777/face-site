@@ -326,10 +326,10 @@
         <div class="container">
             <div class="tabs">
                 <button class="tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
-                <button class="tab" onclick="showTab('orders')">💳 Orders</button>
-                <button class="tab" onclick="showTab('sales')">📈 Sales Analysis</button>
-                <button class="tab" onclick="showTab('upload')">📤 Upload Photos</button>
-                <button class="tab" onclick="showTab('backPhotos')">📷 Back Photos</button>
+                <button class="tab" onclick="showTab('orders')">💳 Ordini</button>
+                <button class="tab" onclick="showTab('sales')">📈 Analisi Vendite</button>
+                <button class="tab" onclick="showTab('upload')">📤 Carica Foto</button>
+                <button class="tab" onclick="showTab('backPhotos')">📷 Foto di Spalle</button>
             </div>
             
             <!-- Dashboard -->
@@ -360,35 +360,35 @@
             
             <!-- Ordini -->
             <div id="orders" class="tab-content">
-                <h2>Orders and Payments</h2>
+                <h2>Ordini e Pagamenti</h2>
                 <div style="margin-bottom: 20px;">
-                    <button class="btn btn-primary" onclick="fixAllOrders()">🔄 Update All Orders (Mark Photos as Paid)</button>
-                    <p style="margin-top: 10px; color: #666; font-size: 14px;">This will mark all photos in existing orders as paid in the user_photos table. Use this to sync orders with photo status.</p>
+                    <button class="btn btn-primary" onclick="fixAllOrders()">🔄 Aggiorna Tutti gli Ordini (Marca Foto come Pagate)</button>
+                    <p style="margin-top: 10px; color: #666; font-size: 14px;">Questo marcherà tutte le foto negli ordini esistenti come pagate nella tabella user_photos. Usa questo per sincronizzare gli ordini con lo stato delle foto.</p>
                 </div>
                 <div id="fixOrdersResult" style="margin-bottom: 20px;"></div>
-                <div id="ordersList" class="loading">Loading...</div>
+                <div id="ordersList" class="loading">Caricamento...</div>
             </div>
             
             <!-- Sales Analysis -->
             <div id="sales" class="tab-content">
-                <h2>📈 Sales Analysis - Package Performance</h2>
-                <p>Analyze which photo packages sell best and compare with your offers</p>
+                <h2>📈 Analisi Vendite - Performance Pacchetti</h2>
+                <p>Analizza quali pacchetti foto vendono meglio e confronta con le tue offerte</p>
                 
                 <!-- Date Filter -->
                 <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Filter by Period</h3>
+                    <h3 style="margin-bottom: 15px;">Filtra per Periodo</h3>
                     <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
                         <div>
-                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Start Date:</label>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Data Inizio:</label>
                             <input type="date" id="salesStartDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
                         </div>
                         <div>
-                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">End Date:</label>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Data Fine:</label>
                             <input type="date" id="salesEndDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
                         </div>
                         <div style="display: flex; gap: 10px; align-items: flex-end;">
-                            <button class="btn btn-primary" onclick="loadSalesAnalysis()">Apply Filter</button>
-                            <button class="btn" onclick="clearSalesFilter()" style="background: #e5e7eb; color: #333;">Clear</button>
+                            <button class="btn btn-primary" onclick="loadSalesAnalysis()">Applica Filtro</button>
+                            <button class="btn" onclick="clearSalesFilter()" style="background: #e5e7eb; color: #333;">Cancella</button>
                         </div>
                     </div>
                 </div>
@@ -399,15 +399,15 @@
                 </div>
                 
                 <!-- Package Sales Table -->
-                <h3 style="margin-top: 30px;">Package Sales Distribution</h3>
-                <div id="packagesTable" class="loading">Loading...</div>
+                <h3 style="margin-top: 30px;">Distribuzione Vendite per Pacchetto</h3>
+                <div id="packagesTable" class="loading">Caricamento...</div>
                 
                 <!-- Monthly Trend -->
-                <h3 style="margin-top: 40px;">Monthly Trend (Last 12 Months)</h3>
-                <div id="monthlyTrend" class="loading">Loading...</div>
+                <h3 style="margin-top: 40px;">Trend Mensile (Ultimi 12 Mesi)</h3>
+                <div id="monthlyTrend" class="loading">Caricamento...</div>
                 
                 <!-- Suggestions -->
-                <h3 style="margin-top: 40px;">💡 Suggestions</h3>
+                <h3 style="margin-top: 40px;">💡 Suggerimenti</h3>
                 <div id="salesSuggestions"></div>
             </div>
             
@@ -682,19 +682,19 @@
                     summaryDiv.innerHTML = `
                         <div class="stat-card">
                             <h3>${data.total_orders || 0}</h3>
-                            <p>Total Orders</p>
+                            <p>Ordini Totali</p>
                         </div>
                         <div class="stat-card success">
                             <h3>€${(data.total_revenue_euros || 0).toFixed(2)}</h3>
-                            <p>Total Revenue</p>
+                            <p>Ricavi Totali</p>
                         </div>
                         <div class="stat-card info">
                             <h3>${data.packages.reduce((sum, p) => sum + p.total_photos, 0)}</h3>
-                            <p>Total Photos Sold</p>
+                            <p>Foto Vendute Totali</p>
                         </div>
                         <div class="stat-card warning">
                             <h3>€${data.packages.length > 0 && data.total_orders > 0 ? (data.total_revenue_euros / data.total_orders).toFixed(2) : '0.00'}</h3>
-                            <p>Average Order Value</p>
+                            <p>Valore Medio Ordine</p>
                         </div>
                     `;
                     
@@ -704,19 +704,19 @@
                         let html = `
                             <table>
                                 <tr>
-                                    <th>Package</th>
-                                    <th>Sales</th>
-                                    <th>Revenue</th>
-                                    <th>Avg Price</th>
-                                    <th>Offered Price</th>
-                                    <th>Match</th>
-                                    <th>% of Total</th>
+                                    <th>Pacchetto</th>
+                                    <th>Vendite</th>
+                                    <th>Ricavi</th>
+                                    <th>Prezzo Medio</th>
+                                    <th>Prezzo Offerto</th>
+                                    <th>Corrispondenza</th>
+                                    <th>% sul Totale</th>
                                 </tr>
                         `;
                         
                         data.packages.forEach(pkg => {
                             const matchIcon = pkg.price_match === true ? '✅' : (pkg.price_match === false ? '⚠️' : '');
-                            const matchText = pkg.price_match === true ? 'Match' : (pkg.price_match === false ? 'Diff' : 'N/A');
+                            const matchText = pkg.price_match === true ? 'Corrisponde' : (pkg.price_match === false ? 'Differisce' : 'N/A');
                             const highlight = pkg.sales === Math.max(...data.packages.map(p => p.sales)) ? 'style="background: #d1fae5;"' : '';
                             
                             html += `
@@ -735,13 +735,13 @@
                         html += '</table>';
                         packagesDiv.innerHTML = html;
                     } else {
-                        packagesDiv.innerHTML = '<p>No sales data available</p>';
+                        packagesDiv.innerHTML = '<p>Nessun dato di vendita disponibile</p>';
                     }
                     
                     // Monthly Trend
                     const monthlyDiv = document.getElementById('monthlyTrend');
                     if(data.monthly_trend && data.monthly_trend.length > 0) {
-                        let html = '<table><tr><th>Month</th><th>Orders</th><th>Revenue</th><th>Photos</th><th>Top Package</th></tr>';
+                        let html = '<table><tr><th>Mese</th><th>Ordini</th><th>Ricavi</th><th>Foto</th><th>Pacchetto Top</th></tr>';
                         
                         data.monthly_trend.forEach(month => {
                             if(month.orders > 0) {
@@ -764,7 +764,7 @@
                         html += '</table>';
                         monthlyDiv.innerHTML = html;
                     } else {
-                        monthlyDiv.innerHTML = '<p>No monthly trend data available</p>';
+                        monthlyDiv.innerHTML = '<p>Nessun dato di trend mensile disponibile</p>';
                     }
                     
                     // Suggestions
@@ -777,14 +777,14 @@
                         });
                         suggestionsDiv.innerHTML = html;
                     } else {
-                        suggestionsDiv.innerHTML = '<p>No suggestions at this time</p>';
+                        suggestionsDiv.innerHTML = '<p>Nessun suggerimento al momento</p>';
                     }
                 } else {
-                    document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Error loading sales data</p>';
+                    document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Errore nel caricamento dei dati di vendita</p>';
                 }
             } catch(e) {
                 console.error('Error loading sales analysis:', e);
-                document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Error loading sales analysis</p>';
+                document.getElementById('packagesTable').innerHTML = '<p class="alert alert-error">Errore nel caricamento dell\'analisi vendite</p>';
             }
         }
         
@@ -796,10 +796,10 @@
         
         // Fix All Orders Function
         async function fixAllOrders() {
-            if(!confirm('This will mark all photos in existing orders as paid. Continue?')) return;
+            if(!confirm('Questo marcherà tutte le foto negli ordini esistenti come pagate. Continuare?')) return;
             
             const resultDiv = document.getElementById('fixOrdersResult');
-            resultDiv.innerHTML = '<p class="loading">Processing...</p>';
+            resultDiv.innerHTML = '<p class="loading">Elaborazione in corso...</p>';
             
             try {
                 const res = await fetch(`/admin/fix-all-orders?password=${encodeURIComponent(adminPassword)}`, {
@@ -810,21 +810,21 @@
                 if(data.ok) {
                     let html = `
                         <div class="alert alert-success" style="display: block;">
-                            <h3>✅ Orders Updated Successfully!</h3>
+                            <h3>✅ Ordini Aggiornati con Successo!</h3>
                             <ul style="margin: 10px 0; padding-left: 20px;">
-                                <li><strong>Total Orders:</strong> ${data.total_orders}</li>
-                                <li><strong>Orders Processed:</strong> ${data.orders_processed}</li>
-                                <li><strong>Photos Marked as Paid:</strong> ${data.photos_marked_paid}</li>
-                                <li><strong>Photos Already Paid:</strong> ${data.photos_already_paid}</li>
-                                <li><strong>Photos Not Found:</strong> ${data.photos_not_found || 0}</li>
-                                ${data.errors && data.errors.length > 0 ? `<li><strong>Errors:</strong> ${data.errors.length}</li>` : ''}
+                                <li><strong>Ordini Totali:</strong> ${data.total_orders}</li>
+                                <li><strong>Ordini Processati:</strong> ${data.orders_processed}</li>
+                                <li><strong>Foto Marcate come Pagate:</strong> ${data.photos_marked_paid}</li>
+                                <li><strong>Foto Già Pagate:</strong> ${data.photos_already_paid}</li>
+                                <li><strong>Foto Non Trovate:</strong> ${data.photos_not_found || 0}</li>
+                                ${data.errors && data.errors.length > 0 ? `<li><strong>Errori:</strong> ${data.errors.length}</li>` : ''}
                             </ul>
                         </div>
                     `;
                     
                     if(data.errors && data.errors.length > 0) {
                         html += `<div class="alert alert-error" style="display: block; margin-top: 10px;">
-                            <h4>Errors:</h4>
+                            <h4>Errori:</h4>
                             <ul style="margin: 10px 0; padding-left: 20px; max-height: 200px; overflow-y: auto;">
                                 ${data.errors.map(e => `<li>${e}</li>`).join('')}
                             </ul>
@@ -833,17 +833,17 @@
                     
                     if(data.details && data.details.length > 0) {
                         html += `<details style="margin-top: 15px;">
-                            <summary style="cursor: pointer; font-weight: 600; color: #667eea;">View Details (${data.details.length} orders)</summary>
+                            <summary style="cursor: pointer; font-weight: 600; color: #667eea;">Visualizza Dettagli (${data.details.length} ordini)</summary>
                             <div style="margin-top: 10px; max-height: 400px; overflow-y: auto;">
                                 <table style="font-size: 12px;">
                                     <tr>
-                                        <th>Order ID</th>
+                                        <th>ID Ordine</th>
                                         <th>Email</th>
-                                        <th>Photos</th>
-                                        <th>Amount</th>
-                                        <th>Marked</th>
-                                        <th>Already Paid</th>
-                                        <th>Not Found</th>
+                                        <th>Foto</th>
+                                        <th>Importo</th>
+                                        <th>Marcate</th>
+                                        <th>Già Pagate</th>
+                                        <th>Non Trovate</th>
                                     </tr>
                                     ${data.details.map(d => `
                                         <tr>
@@ -866,11 +866,11 @@
                     // Ricarica la lista ordini
                     loadOrders();
                 } else {
-                    resultDiv.innerHTML = `<div class="alert alert-error" style="display: block;">Error: ${data.error || 'Unknown error'}</div>`;
+                    resultDiv.innerHTML = `<div class="alert alert-error" style="display: block;">Errore: ${data.error || 'Errore sconosciuto'}</div>`;
                 }
             } catch(e) {
                 console.error('Error fixing orders:', e);
-                resultDiv.innerHTML = `<div class="alert alert-error" style="display: block;">Error: ${e.message}</div>`;
+                resultDiv.innerHTML = `<div class="alert alert-error" style="display: block;">Errore: ${e.message}</div>`;
             }
         }
     </script>
