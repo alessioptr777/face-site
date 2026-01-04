@@ -4847,10 +4847,23 @@ async def admin_packages(
         # Prepara dati mensili (ultimi 12 mesi)
         monthly_data = []
         current_date = datetime.now()
+        # Traduzione mesi in italiano
+        months_it = {
+            'January': 'Gennaio', 'February': 'Febbraio', 'March': 'Marzo', 'April': 'Aprile',
+            'May': 'Maggio', 'June': 'Giugno', 'July': 'Luglio', 'August': 'Agosto',
+            'September': 'Settembre', 'October': 'Ottobre', 'November': 'Novembre', 'December': 'Dicembre'
+        }
         for i in range(11, -1, -1):  # Ultimi 12 mesi
             month_date = current_date - timedelta(days=30 * i)
             month_key = month_date.strftime('%Y-%m')
-            month_name = month_date.strftime('%B %Y')
+            month_name_en = month_date.strftime('%B %Y')
+            # Traduci il nome del mese
+            for en, it in months_it.items():
+                if month_name_en.startswith(en):
+                    month_name = month_name_en.replace(en, it)
+                    break
+            else:
+                month_name = month_name_en  # Fallback se non trovato
             
             if month_key in monthly_stats:
                 stats = monthly_stats[month_key]

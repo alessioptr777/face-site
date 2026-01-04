@@ -716,7 +716,7 @@
                         
                         data.packages.forEach(pkg => {
                             const matchIcon = pkg.price_match === true ? '✅' : (pkg.price_match === false ? '⚠️' : '');
-                            const matchText = pkg.price_match === true ? 'Corrisponde' : (pkg.price_match === false ? 'Differisce' : 'N/A');
+                            const matchText = pkg.price_match === true ? 'Corrisponde' : (pkg.price_match === false ? 'Differisce' : 'N/D');
                             const highlight = pkg.sales === Math.max(...data.packages.map(p => p.sales)) ? 'style="background: #d1fae5;"' : '';
                             
                             html += `
@@ -725,7 +725,7 @@
                                     <td>${pkg.sales}</td>
                                     <td>€${pkg.revenue_euros.toFixed(2)}</td>
                                     <td>€${pkg.avg_price_euros.toFixed(2)}</td>
-                                    <td>€${pkg.offered_price_euros ? pkg.offered_price_euros.toFixed(2) : 'N/A'}</td>
+                                    <td>€${pkg.offered_price_euros ? pkg.offered_price_euros.toFixed(2) : 'N/D'}</td>
                                     <td>${matchIcon} ${matchText}</td>
                                     <td><strong>${pkg.percentage}%</strong></td>
                                 </tr>
@@ -755,7 +755,7 @@
                                         <td>${month.orders}</td>
                                         <td>€${month.revenue_euros.toFixed(2)}</td>
                                         <td>${month.photos}</td>
-                                        <td>${topPackage ? `${topPackage[0]} (${topPackage[1]})` : 'N/A'}</td>
+                                        <td>${topPackage ? `${topPackage[0]} (${topPackage[1]})` : 'N/D'}</td>
                                     </tr>
                                 `;
                             }
