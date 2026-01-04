@@ -381,9 +381,10 @@
                 <h2>Upload e Indicizzazione Foto</h2>
                 <p>Carica le foto che vuoi vendere. Verranno automaticamente indicizzate per il face matching.</p>
                 
-                <div style="margin-bottom: 30px; padding: 25px; background: #fff3cd; border-radius: 8px; border: 3px solid #ffc107; box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);">
-                    <label for="tourDateInput" style="display: block; margin-bottom: 15px; font-weight: 700; font-size: 18px; color: #856404;">📅 Data del Tour (OBBLIGATORIA):</label>
-                    <input type="date" id="tourDateInput" required style="width: 100%; max-width: 400px; padding: 15px; border: 3px solid #ffc107; border-radius: 8px; font-size: 18px; background: white; color: #333; font-weight: 600;" />
+                <!-- CAMPO DATA TOUR - DEVE ESSERE VISIBILE -->
+                <div style="margin-bottom: 30px; padding: 25px; background: #fff3cd !important; border-radius: 8px; border: 3px solid #ffc107 !important; box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3); display: block !important; visibility: visible !important;">
+                    <label for="tourDateInput" style="display: block !important; margin-bottom: 15px; font-weight: 700; font-size: 18px; color: #856404;">📅 Data del Tour (OBBLIGATORIA):</label>
+                    <input type="date" id="tourDateInput" required style="width: 100%; max-width: 400px; padding: 15px; border: 3px solid #ffc107; border-radius: 8px; font-size: 18px; background: white; color: #333; font-weight: 600; display: block !important; visibility: visible !important;" />
                     <p style="margin-top: 15px; font-size: 15px; color: #856404; font-weight: 600;">⚠️ <strong>IMPORTANTE:</strong> Seleziona la data del tour prima di caricare le foto!</p>
                 </div>
                 
