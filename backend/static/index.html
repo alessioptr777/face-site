@@ -1494,38 +1494,26 @@
           });
           return; // Esci subito, non mostrare schermo email
         } else {
-          // Comportamento normale: mostra email e controlla stato in background
+          // Comportamento normale: mostra prima la schermata data (anche se c'è emailParam)
+          // L'utente deve comunque selezionare la data prima di continuare
+          showScreen('date');
+          
+          // Pre-compila email se presente nell'URL (ma non mostrare ancora lo schermo email)
           const emailInput = document.getElementById('emailInput');
           if(emailInput) {
             emailInput.value = emailParam;
           }
           
-          // Controlla stato in background (non blocca UI)
-          checkUserState(emailParam).then(userState => {
-            // Se ha foto trovate (non pagate), mostra album
-            if(userState.shown) {
-              return; // Album già mostrato
-            }
-            
-            // Se ha foto pagate, redirecta
-            if(userState.redirect) {
-              return; // Redirect già fatto
-            }
-            
-            // Se non ha nulla, rimane sullo schermo email (già mostrato)
-          }).catch(err => {
-            console.error('Error checking user state in background:', err);
-            // In caso di errore, rimane sullo schermo email
-          });
+          // Controlla stato in background (non blocca UI) - ma solo dopo che l'utente ha selezionato la data
+          // Questo verrà fatto quando l'utente clicca "Continua" dalla schermata data
         }
+      } else {
+        // 3. Nessun emailParam - FLUSSO BASE: data → email → selfie
+        // Mostra subito lo schermo data (prima pagina)
+        showScreen('date');
       }
       
-      // 3. Email sempre vuota - utente deve sempre inserirla e cliccare Continue
-      // (rimosso auto-check e pre-compilazione per semplicità)
-      
-      // 4. FLUSSO BASE: data → email → selfie
-      // Mostra subito lo schermo data (prima pagina)
-      // Se c'è una data salvata, ripristinala
+      // 4. Se c'è una data salvata, ripristinala (sia che ci sia emailParam o no)
       const savedDate = localStorage.getItem('selectedTourDate');
       if(savedDate && tourDateInput) {
         tourDateInput.value = savedDate;
@@ -1536,7 +1524,11 @@
           dateContinueBtn.style.cursor = 'pointer';
         }
       }
-      showScreen('date');
+      
+      // Se non abbiamo ancora mostrato la schermata data, mostrala ora
+      if(currentScreen !== 'date' && !urlParams.get('email')) {
+        showScreen('date');
+      }
     }
     
     // ========== GESTIONE SELEZIONE DATA ==========
