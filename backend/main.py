@@ -4608,27 +4608,59 @@ async def admin_version():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/test-admin-file")
+async def test_admin_file():
+    """Endpoint PUBBLICO per testare se il file admin.html viene letto correttamente"""
+    admin_path = STATIC_DIR / "admin.html"
+    
+    result = {
+        "file_path": str(admin_path.resolve()),
+        "file_exists": admin_path.exists(),
+        "can_read": False,
+        "file_size": 0,
+        "has_version_2_2": False,
+        "has_date_selector": False,
+        "first_200_chars": "",
+        "error": None
+    }
+    
+    if admin_path.exists():
+        try:
+            with open(admin_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                result["can_read"] = True
+                result["file_size"] = len(content)
+                result["has_version_2_2"] = "VERSIONE 2.2" in content
+                result["has_date_selector"] = "dateSelector" in content
+                result["first_200_chars"] = content[:200]
+        except Exception as e:
+            result["error"] = str(e)
+    
+    return result
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel():
     """Pagina admin - SOLUZIONE DEFINITIVA: Legge file a ogni richiesta"""
     admin_path = STATIC_DIR / "admin.html"
     
-    logger.info(f"🔍 ADMIN PANEL v2.2 - Leggendo file da: {admin_path.resolve()}")
+    logger.info(f"🔍🔍🔍 ADMIN PANEL v2.2 FINALE - Leggendo file da: {admin_path.resolve()}")
     
     try:
         with open(admin_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
+        logger.info(f"📄 File letto: {len(content)} bytes")
+        
         # Verifica versione
         if "VERSIONE 2.2" not in content:
-            logger.error(f"❌ File NON contiene VERSIONE 2.2! Primi 300 caratteri: {content[:300]}")
+            logger.error(f"❌❌❌ File NON contiene VERSIONE 2.2! Primi 500 caratteri: {content[:500]}")
         else:
-            logger.info("✅ File contiene VERSIONE 2.2")
+            logger.info("✅✅✅ File contiene VERSIONE 2.2")
         
         if "dateSelector" not in content:
-            logger.error("❌ File NON contiene dateSelector!")
+            logger.error("❌❌❌ File NON contiene dateSelector!")
         else:
-            logger.info("✅ File contiene dateSelector")
+            logger.info("✅✅✅ File contiene dateSelector")
         
         return HTMLResponse(
             content=content,
@@ -4636,15 +4668,15 @@ async def admin_panel():
                 "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
                 "Expires": "0",
-                "X-Content-Version": "2.2-DIRECT-READ-v2",
+                "X-Content-Version": "2.2-FINAL-v3",
                 "X-Timestamp": str(datetime.now().isoformat())
             }
         )
     except FileNotFoundError:
-        logger.error(f"❌ File non trovato: {admin_path.resolve()}")
+        logger.error(f"❌❌❌ File non trovato: {admin_path.resolve()}")
         raise HTTPException(status_code=404, detail=f"Admin page not found: {admin_path}")
     except Exception as e:
-        logger.error(f"❌ Errore: {e}")
+        logger.error(f"❌❌❌ Errore: {e}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error loading admin page: {str(e)}")
