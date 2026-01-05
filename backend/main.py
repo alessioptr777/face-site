@@ -4629,18 +4629,22 @@ async def admin_debug(password: str = Query(..., description="Password admin")):
     try:
         with open(admin_path, 'r', encoding='utf-8') as f:
             content = f.read()
+            version_2_2 = "VERSIONE 2.2" in content
             version_2_1 = "VERSIONE 2.1" in content
             version_2_0 = "VERSIONE 2.0" in content
             has_date_selector = "dateSelector" in content
             has_selettore_data = "Selettore Data" in content
+            has_timestamp = "TIMESTAMP: 2026-01-04-23:45" in content
             
             return {
                 "path": str(admin_path.resolve()),
                 "file_exists": True,
+                "version_2.2": version_2_2,
                 "version_2.1": version_2_1,
                 "version_2.0": version_2_0,
                 "has_date_selector": has_date_selector,
                 "has_selettore_data": has_selettore_data,
+                "has_timestamp": has_timestamp,
                 "file_size": len(content),
                 "first_200_chars": content[:200]
             }
@@ -4731,17 +4735,6 @@ async def admin_orders(password: str = Query(..., description="Password admin"))
                     'download_token': row['download_token'],
                     'order_id': row['order_id']
                 })
-                rows = await cursor.fetchall()
-                for row in rows:
-                    photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                    orders.append({
-                        'order_id': row['order_id'],
-                        'email': row['email'],
-                        'photo_count': len(photo_ids),
-                        'amount_cents': row['amount_cents'],
-                        'paid_at': row['paid_at'],
-                        'download_token': row['download_token']
-                    })
         
         return {"ok": True, "orders": orders}
     except Exception as e:
