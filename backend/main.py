@@ -4608,70 +4608,44 @@ async def admin_version():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel():
-    """Pagina admin - servita direttamente come HTMLResponse per bypassare cache"""
+    """Pagina admin - SOLUZIONE DEFINITIVA: Legge file a ogni richiesta"""
     admin_path = STATIC_DIR / "admin.html"
     
-    # Log dettagliato per debug
-    logger.info(f"=== ADMIN PANEL REQUEST ===")
-    logger.info(f"BASE_DIR: {BASE_DIR.resolve()}")
-    logger.info(f"STATIC_DIR: {STATIC_DIR.resolve()}")
-    logger.info(f"admin_path: {admin_path.resolve()}")
-    logger.info(f"admin_path.exists(): {admin_path.exists()}")
+    logger.info(f"🔍 ADMIN PANEL v2.2 - Leggendo file da: {admin_path.resolve()}")
     
-    if not admin_path.exists():
-        logger.error(f"❌ Admin.html NOT FOUND at: {admin_path.resolve()}")
-        raise HTTPException(status_code=404, detail=f"Admin page not found at: {admin_path}")
-    
-    # Leggi il contenuto per verificare la versione e servirlo direttamente
-    # Questo bypassa eventuali problemi di cache di FileResponse
     try:
         with open(admin_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            file_size = len(content)
-            logger.info(f"File letto: {file_size} bytes")
-            
-            # Verifica versione
-            if "VERSIONE 2.2" in content:
-                logger.info("✅✅✅ Admin.html contiene VERSIONE 2.2 (aggiornata) ✅✅✅")
-            elif "VERSIONE 2.1" in content:
-                logger.info("⚠️ Admin.html contiene VERSIONE 2.1 (vecchia)")
-            elif "VERSIONE 2.0" in content:
-                logger.info("⚠️ Admin.html contiene VERSIONE 2.0 (molto vecchia)")
-            else:
-                logger.warning("⚠️ Admin.html non contiene marker di versione")
-            
-            # Verifica selettore data
-            if "dateSelector" in content:
-                logger.info("✅ Selettore data presente nel file")
-            else:
-                logger.warning("⚠️ Selettore data NON presente nel file")
         
-        # Servi il contenuto direttamente come HTMLResponse invece di FileResponse
-        # Questo bypassa eventuali problemi di cache del file system
-        logger.info("Servendo admin.html come HTMLResponse (bypass cache)")
+        # Verifica versione
+        if "VERSIONE 2.2" not in content:
+            logger.error(f"❌ File NON contiene VERSIONE 2.2! Primi 300 caratteri: {content[:300]}")
+        else:
+            logger.info("✅ File contiene VERSIONE 2.2")
+        
+        if "dateSelector" not in content:
+            logger.error("❌ File NON contiene dateSelector!")
+        else:
+            logger.info("✅ File contiene dateSelector")
+        
         return HTMLResponse(
             content=content,
             headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
                 "Expires": "0",
-                "X-Content-Version": "2.2",  # Header custom per debug
-                "X-File-Size": str(file_size)  # Header per verificare dimensione file
+                "X-Content-Version": "2.2-DIRECT-READ-v2",
+                "X-Timestamp": str(datetime.now().isoformat())
             }
         )
+    except FileNotFoundError:
+        logger.error(f"❌ File non trovato: {admin_path.resolve()}")
+        raise HTTPException(status_code=404, detail=f"Admin page not found: {admin_path}")
     except Exception as e:
-        logger.error(f"❌ Errore leggendo admin.html: {e}")
+        logger.error(f"❌ Errore: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        # Fallback a FileResponse se la lettura fallisce
-        return FileResponse(
-            admin_path,
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
+        raise HTTPException(status_code=500, detail=f"Error loading admin page: {str(e)}")
 
 @app.get("/admin/debug")
 async def admin_debug(password: str = Query(..., description="Password admin")):
