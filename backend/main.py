@@ -4646,11 +4646,25 @@ async def admin_debug(password: str = Query(..., description="Password admin")):
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     admin_path = STATIC_DIR / "admin.html"
+    
+    # Verifica anche il codice Python
+    import inspect
+    python_code = inspect.getsource(admin_panel)
+    has_logging = "=== ADMIN PANEL REQUEST ===" in python_code
+    has_cursor_fix = "await cursor.fetchall()" not in inspect.getsource(admin_orders)
+    
+    result = {
+        "python_code_version": "BUILD_VERSION: 2026-01-05-00-25-FORCE-REBUILD" if "BUILD_VERSION" in open(__file__).read()[:500] else "Vecchia versione",
+        "python_has_logging": has_logging,
+        "python_has_cursor_fix": has_cursor_fix,
+        "static_dir": str(STATIC_DIR.resolve()),
+        "admin_path": str(admin_path.resolve()),
+        "file_exists": admin_path.exists(),
+    }
+    
     if not admin_path.exists():
-        return {
-            "error": "File not found",
-            "path": str(admin_path.resolve())
-        }
+        result["error"] = "File not found"
+        return result
     
     try:
         with open(admin_path, 'r', encoding='utf-8') as f:
@@ -4662,23 +4676,36 @@ async def admin_debug(password: str = Query(..., description="Password admin")):
             has_selettore_data = "Selettore Data" in content
             has_timestamp = "TIMESTAMP: 2026-01-04-23:45" in content
             
-            return {
-                "path": str(admin_path.resolve()),
-                "file_exists": True,
+            # Leggi anche il file dal repository per confronto
+            try:
+                import subprocess
+                git_content = subprocess.check_output(
+                    ["git", "show", "HEAD:backend/static/admin.html"],
+                    cwd=BASE_DIR.parent,
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8')
+                git_has_2_2 = "VERSIONE 2.2" in git_content
+                result["git_repo_has_2.2"] = git_has_2_2
+            except:
+                result["git_repo_check"] = "Non disponibile"
+            
+            result.update({
+                "file_size": len(content),
                 "version_2.2": version_2_2,
                 "version_2.1": version_2_1,
                 "version_2.0": version_2_0,
                 "has_date_selector": has_date_selector,
                 "has_selettore_data": has_selettore_data,
                 "has_timestamp": has_timestamp,
-                "file_size": len(content),
-                "first_200_chars": content[:200]
-            }
+                "first_100_chars": content[:100],
+                "title_line": [line for line in content.split('\n')[:15] if 'title' in line.lower()][:1]
+            })
     except Exception as e:
-        return {
-            "error": str(e),
-            "path": str(admin_path.resolve())
-        }
+        result["error"] = str(e)
+        import traceback
+        result["traceback"] = traceback.format_exc()
+    
+    return result
 
 @app.get("/admin/stats")
 async def admin_stats(password: str = Query(..., description="Password admin")):
