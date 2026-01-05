@@ -1,4 +1,5 @@
 # File principale dell'API FaceSite
+# BUILD_VERSION: 2026-01-05-00-25-FORCE-REBUILD
 import json
 import logging
 import os
