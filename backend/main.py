@@ -1,5 +1,6 @@
 # File principale dell'API FaceSite
-# BUILD_VERSION: 2026-01-05-00-25-FORCE-REBUILD
+# BUILD_VERSION: 2026-01-05-01-10-FORCE-REBUILD-COMPLETE-v2
+# FORCE_RELOAD: Questo commento forza Render a ricompilare il file
 import json
 import logging
 import os
@@ -188,22 +189,26 @@ PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Log diagnostico all'avvio
-logger.info("=" * 60)
-logger.info("STARTUP DIAGNOSTICS")
-logger.info(f"BASE_DIR (absolute): {BASE_DIR.resolve()}")
-logger.info(f"PHOTOS_DIR (absolute): {PHOTOS_DIR.resolve()}")
-logger.info(f"PHOTOS_DIR exists: {PHOTOS_DIR.exists()}")
-logger.info(f"Current working directory: {os.getcwd()}")
+logger.info("=" * 80)
+logger.info("🚀 APPLICATION STARTUP")
+logger.info("=" * 80)
+logger.info(f"📂 BASE_DIR (absolute): {BASE_DIR.resolve()}")
+logger.info(f"📂 Current working directory: {os.getcwd()}")
+logger.info(f"📂 __file__ location: {Path(__file__).resolve()}")
+logger.info("")
+logger.info(f"📁 PHOTOS_DIR (absolute): {PHOTOS_DIR.resolve()}")
+logger.info(f"   PHOTOS_DIR exists: {PHOTOS_DIR.exists()}")
 if PHOTOS_DIR.exists():
     try:
         photo_files = list(PHOTOS_DIR.iterdir())
-        logger.info(f"Photos found: {len(photo_files)}")
-        logger.info(f"First 10 files: {[p.name for p in photo_files[:10]]}")
+        logger.info(f"   Photos found: {len(photo_files)}")
+        if photo_files:
+            logger.info(f"   First 5 files: {[p.name for p in photo_files[:5]]}")
     except Exception as e:
-        logger.error(f"Error listing photos: {e}")
+        logger.error(f"   Error listing photos: {e}")
 else:
-    logger.warning("PHOTOS_DIR does not exist!")
-logger.info("=" * 60)
+    logger.warning("   ⚠️  PHOTOS_DIR does not exist!")
+logger.info("=" * 80)
 
 app = FastAPI(title="Face Match API")
 
@@ -1549,6 +1554,41 @@ async def startup():
         logger.error(f"Error loading back photos: {e}")
         back_photos = []
     
+    # ============================================================
+    # LOGGING DEFINITIVO: PATH ESATTI DEI FILE STATICI
+    # ============================================================
+    logger.info("=" * 80)
+    logger.info("📁 STATIC FILES CONFIGURATION")
+    logger.info("=" * 80)
+    
+    index_path = STATIC_DIR / "index.html"
+    admin_path = STATIC_DIR / "admin.html"
+    
+    logger.info(f"STATIC_DIR (absolute): {STATIC_DIR.resolve()}")
+    logger.info(f"STATIC_DIR exists: {STATIC_DIR.exists()}")
+    logger.info("")
+    logger.info(f"📄 index.html path: {index_path.resolve()}")
+    logger.info(f"   index.html exists: {index_path.exists()}")
+    if index_path.exists():
+        logger.info(f"   index.html size: {index_path.stat().st_size} bytes")
+        logger.info(f"   index.html modified: {datetime.fromtimestamp(index_path.stat().st_mtime).isoformat()}")
+    else:
+        logger.error(f"   ❌ index.html NOT FOUND!")
+    logger.info("")
+    logger.info(f"📄 admin.html path: {admin_path.resolve()}")
+    logger.info(f"   admin.html exists: {admin_path.exists()}")
+    if admin_path.exists():
+        logger.info(f"   admin.html size: {admin_path.stat().st_size} bytes")
+        logger.info(f"   admin.html modified: {datetime.fromtimestamp(admin_path.stat().st_mtime).isoformat()}")
+    else:
+        logger.error(f"   ❌ admin.html NOT FOUND!")
+    logger.info("")
+    logger.info(f"🌐 Serving static files from: /static -> {STATIC_DIR.resolve()}")
+    logger.info(f"🏠 Home page will be served from: / -> {index_path.resolve()}")
+    logger.info(f"🔐 Admin page will be served from: /admin -> {admin_path.resolve()}")
+    logger.info("=" * 80)
+    logger.info("✅ STARTUP COMPLETE")
+    logger.info("=" * 80)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -1579,16 +1619,16 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/", response_class=HTMLResponse)
 def root():
+    """Home page - serve index.html"""
     index_path = STATIC_DIR / "index.html"
     if not index_path.exists():
-        logger.error(f"index.html not found at: {index_path.resolve()}")
+        logger.error(f"❌ index.html not found at: {index_path.resolve()}")
         raise HTTPException(status_code=500, detail=f"index.html not found: {index_path}")
-    logger.info(f"Serving index.html from: {index_path.resolve()}")
-    # Disabilita cache per assicurare che venga servita sempre la versione più recente
+    logger.info(f"🏠 Serving index.html from: {index_path.resolve()}")
     return FileResponse(
         index_path,
         headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0"
         }
@@ -4639,47 +4679,21 @@ async def test_admin_file():
     return result
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_panel():
-    """Pagina admin - SOLUZIONE DEFINITIVA: Legge file a ogni richiesta"""
+def admin_panel():
+    """Admin page - serve admin.html"""
     admin_path = STATIC_DIR / "admin.html"
-    
-    logger.info(f"🔍🔍🔍 ADMIN PANEL v2.2 FINALE - Leggendo file da: {admin_path.resolve()}")
-    
-    try:
-        with open(admin_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        logger.info(f"📄 File letto: {len(content)} bytes")
-        
-        # Verifica versione
-        if "VERSIONE 2.2" not in content:
-            logger.error(f"❌❌❌ File NON contiene VERSIONE 2.2! Primi 500 caratteri: {content[:500]}")
-        else:
-            logger.info("✅✅✅ File contiene VERSIONE 2.2")
-        
-        if "dateSelector" not in content:
-            logger.error("❌❌❌ File NON contiene dateSelector!")
-        else:
-            logger.info("✅✅✅ File contiene dateSelector")
-        
-        return HTMLResponse(
-            content=content,
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "0",
-                "X-Content-Version": "2.2-FINAL-v3",
-                "X-Timestamp": str(datetime.now().isoformat())
-            }
-        )
-    except FileNotFoundError:
-        logger.error(f"❌❌❌ File non trovato: {admin_path.resolve()}")
-        raise HTTPException(status_code=404, detail=f"Admin page not found: {admin_path}")
-    except Exception as e:
-        logger.error(f"❌❌❌ Errore: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error loading admin page: {str(e)}")
+    if not admin_path.exists():
+        logger.error(f"❌ admin.html not found at: {admin_path.resolve()}")
+        raise HTTPException(status_code=500, detail=f"admin.html not found: {admin_path}")
+    logger.info(f"🔐 Serving admin.html from: {admin_path.resolve()}")
+    return FileResponse(
+        admin_path,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 @app.get("/admin/debug")
 async def admin_debug(password: str = Query(..., description="Password admin")):

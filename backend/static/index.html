@@ -1082,11 +1082,30 @@
       font-weight: 600;
       color: var(--accent-light);
     }
+    
+    /* Banner LIVE visibile */
+    .live-banner{
+      font-size: 42px;
+      font-weight: 900;
+      color: #111;
+      background: #ffcc00;
+      padding: 10px 14px;
+      border-radius: 12px;
+      display: inline-block;
+      margin-bottom: 16px;
+    }
+    
+    @media (max-width: 768px){
+      .live-banner{
+        font-size: 32px;
+      }
+    }
   </style>
 </head>
 <body>
   <!-- Email Screen -->
   <div class="screen email-screen" id="emailScreen">
+    <div class="live-banner">CIAO LIVE 2026-01-05 ✅</div>
     <h1 class="email-title">Inserisci la tua email</h1>
     <p class="email-subtitle">La tua email è necessaria per salvare e recuperare le tue foto</p>
     <div class="email-input-container">
