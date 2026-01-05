@@ -4547,6 +4547,31 @@ def _check_admin_auth(password: Optional[str] = None) -> bool:
         return False
     return password == ADMIN_PASSWORD
 
+@app.get("/admin/version")
+async def admin_version():
+    """Endpoint per verificare quale versione del codice è in esecuzione"""
+    import inspect
+    try:
+        # Leggi la prima riga del file per vedere la versione
+        file_path = Path(__file__).resolve()
+        with open(file_path, 'r', encoding='utf-8') as f:
+            first_lines = [f.readline() for _ in range(5)]
+        
+        version_line = None
+        for line in first_lines:
+            if "BUILD_VERSION" in line:
+                version_line = line.strip()
+                break
+        
+        return {
+            "file_path": str(file_path),
+            "version": version_line or "Versione non trovata",
+            "has_admin_panel_logging": "=== ADMIN PANEL REQUEST ===" in inspect.getsource(admin_panel),
+            "has_cursor_fix": "await cursor.fetchall()" not in inspect.getsource(admin_orders) if 'admin_orders' in globals() else "N/A"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel():
     """Pagina admin - servita direttamente come HTMLResponse per bypassare cache"""
