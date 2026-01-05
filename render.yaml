@@ -4,7 +4,7 @@ services:
     env: python
     plan: starter
     rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && echo "BUILD_TIMESTAMP: 2026-01-05-00-25-FORCE-REBUILD" > /tmp/build_info.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && echo "BUILD_TIMESTAMP: 2026-01-05-00-30-FORCE-REBUILD-COMPLETE" > /tmp/build_info.txt && python3 -c "print('✅ BUILD FORZATO COMPLETATO')"
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
