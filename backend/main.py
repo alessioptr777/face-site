@@ -68,9 +68,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 USE_POSTGRES = POSTGRES_AVAILABLE and DATABASE_URL is not None and DATABASE_URL.startswith("postgresql://")
 
 BASE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BASE_DIR.parent  # Root del repository
 DATA_DIR = BASE_DIR / "data"
 PHOTOS_DIR = BASE_DIR / "photos"
-STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR = REPO_ROOT / "static"  # Static files dalla root del repo
 
 INDEX_PATH = DATA_DIR / "faces.index"
 META_PATH = DATA_DIR / "faces.meta.jsonl"
@@ -4736,7 +4737,7 @@ async def admin_debug(password: str = Query(..., description="Password admin")):
             try:
                 import subprocess
                 git_content = subprocess.check_output(
-                    ["git", "show", "HEAD:backend/static/admin.html"],
+                    ["git", "show", "HEAD:static/admin.html"],
                     cwd=BASE_DIR.parent,
                     stderr=subprocess.DEVNULL
                 ).decode('utf-8')
