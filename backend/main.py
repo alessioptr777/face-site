@@ -304,6 +304,16 @@ async def _init_database():
                 )
             """)
             
+            # Tabella carrelli
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS carts (
+                    session_id VARCHAR(255) PRIMARY KEY,
+                    photo_ids TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # Indici per performance
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_email ON user_photos(email)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_status ON user_photos(status)")
@@ -375,6 +385,16 @@ async def _init_database():
                     sent_at TEXT,
                     FOREIGN KEY (email) REFERENCES users(email),
                     UNIQUE(email, photo_id, followup_type)
+                )
+            """)
+            
+            # Tabella carrelli
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS carts (
+                    session_id TEXT PRIMARY KEY,
+                    photo_ids TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
             """)
             
@@ -3016,7 +3036,7 @@ async def test_checkout(
         logger.info(f"Session ID: {session_id}")
         logger.info(f"Email: {email}")
         
-        photo_ids = _get_cart(session_id)
+        photo_ids = await _get_cart(session_id)
         logger.info(f"Cart photo_ids: {photo_ids}")
         
         if not photo_ids:
@@ -3285,34 +3305,103 @@ async def match_selfie(
 
 # ========== CARRELLO E PAGAMENTI ==========
 
-# Storage carrelli in memoria (in produzione usa Redis o database)
-carts: Dict[str, List[str]] = {}  # session_id -> [photo_ids]
+# Storage carrelli su database (PostgreSQL o SQLite)
+# Il carrello è persistente per session_id nella tabella carts
 
-def _get_cart(session_id: str) -> List[str]:
-    """Ottiene il carrello per una sessione"""
-    return carts.get(session_id, [])
+async def _get_cart(session_id: str) -> List[str]:
+    """Ottiene il carrello per una sessione dal database"""
+    if not (USE_POSTGRES or SQLITE_AVAILABLE):
+        return []
+    
+    try:
+        if USE_POSTGRES:
+            row = await _db_execute_one(
+                "SELECT photo_ids FROM carts WHERE session_id = $1",
+                (session_id,)
+            )
+        else:
+            row = await _db_execute_one(
+                "SELECT photo_ids FROM carts WHERE session_id = ?",
+                (session_id,)
+            )
+        
+        if row and row.get('photo_ids'):
+            photo_ids = json.loads(row['photo_ids'])
+            return photo_ids if isinstance(photo_ids, list) else []
+        return []
+    except Exception as e:
+        logger.error(f"Error getting cart for session {session_id}: {e}")
+        return []
 
-def _add_to_cart(session_id: str, photo_id: str):
+async def _set_cart(session_id: str, photo_ids: List[str]):
+    """Imposta il carrello completo per una sessione (upsert)"""
+    if not (USE_POSTGRES or SQLITE_AVAILABLE):
+        return
+    
+    try:
+        # Dedup preservando ordine
+        seen = set()
+        unique_photo_ids = []
+        for photo_id in photo_ids:
+            if photo_id not in seen:
+                seen.add(photo_id)
+                unique_photo_ids.append(photo_id)
+        
+        photo_ids_json = json.dumps(unique_photo_ids, ensure_ascii=False)
+        now = datetime.now(timezone.utc).isoformat()
+        
+        if USE_POSTGRES:
+            await _db_execute(
+                """
+                INSERT INTO carts (session_id, photo_ids, created_at, updated_at)
+                VALUES ($1, $2, NOW(), NOW())
+                ON CONFLICT (session_id) DO UPDATE
+                SET photo_ids = EXCLUDED.photo_ids, updated_at = NOW()
+                """,
+                (session_id, photo_ids_json)
+            )
+        else:
+            await _db_execute(
+                """
+                INSERT INTO carts (session_id, photo_ids, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (session_id) DO UPDATE
+                SET photo_ids = excluded.photo_ids, updated_at = excluded.updated_at
+                """,
+                (session_id, photo_ids_json, now, now)
+            )
+    except Exception as e:
+        logger.error(f"Error setting cart for session {session_id}: {e}")
+
+async def _add_to_cart(session_id: str, photo_id: str):
     """Aggiunge foto al carrello"""
-    if session_id not in carts:
-        carts[session_id] = []
-    if photo_id not in carts[session_id]:
-        carts[session_id].append(photo_id)
+    current_photo_ids = await _get_cart(session_id)
+    if photo_id not in current_photo_ids:
+        current_photo_ids.append(photo_id)
+        await _set_cart(session_id, current_photo_ids)
 
-def _remove_from_cart(session_id: str, photo_id: str):
+async def _remove_from_cart(session_id: str, photo_id: str):
     """Rimuove foto dal carrello"""
-    if session_id in carts:
-        carts[session_id] = [p for p in carts[session_id] if p != photo_id]
+    current_photo_ids = await _get_cart(session_id)
+    if photo_id in current_photo_ids:
+        current_photo_ids = [p for p in current_photo_ids if p != photo_id]
+        await _set_cart(session_id, current_photo_ids)
 
-def _clear_cart(session_id: str):
+async def _clear_cart(session_id: str):
     """Svuota il carrello"""
-    if session_id in carts:
-        del carts[session_id]
+    if USE_POSTGRES or SQLITE_AVAILABLE:
+        try:
+            if USE_POSTGRES:
+                await _db_execute("DELETE FROM carts WHERE session_id = $1", (session_id,))
+            else:
+                await _db_execute("DELETE FROM carts WHERE session_id = ?", (session_id,))
+        except Exception as e:
+            logger.error(f"Error clearing cart for session {session_id}: {e}")
 
 @app.get("/cart")
 async def get_cart(session_id: str = Query(..., description="ID sessione")):
     """Ottiene il contenuto del carrello"""
-    photo_ids = _get_cart(session_id)
+    photo_ids = await _get_cart(session_id)
     price = calculate_price(len(photo_ids))
     
     return {
@@ -3336,19 +3425,20 @@ async def add_to_cart(
             paid_photos = await _get_user_paid_photos(email)
             if photo_id in paid_photos:
                 logger.warning(f"Attempt to add already paid photo to cart: {photo_id} for {email}")
+                current_photo_ids = await _get_cart(session_id)
                 return {
                     "ok": False,
                     "error": "Questa foto è già stata acquistata",
-                    "photo_ids": _get_cart(session_id),
-                    "count": len(_get_cart(session_id)),
+                    "photo_ids": current_photo_ids,
+                    "count": len(current_photo_ids),
                     "price_cents": 0,
                     "price_euros": 0.0
                 }
         except Exception as e:
             logger.error(f"Error checking paid photos in cart/add: {e}")
     
-    _add_to_cart(session_id, photo_id)
-    photo_ids = _get_cart(session_id)
+    await _add_to_cart(session_id, photo_id)
+    photo_ids = await _get_cart(session_id)
     price = calculate_price(len(photo_ids))
     
     return {
@@ -3365,8 +3455,8 @@ async def remove_from_cart(
     photo_id: str = Query(..., description="ID foto da rimuovere")
 ):
     """Rimuove una foto dal carrello"""
-    _remove_from_cart(session_id, photo_id)
-    photo_ids = _get_cart(session_id)
+    await _remove_from_cart(session_id, photo_id)
+    photo_ids = await _get_cart(session_id)
     price = calculate_price(len(photo_ids)) if photo_ids else 0
     
     return {
@@ -3393,7 +3483,7 @@ async def create_checkout(
         logger.error("Stripe not configured")
         raise HTTPException(status_code=503, detail="Stripe not configured")
     
-    photo_ids = _get_cart(session_id)
+    photo_ids = await _get_cart(session_id)
     logger.info(f"Cart photo_ids: {photo_ids}")
     
     if not photo_ids:
@@ -4149,14 +4239,14 @@ async def stripe_webhook(request: Request):
                     try:
                         # Rimuovi solo le foto acquistate dal carrello (non svuotare tutto)
                         # in caso l'utente abbia aggiunto altre foto dopo il checkout
-                        cart_photo_ids = _get_cart(session_id)
+                        cart_photo_ids = await _get_cart(session_id)
                         if cart_photo_ids:
                             photo_ids_set = set(photo_ids)
                             remaining_photos = [p for p in cart_photo_ids if p not in photo_ids_set]
                             
                             if len(remaining_photos) != len(cart_photo_ids):
                                 # Ci sono foto acquistate nel carrello, rimuovile
-                                carts[session_id] = remaining_photos
+                                await _set_cart(session_id, remaining_photos)
                                 logger.info(f"Removed {len(cart_photo_ids) - len(remaining_photos)} purchased photos from cart {session_id}")
                             else:
                                 logger.info(f"No purchased photos found in cart {session_id} (already removed or not present)")
