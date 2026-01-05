@@ -1638,7 +1638,7 @@ def root():
 @app.get("/album", response_class=HTMLResponse)
 def album():
     """Pagina album con i risultati delle foto"""
-    return FileResponse(STATIC_DIR / "album.html")
+    return FileResponse(STATIC_DIR / "index.html")
 
 @app.get("/test", response_class=HTMLResponse)
 def test_page():
