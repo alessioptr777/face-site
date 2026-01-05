@@ -4577,7 +4577,7 @@ async def check_version():
             "python_file": str(file_path),
             "build_version": version_line or "NON TROVATO - VERSIONE VECCHIA",
             "has_debug_endpoint": has_debug_endpoint,
-            "has_admin_panel_logging": "=== ADMIN PANEL REQUEST ===" in inspect.getsource(admin_panel),
+            "has_admin_panel_logging": "🔍 ADMIN PANEL v2.2" in inspect.getsource(admin_panel),
             "message": "Se build_version è 'NON TROVATO', Render sta servendo codice vecchio"
         }
     except Exception as e:
@@ -4602,7 +4602,7 @@ async def admin_version():
         return {
             "file_path": str(file_path),
             "version": version_line or "Versione non trovata",
-            "has_admin_panel_logging": "=== ADMIN PANEL REQUEST ===" in inspect.getsource(admin_panel),
+            "has_admin_panel_logging": "🔍 ADMIN PANEL v2.2" in inspect.getsource(admin_panel),
             "has_cursor_fix": "await cursor.fetchall()" not in inspect.getsource(admin_orders) if 'admin_orders' in globals() else "N/A"
         }
     except Exception as e:
