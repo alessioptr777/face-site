@@ -4547,6 +4547,40 @@ def _check_admin_auth(password: Optional[str] = None) -> bool:
         return False
     return password == ADMIN_PASSWORD
 
+@app.get("/check-version")
+async def check_version():
+    """Endpoint PUBBLICO per verificare quale versione è deployata - NO AUTH RICHIESTO"""
+    try:
+        file_path = Path(__file__).resolve()
+        with open(file_path, 'r', encoding='utf-8') as f:
+            first_10_lines = [f.readline() for _ in range(10)]
+        
+        version_line = None
+        for line in first_10_lines:
+            if "BUILD_VERSION" in line:
+                version_line = line.strip()
+                break
+        
+        # Verifica se l'endpoint /admin/debug esiste
+        import inspect
+        has_debug_endpoint = False
+        try:
+            source = inspect.getsource(admin_debug)
+            has_debug_endpoint = True
+        except:
+            pass
+        
+        return {
+            "status": "ok",
+            "python_file": str(file_path),
+            "build_version": version_line or "NON TROVATO - VERSIONE VECCHIA",
+            "has_debug_endpoint": has_debug_endpoint,
+            "has_admin_panel_logging": "=== ADMIN PANEL REQUEST ===" in inspect.getsource(admin_panel),
+            "message": "Se build_version è 'NON TROVATO', Render sta servendo codice vecchio"
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "error"}
+
 @app.get("/admin/version")
 async def admin_version():
     """Endpoint per verificare quale versione del codice è in esecuzione"""
