@@ -4565,8 +4565,10 @@ async def check_version():
         import inspect
         has_debug_endpoint = False
         try:
-            source = inspect.getsource(admin_debug)
-            has_debug_endpoint = True
+            # Cerca la funzione admin_debug nel modulo corrente
+            if 'admin_debug' in globals():
+                source = inspect.getsource(admin_debug)
+                has_debug_endpoint = True
         except:
             pass
         
