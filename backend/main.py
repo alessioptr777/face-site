@@ -6,10 +6,11 @@ import logging
 import os
 import hashlib
 import secrets
+import math
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import cv2
@@ -393,8 +394,8 @@ async def _init_database():
                 CREATE TABLE IF NOT EXISTS carts (
                     session_id TEXT PRIMARY KEY,
                     photo_ids TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )
             """)
             
@@ -841,15 +842,22 @@ async def _get_order_by_token(token: str) -> Optional[Dict[str, Any]]:
     """Recupera ordine per download token"""
     if not USE_POSTGRES and not SQLITE_AVAILABLE:
         return None
-    
+
     try:
-        row = await _db_execute_one(
-            "SELECT * FROM orders WHERE download_token = ?",
-            (token,)
-        )
+        if USE_POSTGRES:
+            row = await _db_execute_one(
+                "SELECT * FROM orders WHERE download_token = $1",
+                (token,)
+            )
+        else:
+            row = await _db_execute_one(
+                "SELECT * FROM orders WHERE download_token = ?",
+                (token,)
+            )
+
         if row:
             order = dict(row)
-            order['photo_ids'] = json.loads(order['photo_ids'])
+            order['photo_ids'] = json.loads(order['photo_ids']) if order.get('photo_ids') else []
             return order
     except Exception as e:
         logger.error(f"Error getting order: {e}")
@@ -1392,8 +1400,79 @@ def _read_image_from_bytes(file_bytes: bytes):
             detail=f"Formato immagine non supportato. Formati supportati: JPEG, PNG, HEIC (richiede pillow-heif). Errore: {str(e)}"
         )
 
+# Cache per overlay watermark (chiave: (width, height) -> overlay Image)
+_watermark_overlay_cache: Dict[Tuple[int, int], Image.Image] = {}
+
+def _create_watermark_overlay(width: int, height: int) -> Image.Image:
+    """Crea overlay watermark semplice con testo 'metaproos' ripetuto a griglia"""
+    # Controlla cache
+    cache_key = (width, height)
+    if cache_key in _watermark_overlay_cache:
+        return _watermark_overlay_cache[cache_key].copy()
+    
+    # Crea overlay RGBA
+    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    
+    # Testo watermark (minuscolo senza spazio)
+    text = "metaproos"
+    
+    # Calcola dimensione font basata sull'altezza immagine (circa 2-3% per pattern a griglia)
+    font_size = max(16, int(height * 0.025))
+    
+    try:
+        # Prova a usare font di sistema
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except:
+            # Fallback a font default
+            font = ImageFont.load_default()
+    
+    # Calcola dimensioni testo
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Colore bianco semi-trasparente (RGBA)
+    # Opacità ~40-50% per essere visibile ma non invasivo
+    watermark_color = (255, 255, 255, 120)  # Opacità 120/255 (~47% visibile)
+    
+    # Calcola dimensione celle griglia
+    # Ogni cella deve contenere il testo con un po' di padding
+    cell_padding = text_width * 0.3  # 30% di padding intorno al testo
+    cell_width = text_width + cell_padding
+    cell_height = text_height + cell_padding
+    
+    # Calcola quante celle servono per coprire tutta l'immagine
+    num_cols = int((width / cell_width) + 2)  # +2 per margine
+    num_rows = int((height / cell_height) + 2)
+    
+    # Disegna pattern a griglia
+    # Ogni cella contiene il testo centrato
+    for row in range(num_rows):
+        for col in range(num_cols):
+            # Calcola posizione centro cella
+            cell_x = col * cell_width
+            cell_y = row * cell_height
+            
+            # Centra il testo nella cella
+            text_x = cell_x + (cell_width - text_width) / 2
+            text_y = cell_y + (cell_height - text_height) / 2
+            
+            # Disegna solo se la cella è visibile nell'immagine
+            if text_x + text_width > -50 and text_x < width + 50 and \
+               text_y + text_height > -50 and text_y < height + 50:
+                draw.text((text_x, text_y), text, font=font, fill=watermark_color)
+    
+    # Salva in cache
+    _watermark_overlay_cache[cache_key] = overlay.copy()
+    
+    return overlay
+
 def _add_watermark(image_path: Path) -> bytes:
-    """Aggiunge watermark pattern a griglia come getpica.com con 'tenerifepictures'"""
+    """Aggiunge watermark pattern premium a griglia (stile GetPica) con logo Metaproos, linee e nodi"""
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -1404,72 +1483,21 @@ def _add_watermark(image_path: Path) -> bytes:
         
         # Converti in RGBA per watermark
         img_rgba = img.convert('RGBA')
-        watermark = Image.new('RGBA', img_rgba.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(watermark)
         
-        # Testo watermark (minuscolo senza spazio)
-        text = "tenerifepictures"
-        
-        # Calcola dimensione font basata sull'altezza immagine (circa 2-3% per pattern a griglia)
-        font_size = max(16, int(img.height * 0.025))
-        
-        try:
-            # Prova a usare font di sistema
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-        except:
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-            except:
-                # Fallback a font default
-                font = ImageFont.load_default()
-        
-        # Calcola dimensioni testo
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        
-        # Colore bianco semi-trasparente come getpica.com (RGBA)
-        # Opacità ~40-50% per essere visibile ma non invasivo
-        watermark_color = (255, 255, 255, 120)  # Opacità 120/255 (~47% visibile)
-        
-        # Calcola dimensione celle griglia
-        # Ogni cella deve contenere il testo con un po' di padding
-        cell_padding = text_width * 0.3  # 30% di padding intorno al testo
-        cell_width = text_width + cell_padding
-        cell_height = text_height + cell_padding
-        
-        # Calcola quante celle servono per coprire tutta l'immagine
-        num_cols = int((img.width / cell_width) + 2)  # +2 per margine
-        num_rows = int((img.height / cell_height) + 2)  # +2 per margine
-        
-        # Disegna pattern a griglia
-        # Ogni cella contiene il testo centrato
-        for row in range(num_rows):
-            for col in range(num_cols):
-                # Calcola posizione centro cella
-                cell_x = col * cell_width
-                cell_y = row * cell_height
-                
-                # Centra il testo nella cella
-                text_x = cell_x + (cell_width - text_width) / 2
-                text_y = cell_y + (cell_height - text_height) / 2
-                
-                # Disegna solo se la cella è visibile nell'immagine
-                if text_x + text_width > -50 and text_x < img.width + 50 and \
-                   text_y + text_height > -50 and text_y < img.height + 50:
-                    draw.text((text_x, text_y), text, font=font, fill=watermark_color)
+        # Crea overlay watermark (con cache)
+        watermark_overlay = _create_watermark_overlay(img.width, img.height)
         
         # Combina watermark con immagine
-        img_with_watermark = Image.alpha_composite(img_rgba, watermark).convert('RGB')
+        img_with_watermark = Image.alpha_composite(img_rgba, watermark_overlay).convert('RGB')
         
         # Salva in bytes
         output = io.BytesIO()
-        img_with_watermark.save(output, format='JPEG', quality=85)
+        img_with_watermark.save(output, format='JPEG', quality=88)
         output.seek(0)
         return output.getvalue()
     
     except Exception as e:
-        logger.error(f"Error adding watermark: {e}")
+        logger.error(f"Error adding watermark: {e}", exc_info=True)
         # Fallback: ritorna immagine originale
         with open(image_path, 'rb') as f:
             return f.read()
@@ -1986,24 +2014,6 @@ async def serve_photo(
     logger.info(f"Filename parameter: {filename}")
     logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {email is not None}")
     
-    # Verifica se la foto è pagata usando token o email
-    is_paid = paid
-    if not is_paid and token:
-        # Verifica token
-        order = await _get_order_by_token(token)
-        if order and filename in order.get('photo_ids', []):
-            is_paid = True
-            logger.info(f"Photo verified as paid via token: {filename}")
-    elif not is_paid and email and SQLITE_AVAILABLE:
-        # Verifica nel database se la foto è pagata per questo utente
-        try:
-            paid_photos = await _get_user_paid_photos(email)
-            if filename in paid_photos:
-                is_paid = True
-                logger.info(f"Photo verified as paid via email: {filename}")
-        except Exception as e:
-            logger.error(f"Error checking paid photos: {e}")
-    
     # Decodifica il filename (potrebbe essere URL encoded)
     try:
         from urllib.parse import unquote
@@ -2011,6 +2021,54 @@ async def serve_photo(
         logger.info(f"Decoded filename: {filename}")
     except Exception as e:
         logger.warning(f"Error decoding filename: {e}")
+    
+    # Normalizza il filename per i check pagamento (usa solo basename)
+    from pathlib import Path
+    filename_check = Path(filename).name
+    
+    # Verifica se la foto è pagata usando token o email
+    # IMPORTANTE: NON fidarsi mai del query param `paid=true` da solo.
+    # `paid=true` serve solo come segnale UI, ma l'autorizzazione reale arriva da token/email.
+    # Inizializza sempre a False e verifica solo tramite token/email validi.
+    is_paid = False
+    
+    # Se il client passa paid=true, logga che viene ignorato (verifica server-side solo)
+    if paid:
+        logger.info("Ignoring client paid flag; server-side verification only")
+
+    # Verifica con token (priorità)
+    if token:
+        order = await _get_order_by_token(token)
+        if order and filename_check in order.get('photo_ids', []):
+            expires_at = order.get('expires_at')
+            if expires_at:
+                try:
+                    expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    now = datetime.now(timezone.utc)
+                    if now > expires_date:
+                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, filename={filename}")
+                        is_paid = False
+                    else:
+                        is_paid = True
+                        logger.info(f"Photo verified as paid via token: {filename}")
+                except Exception as e:
+                    logger.error(f"Error parsing expires_at for token validation: {e}")
+                    is_paid = False
+            else:
+                # Nessuna scadenza, valido
+                is_paid = True
+                logger.info(f"Photo verified as paid via token (no expiry): {filename}")
+
+    # Fallback: verifica per email (solo se non già pagata via token)
+    if (not is_paid) and email and SQLITE_AVAILABLE:
+        try:
+            paid_photos = await _get_user_paid_photos(email)
+            if filename_check in paid_photos:
+                is_paid = True
+                logger.info(f"Photo verified as paid via email: {filename}")
+        except Exception as e:
+            logger.error(f"Error checking paid photos: {e}")
+
     
     # Rimuovi estensione per Cloudinary (se presente)
     filename_no_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
@@ -2031,33 +2089,36 @@ async def serve_photo(
                 cloudinary.api.resource(filename_no_ext)
                 logger.info(f"Photo found on Cloudinary: {filename_no_ext}")
                 
-                # Se la foto è pagata, scarica da Cloudinary e serviamo dal server
-                # (così possiamo controllare watermark e tracciare download)
-                if is_paid:
-                    logger.info(f"Photo is paid, downloading from Cloudinary to serve without watermark")
-                    import requests
-                    response = requests.get(url, timeout=30)
-                    if response.status_code == 200:
-                        # Servi la foto scaricata da Cloudinary (senza watermark)
-                        logger.info(f"Serving paid photo from Cloudinary (no watermark)")
-                        _track_download(filename)
-                        
-                        # Se download=true, forza il download con header Content-Disposition
-                        if download:
-                            headers = {
-                                "Content-Disposition": f'attachment; filename="{filename}"',
-                                "Content-Type": "image/jpeg"
-                            }
-                            return Response(content=response.content, headers=headers, media_type="image/jpeg")
-                        
-                        return Response(content=response.content, media_type="image/jpeg")
-                    else:
-                        logger.warning(f"Failed to download from Cloudinary: {response.status_code}")
-                        # Fallback a locale
-                else:
-                    # Se non pagata, redirect a Cloudinary (più veloce)
-                    logger.info(f"Photo not paid, redirecting to Cloudinary")
+                # Blindatura: l'originale viene servito SOLO se is_paid == True dopo verifica reale
+                # Il parametro paid=true dalla query NON deve mai decidere nulla.
+                if not is_paid:
+                    # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
+                    # Redirect a Cloudinary per foto non pagate (più veloce)
+                    logger.info(f"Photo not paid, redirecting to Cloudinary (with watermark)")
                     return RedirectResponse(url=url, status_code=302)
+                
+                # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
+                # scarica da Cloudinary e serviamo originale senza watermark
+                logger.info(f"Photo is paid, downloading from Cloudinary to serve without watermark")
+                import requests
+                response = requests.get(url, timeout=30)
+                if response.status_code == 200:
+                    # Servi la foto scaricata da Cloudinary (senza watermark)
+                    logger.info(f"Serving paid photo from Cloudinary (no watermark)")
+                    _track_download(filename)
+                    
+                    # Se download=true, forza il download con header Content-Disposition
+                    if download:
+                        headers = {
+                            "Content-Disposition": f'attachment; filename="{filename}"',
+                            "Content-Type": "image/jpeg"
+                        }
+                        return Response(content=response.content, headers=headers, media_type="image/jpeg")
+                    
+                    return Response(content=response.content, media_type="image/jpeg")
+                else:
+                    logger.warning(f"Failed to download from Cloudinary: {response.status_code}")
+                    # Fallback a locale
             except cloudinary.api.NotFound:
                 logger.warning(f"Photo not found on Cloudinary: {filename_no_ext}, falling back to local")
                 # Fallback a file locale
@@ -2101,13 +2162,16 @@ async def serve_photo(
         logger.error(f"Path is not a file: {filename}")
         raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
     
-    # Se non pagata, aggiungi watermark
+    # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
+    # Il parametro paid=true dalla query NON deve mai decidere nulla.
     if not is_paid:
-        logger.info(f"Serving photo with watermark: {filename}")
+        # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
+        logger.info(f"Serving photo with watermark (not paid): {filename}")
         watermarked_bytes = _add_watermark(photo_path)
         return Response(content=watermarked_bytes, media_type="image/jpeg")
     
-    # Se pagata, serve originale (ma traccia download solo se pagata)
+    # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
+    # serve originale e permetti download=true con Content-Disposition attachment
     logger.info(f"Returning original file (paid): {resolved_path}")
     _track_download(filename)
     
@@ -2121,7 +2185,8 @@ async def serve_photo(
         }
         return Response(content=content, headers=headers, media_type="image/jpeg")
     
-    return FileResponse(resolved_path)
+    # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
+    return FileResponse(resolved_path, media_type="image/jpeg")
 
 # ========== ENDPOINT UTENTI ==========
 
@@ -2484,16 +2549,22 @@ async def my_photos_by_email(
         base_url = str(request.base_url).rstrip('/')
         photos_html = ""
         for photo_id in paid_photos:
-            photo_url = f"{base_url}/photo/{photo_id}?paid=true&email={email}"
+            photo_url = f"{base_url}/photo/{photo_id}?email={email}"
             photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '&quot;')
             email_escaped = email.replace("'", "\\'").replace('"', '&quot;')
-            
             photos_html += f"""
-                <div class="photo-item">
-                    <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;">
-                    <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Download</button>
-                </div>
-                """
+    <div class="photo-item">
+        <img
+            src="{photo_url}"
+            alt="Photo"
+            loading="lazy"
+            class="photo-img"
+            data-photo-id="{photo_id_escaped}"
+            data-photo-url="{photo_url}"
+        >
+        <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)">📥 Download</button>
+    </div>
+    """
         
         # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
         if email:
@@ -2564,7 +2635,13 @@ async def my_photos_by_email(
                     width: 100%;
                     height: auto;
                     display: block;
+                    cursor: pointer;
+                    -webkit-touch-callout: default;
+                    -webkit-user-select: none;
+                    user-select: none;
                 }}
+                .photo-item {{ cursor: pointer; }}
+                .photo-item:active {{ transform: scale(0.99); }}
                 .download-btn {{
                     position: absolute;
                     bottom: 10px;
@@ -2572,15 +2649,15 @@ async def my_photos_by_email(
                     background: #22c55e;
                     color: white;
                     border: none;
-                    padding: 10px 20px;
-                    border-radius: 8px;
+                    padding: 10px 16px;
+                    border-radius: 10px;
                     cursor: pointer;
-                    font-weight: 600;
+                    font-weight: 700;
                     font-size: 14px;
+                    box-shadow: 0 8px 20px rgba(0,0,0,0.18);
                 }}
-                .download-btn:hover {{
-                    background: #16a34a;
-                }}
+                .download-btn:hover {{ background: #16a34a; }}
+                .download-btn:disabled {{ opacity: 0.6; cursor: not-allowed; }}
                 .main-button {{
                     display: block;
                     width: 100%;
@@ -2618,15 +2695,126 @@ async def my_photos_by_email(
                         font-size: 18px;
                     }}
                 }}
-                
-                /* Fallback CSS per iOS - mostra istruzioni anche se JS non funziona */
+                /* Fullscreen viewer (tap -> full, long-press -> Save to Photos on iOS) */
+                .viewer {{
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0,0,0,0.92);
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 16px;
+                    z-index: 9999;
+                }}
+                .viewer.open {{ display: flex; }}
+                .viewer-inner {{
+                    width: 100%;
+                    max-width: 900px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }}
+                .viewer-topbar {{
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    color: #fff;
+                }}
+                .viewer-badge {{
+                    font-size: 14px;
+                    font-weight: 700;
+                    opacity: 0.95;
+                }}
+                .viewer-close {{
+                    border: none;
+                    background: rgba(255,255,255,0.14);
+                    color: #fff;
+                    padding: 10px 14px;
+                    border-radius: 12px;
+                    font-weight: 800;
+                    cursor: pointer;
+                }}
+                .viewer-img-wrap {{
+                    width: 100%;
+                    border-radius: 14px;
+                    overflow: hidden;
+                    background: #111;
+                    box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+                }}
+                .viewer-img {{
+                    width: 100%;
+                    height: auto;
+                    display: block;
+                    -webkit-touch-callout: default;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }}
+                .viewer-instructions {{
+                    color: rgba(255,255,255,0.92);
+                    background: rgba(255,255,255,0.10);
+                    border: 1px solid rgba(255,255,255,0.18);
+                    border-radius: 14px;
+                    padding: 14px;
+                    font-size: 15px;
+                    line-height: 1.5;
+                }}
+                .viewer-instructions strong {{ color: #fff; }}
+                /* Sticky CTA to sell more */
+                .sticky-cta {{
+                    position: fixed;
+                    left: 16px;
+                    right: 16px;
+                    bottom: 16px;
+                    z-index: 9000;
+                    display: none;
+                }}
+                .sticky-cta-inner {{
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    background: rgba(255,255,255,0.92);
+                    backdrop-filter: blur(10px);
+                    border: 1px solid rgba(0,0,0,0.08);
+                    border-radius: 16px;
+                    padding: 12px 14px;
+                    box-shadow: 0 14px 40px rgba(0,0,0,0.22);
+                }}
+                .sticky-cta-text {{
+                    color: #111;
+                    font-weight: 800;
+                    font-size: 14px;
+                    line-height: 1.2;
+                }}
+                .sticky-cta-sub {{
+                    display: block;
+                    color: rgba(0,0,0,0.65);
+                    font-weight: 600;
+                    font-size: 12px;
+                    margin-top: 4px;
+                }}
+                .sticky-cta-btn {{
+                    flex: 0 0 auto;
+                    padding: 12px 14px;
+                    border-radius: 14px;
+                    border: none;
+                    cursor: pointer;
+                    font-weight: 900;
+                    background: linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%);
+                    color: #fff;
+                    box-shadow: 0 10px 24px rgba(123,116,255,0.35);
+                    text-decoration: none;
+                    white-space: nowrap;
+                }}
+                @media (max-width: 900px) {{
+                    .sticky-cta {{ display: block; }}
+                    body {{ padding-bottom: 90px; }}
+                }}
+                /* iOS detection: hide desktop download button */
                 @supports (-webkit-touch-callout: none) {{
-                    #ios-instructions-top {{
-                        display: block !important;
-                    }}
-                    .download-btn-desktop {{
-                        display: none !important;
-                    }}
+                    .download-btn-desktop {{ display: none !important; }}
+                    #ios-instructions-top {{ display: block !important; }}
                 }}
             </style>
         </head>
@@ -2635,7 +2823,6 @@ async def my_photos_by_email(
                 <div class="success-icon">✅</div>
                 <h1>YOUR PHOTOS</h1>
                 <p class="message">You purchased {len(paid_photos)} photos</p>
-                
                 <!-- iOS Instructions at top (if iPhone) -->
                 <div id="ios-instructions-top" style="display: none; margin: 20px 0; padding: 20px; background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255, 255, 255, 0.4); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
                     <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 20px; text-align: center;">📱 How to save your photos:</p>
@@ -2643,146 +2830,132 @@ async def my_photos_by_email(
                     <p style="margin: 8px 0 0 0; font-size: 17px; line-height: 1.8; text-align: left;">2. Select "Save to Photos" from the menu</p>
                     <p style="margin: 12px 0 0 0; font-size: 15px; line-height: 1.6; text-align: center; opacity: 0.9; font-style: italic;">Repeat for each photo you want to save</p>
                 </div>
-                
+                <p class="message" style="margin-top: 10px; margin-bottom: 10px; font-size: 16px;">Tap a photo to open it full screen. On iPhone, long-press the full photo and choose <strong>Save to Photos</strong>.</p>
                 <!-- Buy more photos button at top -->
                 {album_button_top}
-                
                 <!-- Foto -->
                 <div class="photos-grid">
                     {photos_html}
                 </div>
-                
                 <!-- Buy more photos button at bottom -->
                 {album_button_bottom}
+                <!-- Fullscreen viewer (tap photo -> fullscreen) -->
+                <div id="viewer" class="viewer" aria-hidden="true">
+                    <div class="viewer-inner">
+                        <div class="viewer-topbar">
+                            <div class="viewer-badge">📌 iPhone: long-press the photo → Save to Photos</div>
+                            <button class="viewer-close" id="viewerClose" type="button">✕ Close</button>
+                        </div>
+                        <div class="viewer-img-wrap">
+                            <img id="viewerImg" class="viewer-img" src="" alt="Photo">
+                        </div>
+                        <div class="viewer-instructions" id="viewerInstructions">
+                            <strong>Quick save:</strong> long-press the photo above and tap <strong>Save to Photos</strong>.
+                            <br>
+                            <span style="opacity:0.9;">Tap outside the photo or press ESC to close.</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Sticky CTA (mobile) -->
+                <div class="sticky-cta" id="stickyCta">
+                    <div class="sticky-cta-inner">
+                        <div class="sticky-cta-text">
+                            Want more photos?
+                            <span class="sticky-cta-sub">Go back to the album and buy the rest in 1 minute</span>
+                        </div>
+                        <a class="sticky-cta-btn" href="/?email={email}&view_album=true">📸 Back to album</a>
+                    </div>
+                </div>
             </div>
             <script>
                 // Rileva se è iOS
                 function isIOS() {{
-                    return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
                 }}
-                
                 // Rileva se è Android
                 function isAndroid() {{
                     return /Android/i.test(navigator.userAgent);
                 }}
-                
                 // Mostra/nascondi pulsante e istruzioni in base al dispositivo
                 function setupIOSInstructions() {{
                     const iosInstructionsTop = document.getElementById('ios-instructions-top');
                     const downloadBtns = document.querySelectorAll('.download-btn-desktop');
-                    
-                    console.log('Setting up iOS instructions...');
-                    console.log('isIOS():', isIOS());
-                    console.log('iosInstructionsTop found:', !!iosInstructionsTop);
-                    
                     if (isIOS()) {{
-                        // Su iOS: mostra istruzioni in alto, nascondi pulsanti
-                        if (iosInstructionsTop) {{
-                            iosInstructionsTop.style.display = 'block';
-                            console.log('iOS instructions top shown');
-                        }}
-                        downloadBtns.forEach(el => {{
-                            el.style.display = 'none';
-                            console.log('Download button hidden');
-                        }});
+                        if (iosInstructionsTop) iosInstructionsTop.style.display = 'block';
+                        downloadBtns.forEach(el => el.style.display = 'none');
                     }} else {{
-                        // Su Android/Desktop: nascondi istruzioni, mostra pulsanti
                         if (iosInstructionsTop) iosInstructionsTop.style.display = 'none';
                         downloadBtns.forEach(el => el.style.display = 'block');
                     }}
                 }}
-                
-                // Esegui subito e anche quando DOM è pronto
                 if (document.readyState === 'loading') {{
                     document.addEventListener('DOMContentLoaded', setupIOSInstructions);
                 }} else {{
                     setupIOSInstructions();
                 }}
-                
-                // Esegui anche dopo un breve delay per sicurezza
                 setTimeout(setupIOSInstructions, 100);
                 setTimeout(setupIOSInstructions, 500);
-                
+                // Fullscreen viewer: tap photo -> open fullscreen, long-press on iOS -> Save to Photos
+                const viewer = document.getElementById('viewer');
+                const viewerImg = document.getElementById('viewerImg');
+                const viewerClose = document.getElementById('viewerClose');
+                function openViewer(url) {{
+                    if (!viewer || !viewerImg) return;
+                    viewerImg.src = url;
+                    viewer.classList.add('open');
+                    viewer.setAttribute('aria-hidden', 'false');
+                }}
+                function closeViewer() {{
+                    if (!viewer) return;
+                    viewer.classList.remove('open');
+                    viewer.setAttribute('aria-hidden', 'true');
+                    if (viewerImg) viewerImg.src = '';
+                }}
+                // Click any photo to open viewer
+                document.querySelectorAll('.photo-img').forEach(img => {{
+                    img.addEventListener('click', () => {{
+                        const url = img.getAttribute('data-photo-url') || img.src;
+                        openViewer(url);
+                    }});
+                }});
+                // Close: ESC
+                document.addEventListener('keydown', (e) => {{
+                    if (e.key === 'Escape') closeViewer();
+                }});
+                // Close: button
+                if (viewerClose) viewerClose.addEventListener('click', closeViewer);
+                // Close: tap outside image (background only)
+                if (viewer) {{
+                    viewer.addEventListener('click', (e) => {{
+                        if (e.target === viewer) closeViewer();
+                    }});
+                }}
                 async function downloadPhotoSuccess(photoId, email, btnElement) {{
                     try {{
                         const btn = btnElement || event?.target || document.querySelector(`button[onclick*="${{photoId}}"]`);
                         if (!btn) {{
-                            console.error('Pulsante non trovato');
                             alert('Errore: pulsante non trovato');
                             return;
                         }}
-                        
                         btn.disabled = true;
-                        btn.textContent = '⏳ Scaricamento...';
-                        
-                        const filename = photoId.split('/').pop() || 'foto.jpg';
-                        
-                        // Costruisci URL con paid=true, email e download=true
-                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?paid=true&download=true`;
+                        btn.textContent = '⏳ Downloading...';
+                        const filename = photoId.split('/').pop() || 'photo.jpg';
+                        // Costruisci URL con email e download=true
+                        let photoUrl = `/photo/${{encodeURIComponent(photoId)}}?download=true`;
                         if (email) {{
                             photoUrl += `&email=${{encodeURIComponent(email)}}`;
                         }}
-                        
-                        // Su iOS: usa approccio semplice e diretto
                         if (isIOS()) {{
-                            try {{
-                                // Prova prima con Web Share API
-                                const response = await fetch(photoUrl);
-                                if (!response.ok) {{
-                                    throw new Error('Errore nel download: ' + response.status);
-                                }}
-                                
-                                const blob = await response.blob();
-                                const file = new File([blob], filename, {{ type: 'image/jpeg' }});
-                                
-                                if (navigator.share && navigator.canShare) {{
-                                    try {{
-                                        if (navigator.canShare({{ files: [file] }})) {{
-                                            await navigator.share({{
-                                                files: [file],
-                                                title: 'Salva foto',
-                                                text: 'Salva questa foto nella galleria'
-                                            }});
-                                            btn.textContent = '✅ Salvata!';
-                                            setTimeout(() => {{
-                                                btn.disabled = false;
-                                                btn.textContent = '📥 Scarica';
-                                            }}, 2000);
-                                            return;
-                                        }}
-                                    }} catch (shareErr) {{
-                                        console.log('Web Share error:', shareErr);
-                                    }}
-                                }}
-                                
-                                // Fallback: apri l'immagine
-                                const imgWindow = window.open(photoUrl, '_blank');
-                                
-                                if (imgWindow) {{
-                                    setTimeout(() => {{
-                                        alert('📱 Tocca e tieni premuto sull\\'immagine, poi seleziona "Salva in Foto" per salvarla nella galleria.');
-                                    }}, 800);
-                                    
-                                    btn.textContent = '✅ Aperta!';
-                                    setTimeout(() => {{
-                                        btn.disabled = false;
-                                        btn.textContent = '📥 Scarica';
-                                    }}, 2000);
-                                }} else {{
-                                    alert('📱 Popup bloccato. Per salvare la foto:\\n1. Tocca e tieni premuto sull\\'immagine qui sotto\\n2. Seleziona "Salva in Foto"');
-                                    btn.disabled = false;
-                                    btn.textContent = '📥 Scarica';
-                                }}
-                            }} catch (fetchError) {{
-                                console.error('Errore fetch:', fetchError);
-                                alert('Errore nel caricamento della foto. Riprova.');
+                            // On iOS we don’t force downloads: open fullscreen and let the user long-press -> Save to Photos
+                            openViewer(photoUrl.replace('&download=true', ''));
+                            btn.textContent = '✅ Opened';
+                            setTimeout(() => {{
                                 btn.disabled = false;
-                                btn.textContent = '📥 Scarica';
-                                return;
-                            }}
+                                btn.textContent = '📥 Download';
+                            }}, 1500);
+                            return;
                         }}
-                        // Su Android: download diretto
                         else if (isAndroid()) {{
                             const link = document.createElement('a');
                             link.href = photoUrl;
@@ -2793,20 +2966,17 @@ async def my_photos_by_email(
                             setTimeout(() => {{
                                 document.body.removeChild(link);
                             }}, 1000);
-                            
-                            btn.textContent = '✅ Scaricata!';
+                            btn.textContent = '✅ Downloaded!';
                             setTimeout(() => {{
                                 btn.disabled = false;
-                                btn.textContent = '📥 Scarica';
+                                btn.textContent = '📥 Download';
                             }}, 2000);
                         }}
-                        // Desktop: download normale
                         else {{
                             const response = await fetch(photoUrl);
                             if (!response.ok) {{
-                                throw new Error('Errore nel download');
+                                throw new Error('Download error');
                             }}
-                            
                             const blob = await response.blob();
                             const blobUrl = window.URL.createObjectURL(blob);
                             const link = document.createElement('a');
@@ -2816,18 +2986,16 @@ async def my_photos_by_email(
                             link.click();
                             document.body.removeChild(link);
                             window.URL.revokeObjectURL(blobUrl);
-                            
-                            btn.textContent = '✅ Scaricata!';
+                            btn.textContent = '✅ Downloaded!';
                             setTimeout(() => {{
                                 btn.disabled = false;
-                                btn.textContent = '📥 Scarica';
+                                btn.textContent = '📥 Download';
                             }}, 2000);
                         }}
                     }} catch (error) {{
-                        console.error('Errore download:', error);
-                        alert('Errore durante il download. Riprova più tardi.');
+                        alert('Download error. Please try again later.');
                         btn.disabled = false;
-                        btn.textContent = '📥 Scarica';
+                        btn.textContent = '📥 Download';
                     }}
                 }}
             </script>
@@ -2883,80 +3051,302 @@ async def my_photos_page(
             </html>
             """)
         
-        photo_ids = order['photo_ids']
+        # Verifica scadenza token
         expires_at = order.get('expires_at')
-        
         if expires_at:
-            expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-            now = datetime.now(timezone.utc)
-            days_remaining = (expires_date - now).days
+            try:
+                expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                now = datetime.now(timezone.utc)
+                if now > expires_date:
+                    logger.info(f"Token expired: {token[:8]}... expires_at={expires_at}")
+                    return HTMLResponse("""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Link scaduto - TenerifePictures</title>
+                        <meta charset="utf-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1">
+                        <style>
+                            body { font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: linear-gradient(135deg, #7b74ff, #5f58ff); color: #fff; }
+                            .container { text-align: center; padding: 40px; background: rgba(255,255,255,0.1); border-radius: 20px; }
+                            h1 { font-size: 32px; margin: 0 0 20px; }
+                            a { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #fff; color: #5f58ff; text-decoration: none; border-radius: 8px; font-weight: 600; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>⏰ Link scaduto</h1>
+                            <p>Il link che hai utilizzato è scaduto.</p>
+                            <a href="/">Back to home</a>
+                        </div>
+                    </body>
+                    </html>
+                    """)
+                days_remaining = max(0, (expires_date - now).days)
+            except Exception as e:
+                logger.error(f"Error parsing expires_at: {e}")
+                days_remaining = 30
         else:
             days_remaining = 30
         
-        # Genera HTML per pagina download
+        photo_ids = order['photo_ids']
+        
+        # Genera HTML per pagina download mobile-first
         email = order.get('email', '')
         photos_html = ""
-        for photo_id in photo_ids:
-            # Usa token per verifica, ma aggiungi anche email se disponibile
+        for idx, photo_id in enumerate(photo_ids):
+            # URL foto senza download=true (per permettere long-press nativo)
             photo_url = f"/photo/{photo_id}?token={token}&paid=true"
             if email:
                 photo_url += f"&email={email}"
+            photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '&quot;')
             photos_html += f"""
-            <div class="photo-item">
-                <img src="{photo_url}" alt="{photo_id}" loading="lazy">
-                <button onclick="downloadPhoto('{photo_id}', '{token}', '{email}')" class="download-btn">Scarica</button>
+            <div class="photo-item" data-photo-id="{photo_id_escaped}" data-photo-url="{photo_url}" data-index="{idx}">
+                <img src="{photo_url}" alt="Photo {idx + 1}" loading="lazy">
             </div>
             """
         
         html_content = f"""
         <!DOCTYPE html>
-        <html>
+        <html lang="it">
         <head>
             <title>Le tue foto - TenerifePictures</title>
             <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+            <meta name="apple-mobile-web-app-capable" content="yes">
             <style>
                 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0a; color: #fff; padding: 20px; }}
-                .header {{ text-align: center; margin-bottom: 30px; }}
-                .header h1 {{ font-size: 32px; margin-bottom: 10px; }}
-                .warning {{ background: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: center; }}
-                .warning strong {{ display: block; margin-bottom: 5px; }}
-                .photos-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; margin: 30px 0; }}
-                .photo-item {{ position: relative; border-radius: 12px; overflow: hidden; background: #1a1a1a; }}
-                .photo-item img {{ width: 100%; height: auto; display: block; }}
-                .download-btn {{ position: absolute; bottom: 10px; right: 10px; background: #7b74ff; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; }}
-                .download-btn:hover {{ background: #6a63e6; }}
-                .download-all {{ display: block; width: 100%; max-width: 300px; margin: 30px auto; padding: 15px 30px; background: linear-gradient(135deg, #7b74ff, #5f58ff); color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; }}
-                .download-all:hover {{ opacity: 0.9; }}
+                body {{ 
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+                    background: #0a0a0a; 
+                    color: #fff; 
+                    padding: 16px;
+                    min-height: 100vh;
+                }}
+                .header {{ 
+                    text-align: center; 
+                    margin-bottom: 24px; 
+                    padding: 0 8px;
+                }}
+                .header h1 {{ 
+                    font-size: 28px; 
+                    margin-bottom: 8px; 
+                    font-weight: 700;
+                }}
+                .header p {{
+                    font-size: 16px;
+                    color: #aaa;
+                }}
+                .warning {{ 
+                    background: rgba(255, 243, 205, 0.15); 
+                    color: #ffc107; 
+                    padding: 12px 16px; 
+                    border-radius: 12px; 
+                    margin: 0 0 24px 0; 
+                    text-align: center;
+                    font-size: 14px;
+                    border: 1px solid rgba(255, 193, 7, 0.3);
+                }}
+                .warning strong {{ 
+                    display: block; 
+                    margin-bottom: 4px; 
+                    font-size: 15px;
+                }}
+                .photos-grid {{ 
+                    display: grid; 
+                    grid-template-columns: repeat(2, 1fr); 
+                    gap: 12px; 
+                    margin: 0 0 24px 0;
+                }}
+                @media (min-width: 768px) {{
+                    .photos-grid {{
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 16px;
+                    }}
+                }}
+                @media (min-width: 1024px) {{
+                    .photos-grid {{
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 20px;
+                    }}
+                }}
+                .photo-item {{ 
+                    position: relative; 
+                    border-radius: 12px; 
+                    overflow: hidden; 
+                    background: #1a1a1a;
+                    cursor: pointer;
+                    aspect-ratio: 1;
+                    transition: transform 0.2s;
+                }}
+                .photo-item:active {{
+                    transform: scale(0.98);
+                }}
+                .photo-item img {{ 
+                    width: 100%; 
+                    height: 100%;
+                    object-fit: cover;
+                    display: block;
+                    -webkit-touch-callout: default;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }}
+                .back-link {{
+                    display: block;
+                    text-align: center;
+                    margin-top: 24px;
+                    color: #7b74ff;
+                    text-decoration: none;
+                    font-size: 16px;
+                    padding: 12px;
+                }}
+                .back-link:active {{
+                    opacity: 0.7;
+                }}
+                
+                /* Full screen viewer */
+                .viewer {{
+                    display: none;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.98);
+                    z-index: 1000;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }}
+                .viewer.active {{
+                    display: flex;
+                }}
+                .viewer-close {{
+                    position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    background: rgba(255, 255, 255, 0.2);
+                    border: none;
+                    color: white;
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 50%;
+                    font-size: 24px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1001;
+                    backdrop-filter: blur(10px);
+                }}
+                .viewer-close:active {{
+                    background: rgba(255, 255, 255, 0.3);
+                }}
+                .viewer-img {{
+                    max-width: 100%;
+                    max-height: calc(100vh - 120px);
+                    object-fit: contain;
+                    -webkit-touch-callout: default;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }}
+                .viewer-download {{
+                    position: absolute;
+                    bottom: 70px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(255,255,255,0.2);
+                    border: 1px solid rgba(255,255,255,0.3);
+                    color: #fff;
+                    padding: 12px 18px;
+                    border-radius: 14px;
+                    font-size: 16px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    backdrop-filter: blur(10px);
+                }}
+                .viewer-download:active {{
+                    background: rgba(255,255,255,0.3);
+                }}
+                .viewer-instruction {{
+                    position: absolute;
+                    bottom: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(0, 0, 0, 0.8);
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 20px;
+                    font-size: 14px;
+                    text-align: center;
+                    max-width: 90%;
+                    backdrop-filter: blur(10px);
+                }}
+                .viewer-nav {{
+                    position: absolute;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: rgba(255, 255, 255, 0.2);
+                    border: none;
+                    color: white;
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 50%;
+                    font-size: 20px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    backdrop-filter: blur(10px);
+                }}
+                .viewer-nav:active {{
+                    background: rgba(255, 255, 255, 0.3);
+                }}
+                .viewer-nav.prev {{
+                    left: 20px;
+                }}
+                .viewer-nav.next {{
+                    right: 20px;
+                }}
+                .viewer-nav.hidden {{
+                    display: none;
+                }}
             </style>
         </head>
         <body>
             <div class="header">
-                <h1>✅ Le tue foto sono pronte!</h1>
-                <p>Hai acquistato {len(photo_ids)} foto</p>
+                <h1>✅ Le tue foto</h1>
+                <p>{len(photo_ids)} foto acquistate</p>
             </div>
             
             <div class="warning">
-                <strong>⚠️ IMPORTANTE</strong>
-                Le foto saranno disponibili per <strong>{days_remaining} giorni</strong>.
-                Assicurati di scaricarle nella tua galleria prima della scadenza!
+                <strong>⚠️ Disponibili per {days_remaining} giorni</strong>
+                Scarica le foto nella tua galleria prima della scadenza
             </div>
             
             <div class="photos-grid">
                 {photos_html}
             </div>
             
-            <a href="#" onclick="downloadAll(); return false;" class="download-all">Scarica tutte le foto</a>
+            <a href="/" class="back-link">← Torna alla home</a>
             
-            <div style="text-align: center; margin-top: 30px;">
-                <a href="/" style="color: #7b74ff; text-decoration: none; font-size: 16px;">← Torna alla home</a>
+            <!-- Full screen viewer -->
+            <div class="viewer" id="viewer">
+                <button class="viewer-close" id="viewerClose">×</button>
+                <button class="viewer-nav prev" id="viewerPrev">‹</button>
+                <img class="viewer-img" id="viewerImg" src="" alt="">
+                <button class="viewer-download" id="viewerDownload">⬇︎ Scarica</button>
+                <button class="viewer-nav next" id="viewerNext">›</button>
+                <div class="viewer-instruction" id="viewerInstruction"></div>
             </div>
             
             <script>
-                // Salva email e token in localStorage per accesso futuro
-                const email = '{email}';
+                const photoIds = {json.dumps(photo_ids)};
                 const token = '{token}';
+                const email = '{email}';
+                
+                // Salva in localStorage
                 if(email) {{
                     localStorage.setItem('userEmail', email);
                 }}
@@ -2964,56 +3354,107 @@ async def my_photos_page(
                     localStorage.setItem('downloadToken', token);
                 }}
                 
-                function downloadPhoto(photoId, token, email) {{
-                    // Costruisci URL con token, paid=true e download=true
-                    let url = `/photo/${{encodeURIComponent(photoId)}}?token=${{token}}&paid=true&download=true`;
-                    if(email) {{
-                        url += `&email=${{encodeURIComponent(email)}}`;
-                    }}
-                    
-                    // Su mobile, usa fetch per download corretto
-                    if(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {{
-                        fetch(url)
-                            .then(response => response.blob())
-                            .then(blob => {{
-                                const blobUrl = window.URL.createObjectURL(blob);
-                                const link = document.createElement('a');
-                                link.href = blobUrl;
-                                link.download = photoId;
-                                document.body.appendChild(link);
-                                link.click();
-                                document.body.removeChild(link);
-                                window.URL.revokeObjectURL(blobUrl);
-                            }})
-                            .catch(err => {{
-                                console.error('Download error:', err);
-                                // Fallback: apri in nuova tab
-                                window.open(url, '_blank');
-                            }});
+                // Rileva dispositivo
+                const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                const isAndroid = /Android/i.test(navigator.userAgent);
+                
+                // Setup viewer
+                const viewer = document.getElementById('viewer');
+                const viewerImg = document.getElementById('viewerImg');
+                const viewerClose = document.getElementById('viewerClose');
+                const viewerPrev = document.getElementById('viewerPrev');
+                const viewerNext = document.getElementById('viewerNext');
+                const viewerInstruction = document.getElementById('viewerInstruction');
+                const viewerDownload = document.getElementById('viewerDownload');
+                
+                let currentIndex = 0;
+                
+                // Mostra istruzioni in base al dispositivo
+                function updateInstruction() {{
+                    if (isIOS) {{
+                        viewerInstruction.textContent = "Tieni premuto sulla foto e tocca 'Salva immagine'";
+                        viewerDownload.style.display = 'none';
+                    }} else if (isAndroid) {{
+                        viewerInstruction.textContent = "Tieni premuto sulla foto e tocca 'Scarica'";
+                        viewerDownload.style.display = 'none';
                     }} else {{
-                        // Desktop: download diretto
-                        const link = document.createElement('a');
-                        link.href = url;
-                        link.download = photoId;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
+                        viewerInstruction.textContent = "Tieni premuto sulla foto per salvare";
+                        viewerDownload.style.display = 'block';
                     }}
                 }}
                 
-                async function downloadAll() {{
-                    const photoIds = {json.dumps(photo_ids)};
-                    const token = '{token}';
-                    const email = '{email}';
-                    for (const photoId of photoIds) {{
-                        await new Promise(resolve => {{
-                            setTimeout(() => {{
-                                downloadPhoto(photoId, token, email);
-                                resolve();
-                            }}, 500);
-                        }});
+                function openViewer(index) {{
+                    currentIndex = index;
+                    const photoId = photoIds[index];
+                    const photoUrl = `/photo/${{encodeURIComponent(photoId)}}?token=${{token}}&paid=true${{email ? '&email=' + encodeURIComponent(email) : ''}}`;
+                    const downloadUrl = `/photo/${{encodeURIComponent(photoId)}}?token=${{token}}&paid=true&download=true${{email ? '&email=' + encodeURIComponent(email) : ''}}`;
+                    viewerImg.src = photoUrl;
+                    viewerDownload.setAttribute('data-download-url', downloadUrl);
+                    viewer.classList.add('active');
+                    updateInstruction();
+                    updateNavButtons();
+                }}
+                
+                function closeViewer() {{
+                    viewer.classList.remove('active');
+                }}
+                
+                function updateNavButtons() {{
+                    viewerPrev.classList.toggle('hidden', currentIndex === 0);
+                    viewerNext.classList.toggle('hidden', currentIndex === photoIds.length - 1);
+                }}
+                
+                function showPrev() {{
+                    if (currentIndex > 0) {{
+                        openViewer(currentIndex - 1);
                     }}
                 }}
+                
+                function showNext() {{
+                    if (currentIndex < photoIds.length - 1) {{
+                        openViewer(currentIndex + 1);
+                    }}
+                }}
+                
+                // Event listeners
+                document.querySelectorAll('.photo-item').forEach((item, index) => {{
+                    item.addEventListener('click', () => openViewer(index));
+                }});
+                
+                viewerClose.addEventListener('click', closeViewer);
+                viewerPrev.addEventListener('click', showPrev);
+                viewerNext.addEventListener('click', showNext);
+                
+                // Download button handler
+                viewerDownload.addEventListener('click', (e) => {{
+                    e.preventDefault();
+                    const url = viewerDownload.getAttribute('data-download-url');
+                    if (!url) return;
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = '';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                }});
+                
+                // Chiudi con ESC
+                document.addEventListener('keydown', (e) => {{
+                    if (e.key === 'Escape' && viewer.classList.contains('active')) {{
+                        closeViewer();
+                    }} else if (e.key === 'ArrowLeft' && viewer.classList.contains('active')) {{
+                        showPrev();
+                    }} else if (e.key === 'ArrowRight' && viewer.classList.contains('active')) {{
+                        showNext();
+                    }}
+                }});
+                
+                // Chiudi cliccando fuori dall'immagine (solo sfondo, non istruzioni)
+                viewer.addEventListener('click', (e) => {{
+                    if (e.target === viewer) {{
+                        closeViewer();
+                    }}
+                }});
             </script>
         </body>
         </html>
@@ -3311,9 +3752,11 @@ async def match_selfie(
 async def _get_cart(session_id: str) -> List[str]:
     """Ottiene il carrello per una sessione dal database"""
     if not (USE_POSTGRES or SQLITE_AVAILABLE):
+        logger.warning(f"_get_cart: Database not available for session {session_id}")
         return []
     
     try:
+        logger.info(f"_get_cart: Reading cart for session_id={session_id}, USE_POSTGRES={USE_POSTGRES}, SQLITE_AVAILABLE={SQLITE_AVAILABLE}")
         if USE_POSTGRES:
             row = await _db_execute_one(
                 "SELECT photo_ids FROM carts WHERE session_id = $1",
@@ -3325,20 +3768,27 @@ async def _get_cart(session_id: str) -> List[str]:
                 (session_id,)
             )
         
+        logger.info(f"_get_cart: Raw row from DB: {row}")
         if row and row.get('photo_ids'):
             photo_ids = json.loads(row['photo_ids'])
-            return photo_ids if isinstance(photo_ids, list) else []
+            parsed = photo_ids if isinstance(photo_ids, list) else []
+            logger.info(f"_get_cart: Parsed photo_ids: {parsed}")
+            return parsed
+        logger.info(f"_get_cart: No cart found for session {session_id}, returning empty list")
         return []
     except Exception as e:
-        logger.error(f"Error getting cart for session {session_id}: {e}")
+        logger.error(f"Error getting cart for session {session_id}: {e}", exc_info=True)
         return []
 
 async def _set_cart(session_id: str, photo_ids: List[str]):
     """Imposta il carrello completo per una sessione (upsert)"""
     if not (USE_POSTGRES or SQLITE_AVAILABLE):
+        logger.warning(f"_set_cart: Database not available for session {session_id}")
         return
     
     try:
+        logger.info(f"_set_cart: Setting cart for session_id={session_id}, photo_ids={photo_ids}, USE_POSTGRES={USE_POSTGRES}, SQLITE_AVAILABLE={SQLITE_AVAILABLE}")
+        
         # Dedup preservando ordine
         seen = set()
         unique_photo_ids = []
@@ -3351,52 +3801,86 @@ async def _set_cart(session_id: str, photo_ids: List[str]):
         now = datetime.now(timezone.utc).isoformat()
         
         if USE_POSTGRES:
-            await _db_execute(
-                """
+            query = """
                 INSERT INTO carts (session_id, photo_ids, created_at, updated_at)
                 VALUES ($1, $2, NOW(), NOW())
                 ON CONFLICT (session_id) DO UPDATE
                 SET photo_ids = EXCLUDED.photo_ids, updated_at = NOW()
-                """,
-                (session_id, photo_ids_json)
-            )
+            """
+            logger.info(f"_set_cart: Executing PostgreSQL query: {query[:100]}...")
+            await _db_execute_write(query, (session_id, photo_ids_json))
         else:
-            await _db_execute(
-                """
+            query = """
                 INSERT INTO carts (session_id, photo_ids, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT (session_id) DO UPDATE
                 SET photo_ids = excluded.photo_ids, updated_at = excluded.updated_at
-                """,
-                (session_id, photo_ids_json, now, now)
-            )
+            """
+            logger.info(f"_set_cart: Executing SQLite query: {query[:100]}... with values: session_id={session_id}, photo_ids_json length={len(photo_ids_json)}, now={now}")
+            await _db_execute_write(query, (session_id, photo_ids_json, now, now))
+        
+        # Verifica lettura dopo scrittura
+        logger.info(f"_set_cart: Verifying write by reading back from DB...")
+        verify_row = await _db_execute_one(
+            "SELECT photo_ids FROM carts WHERE session_id = ?" if not USE_POSTGRES else "SELECT photo_ids FROM carts WHERE session_id = $1",
+            (session_id,)
+        )
+        logger.info(f"_set_cart: Verification read result: {verify_row}")
+        if verify_row and verify_row.get('photo_ids'):
+            verify_parsed = json.loads(verify_row['photo_ids'])
+            logger.info(f"_set_cart: Verification parsed photo_ids: {verify_parsed}")
+        else:
+            logger.warning(f"_set_cart: WARNING - Cart not found after write! session_id={session_id}")
     except Exception as e:
-        logger.error(f"Error setting cart for session {session_id}: {e}")
+        logger.error(f"Error setting cart for session {session_id}: {e}", exc_info=True)
 
 async def _add_to_cart(session_id: str, photo_id: str):
     """Aggiunge foto al carrello"""
+    logger.info(f"_add_to_cart: Starting for session_id={session_id}, photo_id={photo_id}")
     current_photo_ids = await _get_cart(session_id)
+    logger.info(f"_add_to_cart: Cart before: {current_photo_ids}")
     if photo_id not in current_photo_ids:
         current_photo_ids.append(photo_id)
+        logger.info(f"_add_to_cart: Cart after append: {current_photo_ids}, calling await _set_cart...")
         await _set_cart(session_id, current_photo_ids)
+        logger.info(f"_add_to_cart: await _set_cart completed")
+        # Verifica finale
+        final_cart = await _get_cart(session_id)
+        logger.info(f"_add_to_cart: Final cart verification: {final_cart}")
+    else:
+        logger.info(f"_add_to_cart: Photo {photo_id} already in cart, skipping")
 
 async def _remove_from_cart(session_id: str, photo_id: str):
     """Rimuove foto dal carrello"""
+    logger.info(f"_remove_from_cart: Starting for session_id={session_id}, photo_id={photo_id}")
     current_photo_ids = await _get_cart(session_id)
+    logger.info(f"_remove_from_cart: Cart before: {current_photo_ids}")
     if photo_id in current_photo_ids:
         current_photo_ids = [p for p in current_photo_ids if p != photo_id]
+        logger.info(f"_remove_from_cart: Cart after removal: {current_photo_ids}, calling await _set_cart...")
         await _set_cart(session_id, current_photo_ids)
+        logger.info(f"_remove_from_cart: await _set_cart completed")
+    else:
+        logger.info(f"_remove_from_cart: Photo {photo_id} not in cart, skipping")
 
 async def _clear_cart(session_id: str):
     """Svuota il carrello"""
+    logger.info(f"_clear_cart: Starting for session_id={session_id}, USE_POSTGRES={USE_POSTGRES}, SQLITE_AVAILABLE={SQLITE_AVAILABLE}")
     if USE_POSTGRES or SQLITE_AVAILABLE:
         try:
             if USE_POSTGRES:
-                await _db_execute("DELETE FROM carts WHERE session_id = $1", (session_id,))
+                query = "DELETE FROM carts WHERE session_id = $1"
+                logger.info(f"_clear_cart: Executing PostgreSQL DELETE query")
+                await _db_execute_write(query, (session_id,))
             else:
-                await _db_execute("DELETE FROM carts WHERE session_id = ?", (session_id,))
+                query = "DELETE FROM carts WHERE session_id = ?"
+                logger.info(f"_clear_cart: Executing SQLite DELETE query")
+                await _db_execute_write(query, (session_id,))
+            logger.info(f"_clear_cart: Cart cleared successfully for session {session_id}")
         except Exception as e:
-            logger.error(f"Error clearing cart for session {session_id}: {e}")
+            logger.error(f"Error clearing cart for session {session_id}: {e}", exc_info=True)
+    else:
+        logger.warning(f"_clear_cart: Database not available for session {session_id}")
 
 @app.get("/cart")
 async def get_cart(session_id: str = Query(..., description="ID sessione")):

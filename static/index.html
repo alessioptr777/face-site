@@ -742,18 +742,24 @@
     
     .album-grid{
       padding: 20px;
-      padding-bottom: calc(80px + env(safe-area-inset-bottom)); /* Spazio per il banner sticky + safe area iPhone */
+      padding-bottom: calc(100px + env(safe-area-inset-bottom)); /* Spazio per il CTA fisso + safe area iPhone */
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 15px;
+      gap: 20px;
     }
     
     .album-photo{
       position: relative;
-      border-radius: 12px;
+      border-radius: 16px;
       overflow: hidden;
       aspect-ratio: 1;
       background: var(--bg-dark2);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .album-photo:active{
+      transform: scale(0.98);
     }
     
     .album-photo img{
@@ -820,42 +826,93 @@
       margin: 0 auto 20px;
     }
     
-    .album-photo .add-cart{
+    .album-photo {
+      position: relative;
+    }
+    
+    .add-to-cart-btn{
       position: absolute;
-      bottom: 8px;
-      right: 8px;
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: rgba(0,0,0,0.6);
-      border: 2px solid rgba(255,255,255,0.3);
-      color: white;
+      top: 12px;
+      right: 12px;
+      z-index: 5;
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
-      font-size: 0;
-      transition: all 0.3s ease;
-    }
-    
-    .album-photo .add-cart::before{
-      content: '';
-      width: 20px;
-      height: 20px;
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      min-height: 34px;
       border-radius: 50%;
-      border: 2px solid white;
-      background: transparent;
-      transition: all 0.3s ease;
+      border: 5px solid rgb(76, 175, 80); /* Bordo verde spesso - stesso colore del badge "Pagata" */
+      background: rgba(76, 175, 80, 0.5); /* Sfondo verde trasparente al 50% */
+      font-weight: 800;
+      font-size: 18px;
+      line-height: 1;
+      color: #fff; /* "+" bianco */
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+      transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      user-select: none;
     }
     
-    .album-photo .add-cart.in-cart{
-      background: var(--accent);
-      border-color: var(--accent);
+    /* Desktop: dimensioni leggermente più grandi */
+    @media (min-width: 768px) {
+      .add-to-cart-btn{
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+      }
     }
     
-    .album-photo .add-cart.in-cart::before{
-      background: white;
-      border-color: white;
+    .add-to-cart-btn:active{
+      transform: scale(0.95);
+    }
+    
+    .add-to-cart-btn .btn-icon{
+      display: inline-block;
+      font-weight: 800;
+      font-size: 18px;
+    }
+    
+    .add-to-cart-btn .btn-check{
+      display: none;
+      color: #fff; /* "✓" bianca quando è nel carrello */
+      font-weight: 800;
+      font-size: 20px;
+    }
+    
+    /* Stato: FOTO NEL carrello - cerchio pieno verde con ✓ bianca */
+    .add-to-cart-btn.is-added{
+      background: rgb(76, 175, 80); /* Cerchio pieno verde - stesso colore del badge "Pagata" */
+      border-color: rgb(76, 175, 80);
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+    
+    .add-to-cart-btn.is-added .btn-icon{
+      display: none;
+    }
+    
+    .add-to-cart-btn.is-added .btn-check{
+      display: inline-block;
+    }
+    
+    /* Animazione "pop" quando cambia stato */
+    @keyframes cartPop {
+      0% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.12);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
+    
+    .add-to-cart-btn.pop{
+      animation: cartPop 160ms ease;
     }
     
     .album-buy-all{
@@ -1300,12 +1357,12 @@
   
   <!-- Sticky Offer Bar -->
   <div class="sticky-offer-bar" id="stickyOfferBar">
-    <div class="sticky-offer-content">
-      <div class="sticky-offer-text" id="stickyOfferText">Buy all photos</div>
+      <div class="sticky-offer-content">
+      <div class="sticky-offer-text" id="stickyOfferText">Prendi tutte le foto</div>
       <div class="sticky-offer-price" id="stickyOfferPrice">€0</div>
     </div>
     <div class="sticky-offer-actions">
-      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Acquista</button>
+      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Paga ora</button>
     </div>
   </div>
   
@@ -1325,7 +1382,12 @@
       <button id="lightboxPrev" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">←</button>
       <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
       <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;">📥 Download</button>
-      <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none;" alt="Foto">
+      <div id="lightboxIOSInstruction" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.85); color: white; padding: 14px 20px; border-radius: 12px; font-size: 15px; font-weight: 500; text-align: center; z-index: 10; pointer-events: none; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">📱 Tieni premuto sull'immagine e tocca 'Salva in Foto'</div>
+      <div id="lightboxCartCTA" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(123, 116, 255, 0.95); color: white; padding: 16px 24px; border-radius: 12px; text-align: center; z-index: 10; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: auto;">
+        <button id="lightboxAddCartBtn" style="background: white; color: rgba(123, 116, 255, 1); border: none; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 8px;">Aggiungi al carrello</button>
+        <div style="font-size: 13px; opacity: 0.9;">Acquista per scaricare le foto senza watermark</div>
+      </div>
+      <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain;" alt="Foto">
     </div>
   </div>
   
@@ -3122,41 +3184,101 @@
           imgElement.src = photoUrl;
         }
         
-        const addCartBtn = document.createElement('button');
-        addCartBtn.className = 'add-cart';
-        addCartBtn.dataset.photoId = photo.photo_id;
+        // Aggiungi classe photo-card per stili
+        div.classList.add('photo-card');
+        div.dataset.photoId = photo.photo_id;
         
-        // Se la foto è pagata, mostra solo testo "già acquistata"
-        // Controlla sia paidPhotos che photo.paid per sicurezza
+        // Se la foto è pagata, mostra solo badge "Pagata"
         const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
         if(isPaid) {
-          addCartBtn.style.display = 'none';
           // Assicurati che la foto sia in paidPhotos
           if(!paidPhotos.includes(photo.photo_id)) {
             paidPhotos.push(photo.photo_id);
           }
-          // Aggiungi solo testo semplice "già acquistata"
+          // Badge "Pagata" pulito e piccolo in alto a sinistra
           const paidText = document.createElement('div');
           paidText.className = 'photo-paid-text';
-          paidText.textContent = 'already purchased';
-          paidText.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; z-index: 10; pointer-events: none;';
+          paidText.textContent = '✓ Pagata';
+          paidText.style.cssText = 'position: absolute; top: 10px; left: 10px; background: rgba(76, 175, 80, 0.9); color: white; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; z-index: 10; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2);';
           div.appendChild(paidText);
-          
-          // Aggiungi classe per identificare foto pagata (per stili CSS)
           div.classList.add('photo-paid');
         } else {
+          // Icona "+" o "✓" verde in alto a destra solo per foto non pagate
+          const addCartBtn = document.createElement('button');
+          addCartBtn.className = 'add-to-cart-btn';
+          addCartBtn.dataset.photoId = photo.photo_id;
+          addCartBtn.type = 'button';
+          addCartBtn.innerHTML = '<span class="btn-icon">+</span><span class="btn-check">✓</span>';
+          
           // Verifica se la foto è già nel carrello
-          if(currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id)) {
-            addCartBtn.classList.add('in-cart');
+          const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id);
+          if(isInCart) {
+            addCartBtn.classList.add('is-added');
+            addCartBtn.setAttribute('aria-label', 'Rimuovi dal carrello');
+          } else {
+            addCartBtn.setAttribute('aria-label', 'Aggiungi al carrello');
           }
-          addCartBtn.onclick = () => toggleCart(photo.photo_id, addCartBtn);
+          
+          // Click sull'icona fa toggle add/remove SENZA aprire viewer
+          // Feedback visivo immediato (ottimistico update) con animazione "pop"
+          addCartBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const wasInCart = addCartBtn.classList.contains('is-added');
+            
+            // Aggiungi animazione "pop"
+            addCartBtn.classList.add('pop');
+            setTimeout(() => {
+              addCartBtn.classList.remove('pop');
+            }, 160);
+            
+            // Aggiorna immediatamente lo stato visivo (ottimistico)
+            if(wasInCart) {
+              addCartBtn.classList.remove('is-added');
+              addCartBtn.setAttribute('aria-label', 'Aggiungi al carrello');
+            } else {
+              addCartBtn.classList.add('is-added');
+              addCartBtn.setAttribute('aria-label', 'Rimuovi dal carrello');
+            }
+            
+            try {
+              if(wasInCart) {
+                // Rimuovi dal carrello
+                await removeFromCart(photo.photo_id);
+              } else {
+                // Aggiungi al carrello
+                await addToCart(photo.photo_id);
+              }
+            } catch(err) {
+              console.error('Error toggling cart:', err);
+              // In caso di errore, ripristina lo stato visivo
+              if(wasInCart) {
+                addCartBtn.classList.add('is-added');
+                addCartBtn.setAttribute('aria-label', 'Rimuovi dal carrello');
+              } else {
+                addCartBtn.classList.remove('is-added');
+                addCartBtn.setAttribute('aria-label', 'Aggiungi al carrello');
+              }
+            }
+          });
+          
+          div.appendChild(addCartBtn);
         }
         
         div.appendChild(skeleton);
         div.appendChild(img);
-        div.appendChild(addCartBtn);
         
-        img.addEventListener('click', () => openLightbox(index));
+        // Click sull'immagine apre SOLO il viewer (non aggiunge al carrello)
+        img.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openLightbox(index);
+        });
+        
+        // Blocca long-press e salvataggio su immagini pre-acquisto
+        img.style.webkitTouchCallout = 'none';
+        img.style.webkitUserSelect = 'none';
+        img.style.userSelect = 'none';
         albumGrid.appendChild(div);
       });
       
@@ -3223,16 +3345,12 @@
       const priceCents = calculatePrice(photoCount);
       const priceEuros = (priceCents / 100).toFixed(2);
       
-      // Messaggio personalizzato in base al numero di foto (tradotto)
+      // Messaggio personalizzato in base al numero di foto
       let message = "";
       if(photoCount === 1) {
-        message = 'Buy your photo';
-      } else if(photoCount <= 5) {
-        message = `Buy all ${photoCount} photos`;
-      } else if(photoCount <= 11) {
-        message = `Buy all ${photoCount} photos and save`;
+        message = 'Prendi la tua foto';
       } else {
-        message = `Buy all ${photoCount} photos at the best price`;
+        message = `Prendi tutte le ${photoCount} foto`;
       }
       
       if(stickyText) {
@@ -3244,7 +3362,10 @@
       }
       
       if(stickyBuyBtn) {
-        stickyBuyBtn.textContent = 'Buy';
+        stickyBuyBtn.textContent = 'Paga ora';
+        stickyBuyBtn.style.padding = '10px 24px';
+        stickyBuyBtn.style.fontSize = '14px';
+        stickyBuyBtn.style.fontWeight = '700';
       }
       
       // Event listener per pulsante acquista (se non già presente)
@@ -3360,13 +3481,88 @@
         nextBtn.style.display = allPhotos.length > 1 ? 'flex' : 'none';
       }
       
-      // Mostra pulsante download solo se foto è pagata
-      if(downloadBtn) {
-        if(isPaid) {
-          downloadBtn.style.display = 'block';
-          downloadBtn.onclick = () => downloadPhoto(photo.photo_id);
+      // Gestione download, istruzioni iOS e CTA carrello
+      const iosInstruction = document.getElementById('lightboxIOSInstruction');
+      const cartCTA = document.getElementById('lightboxCartCTA');
+      const addCartBtnLightbox = document.getElementById('lightboxAddCartBtn');
+      
+      if(isPaid) {
+        // Foto pagata: PERMETTI long-press iOS per salvare
+        // Rimuovi blocchi CSS che impediscono long-press
+        if(lightboxImage) {
+          lightboxImage.style.webkitTouchCallout = 'default';
+          lightboxImage.style.webkitUserSelect = 'auto';
+          lightboxImage.style.userSelect = 'auto';
+        }
+        
+        // Foto pagata: mostra download/istruzioni iOS come prima
+        if(cartCTA) {
+          cartCTA.style.display = 'none';
+        }
+        if(isIOS()) {
+          if(downloadBtn) {
+            downloadBtn.style.display = 'none';
+          }
+          if(iosInstruction) {
+            iosInstruction.style.display = 'block';
+          }
         } else {
+          if(downloadBtn) {
+            downloadBtn.style.display = 'block';
+            downloadBtn.onclick = () => downloadPhoto(photo.photo_id);
+          }
+          if(iosInstruction) {
+            iosInstruction.style.display = 'none';
+          }
+        }
+      } else {
+        // Foto NON pagata: BLOCCA long-press (watermark)
+        if(lightboxImage) {
+          lightboxImage.style.webkitTouchCallout = 'none';
+          lightboxImage.style.webkitUserSelect = 'none';
+          lightboxImage.style.userSelect = 'none';
+        }
+        // Foto NON pagata: mostra CTA carrello (pre-acquisto)
+        if(downloadBtn) {
           downloadBtn.style.display = 'none';
+        }
+        if(iosInstruction) {
+          iosInstruction.style.display = 'none';
+        }
+        if(cartCTA) {
+          cartCTA.style.display = 'block';
+          // Verifica se è già nel carrello
+          const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id);
+          if(addCartBtnLightbox) {
+            if(isInCart) {
+              addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+              addCartBtnLightbox.style.background = '#ff4444';
+              addCartBtnLightbox.style.color = 'white';
+            } else {
+              addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+              addCartBtnLightbox.style.background = 'white';
+              addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+            }
+            addCartBtnLightbox.onclick = (e) => {
+              e.stopPropagation();
+              toggleCart(photo.photo_id, null);
+              // Aggiorna il bottone dopo toggle
+              setTimeout(() => {
+                const newIsInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id);
+                if(addCartBtnLightbox) {
+                  if(newIsInCart) {
+                    addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+                    addCartBtnLightbox.style.background = '#ff4444';
+                    addCartBtnLightbox.style.color = 'white';
+                  } else {
+                    addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+                    addCartBtnLightbox.style.background = 'white';
+                    addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+                  }
+                }
+              }, 100);
+            };
+          }
         }
       }
     }
@@ -3411,11 +3607,69 @@
     
     function updateDownloadButton(photoId) {
       const downloadBtn = document.getElementById('lightboxDownload');
-      if(paidPhotos.includes(photoId)) {
-        downloadBtn.style.display = 'block';
-        downloadBtn.onclick = () => downloadPhoto(photoId);
+      const iosInstruction = document.getElementById('lightboxIOSInstruction');
+      const cartCTA = document.getElementById('lightboxCartCTA');
+      const addCartBtnLightbox = document.getElementById('lightboxAddCartBtn');
+      const isPaid = paidPhotos.includes(photoId);
+      
+      if(isPaid) {
+        // Foto pagata: PERMETTI long-press iOS per salvare
+        if(lightboxImage) {
+          lightboxImage.style.webkitTouchCallout = 'default';
+          lightboxImage.style.webkitUserSelect = 'auto';
+          lightboxImage.style.userSelect = 'auto';
+        }
+        
+        // Foto pagata: mostra download/istruzioni iOS
+        if(cartCTA) {
+          cartCTA.style.display = 'none';
+        }
+        if(isIOS()) {
+          if(downloadBtn) {
+            downloadBtn.style.display = 'none';
+          }
+          if(iosInstruction) {
+            iosInstruction.style.display = 'block';
+          }
+        } else {
+          if(downloadBtn) {
+            downloadBtn.style.display = 'block';
+            downloadBtn.onclick = () => downloadPhoto(photoId);
+          }
+          if(iosInstruction) {
+            iosInstruction.style.display = 'none';
+          }
+        }
       } else {
-        downloadBtn.style.display = 'none';
+        // Foto NON pagata: BLOCCA long-press (watermark)
+        if(lightboxImage) {
+          lightboxImage.style.webkitTouchCallout = 'none';
+          lightboxImage.style.webkitUserSelect = 'none';
+          lightboxImage.style.userSelect = 'none';
+        }
+        
+        // Foto NON pagata: mostra CTA carrello
+        if(downloadBtn) {
+          downloadBtn.style.display = 'none';
+        }
+        if(iosInstruction) {
+          iosInstruction.style.display = 'none';
+        }
+        if(cartCTA) {
+          cartCTA.style.display = 'block';
+          const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
+          if(addCartBtnLightbox) {
+            if(isInCart) {
+              addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+              addCartBtnLightbox.style.background = '#ff4444';
+              addCartBtnLightbox.style.color = 'white';
+            } else {
+              addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+              addCartBtnLightbox.style.background = 'white';
+              addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+            }
+          }
+        }
       }
     }
     
@@ -3595,21 +3849,37 @@
           updateCart();
           updateCartModal();
           
-          // Aggiorna lo stato visivo del pulsante
-          if(buttonElement) {
+          // Aggiorna lo stato visivo del pulsante verde "Add to cart"
+          const btn = buttonElement || document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
+          
+          if(btn) {
             if(isInCart) {
-              buttonElement.classList.remove('in-cart');
+              // Foto rimossa dal carrello
+              btn.classList.remove('is-added');
+              btn.disabled = false;
+              btn.setAttribute('aria-label', 'Add to cart');
             } else {
-              buttonElement.classList.add('in-cart');
+              // Foto aggiunta al carrello
+              btn.classList.add('is-added');
+              btn.disabled = true;
+              btn.setAttribute('aria-label', 'Added');
             }
-          } else {
-            // Se non abbiamo il riferimento diretto, cerca il pulsante
-            const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
-            if(btn) {
-              if(isInCart) {
-                btn.classList.remove('in-cart');
+          }
+          
+          // Aggiorna anche il bottone nel viewer se è aperto
+          const addCartBtnLightbox = document.getElementById('lightboxAddCartBtn');
+          if(addCartBtnLightbox && photoLightbox && photoLightbox.classList.contains('active')) {
+            const currentPhoto = allPhotos[currentPhotoIndex];
+            if(currentPhoto && currentPhoto.photo_id === photoId) {
+              const newIsInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
+              if(newIsInCart) {
+                addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+                addCartBtnLightbox.style.background = '#ff4444';
+                addCartBtnLightbox.style.color = 'white';
               } else {
-                btn.classList.add('in-cart');
+                addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+                addCartBtnLightbox.style.background = 'white';
+                addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
               }
             }
           }
@@ -3625,9 +3895,34 @@
         console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
         return;
       }
-      // Manteniamo questa funzione per compatibilità, ma usa toggleCart
-      const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
-      await toggleCart(photoId, btn);
+      
+      try {
+        // Aggiungi al carrello - passa sempre email per validazione backend
+        let url = `/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`;
+        if(userEmail) {
+          url += `&email=${encodeURIComponent(userEmail)}`;
+        }
+        const res = await fetch(url, {
+          method: "POST"
+        });
+        const data = await res.json();
+        
+        if(data.ok) {
+          currentCart = data;
+          updateCart();
+          updateCartModal();
+          
+          // Lo stato visivo è già stato aggiornato ottimisticamente nel click handler
+          // Verifica solo che sia coerente (non sovrascrivere se già corretto)
+          const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
+          if(btn && !btn.classList.contains('is-added')) {
+            btn.classList.add('is-added');
+            btn.setAttribute('aria-label', 'Rimuovi dal carrello');
+          }
+        }
+      } catch(err) {
+        console.error("Error adding to cart:", err);
+      }
     }
 
     function updateCart() {
@@ -3687,10 +3982,12 @@
           updateCart();
           updateCartModal();
           
-          // Aggiorna lo stato visivo del pulsante nella griglia
-          const btn = document.querySelector(`.add-cart[data-photo-id="${photoId}"]`);
-          if(btn) {
-            btn.classList.remove('in-cart');
+          // Lo stato visivo è già stato aggiornato ottimisticamente nel click handler
+          // Verifica solo che sia coerente (non sovrascrivere se già corretto)
+          const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
+          if(btn && btn.classList.contains('is-added')) {
+            btn.classList.remove('is-added');
+            btn.setAttribute('aria-label', 'Aggiungi al carrello');
           }
         }
       } catch(err) {
@@ -3899,24 +4196,100 @@
 
     if(photoLightbox) {
       photoLightbox.addEventListener('click', (e) => {
-        if(e.target === photoLightbox) {
+        // Chiudi solo se si clicca sullo sfondo (photoLightbox stesso o il div container interno)
+        // NON chiudere se si clicca sull'immagine, sui pulsanti o sulle istruzioni
+        const containerDiv = photoLightbox.querySelector('div');
+        if(e.target === photoLightbox || (e.target === containerDiv && e.target.tagName === 'DIV')) {
           photoLightbox.classList.remove('active');
         }
       });
     }
     
-    // Blocca salvataggio foto (solo se lightboxImage esiste)
+    // Blocca salvataggio foto NON pagate (solo se lightboxImage esiste)
     if(lightboxImage) {
       lightboxImage.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        alert('⚠️ Purchase the photo to download it!');
+        // Verifica se la foto è pagata controllando se il lightbox mostra CTA carrello
+        const cartCTA = document.getElementById('lightboxCartCTA');
+        if(cartCTA && cartCTA.style.display !== 'none') {
+          // Foto NON pagata: blocca
+          e.preventDefault();
+          return false;
+        }
+        // Foto pagata: permetti (non fare preventDefault)
       });
       
       lightboxImage.addEventListener('dragstart', (e) => {
-        e.preventDefault();
+        // Blocca drag solo per foto non pagate
+        const cartCTA = document.getElementById('lightboxCartCTA');
+        if(cartCTA && cartCTA.style.display !== 'none') {
+          e.preventDefault();
+          return false;
+        }
       });
     }
     
+
+    // Blocca long-press e salvataggio pre-acquisto (SOLO in index.html, NON in /my-photos)
+    // Verifica che non siamo nella pagina post-acquisto
+    if(!window.location.pathname.includes('/my-photos')) {
+      // Blocca menu contestuale (long-press su immagini) SOLO per foto NON pagate
+      document.addEventListener('contextmenu', (e) => {
+        if (e.target && e.target.tagName === 'IMG') {
+          // Se è l'immagine nel lightbox, verifica se è pagata
+          if(e.target.id === 'lightboxImage') {
+            const cartCTA = document.getElementById('lightboxCartCTA');
+            // Se CTA carrello è visibile, la foto NON è pagata -> blocca
+            if(cartCTA && cartCTA.style.display !== 'none') {
+              e.preventDefault();
+              return false;
+            }
+            // Se CTA carrello è nascosta, la foto è pagata -> PERMETTI (non bloccare)
+            return;
+          }
+          // Per immagini nella griglia (non pagate), blocca sempre
+          if(e.target.closest('.album-photo')) {
+            e.preventDefault();
+            return false;
+          }
+        }
+      }, { passive: false });
+      
+      // Blocca drag (long-press drag su immagini) SOLO per foto NON pagate
+      document.addEventListener('dragstart', (e) => {
+        if (e.target && e.target.tagName === 'IMG') {
+          if(e.target.id === 'lightboxImage') {
+            const cartCTA = document.getElementById('lightboxCartCTA');
+            if(cartCTA && cartCTA.style.display !== 'none') {
+              e.preventDefault();
+              return false;
+            }
+            return;
+          }
+          if(e.target.closest('.album-photo')) {
+            e.preventDefault();
+            return false;
+          }
+        }
+      }, { passive: false });
+      
+      // Blocca anche select (doppio tap su iOS) SOLO per foto NON pagate
+      document.addEventListener('selectstart', (e) => {
+        if (e.target && e.target.tagName === 'IMG') {
+          if(e.target.id === 'lightboxImage') {
+            const cartCTA = document.getElementById('lightboxCartCTA');
+            if(cartCTA && cartCTA.style.display !== 'none') {
+              e.preventDefault();
+              return false;
+            }
+            return;
+          }
+          if(e.target.closest('.album-photo')) {
+            e.preventDefault();
+            return false;
+          }
+        }
+      }, { passive: false });
+    }
 
     // Boot
     window.addEventListener('load', () => {

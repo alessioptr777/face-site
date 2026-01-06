@@ -9,3 +9,9 @@ data/
 .env
 .env.local
 
+
+# local/runtime
+backend/photos/
+photos_backup/
+backend/data/
+.DS_Store
