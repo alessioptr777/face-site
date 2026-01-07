@@ -223,6 +223,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Debug endpoint: shows which code version/file is running on the server.
+@app.get("/debug/build")
+async def debug_build():
+    """Debug endpoint: shows which code version/file is running on the server."""
+    try:
+        file_path = str(Path(__file__).resolve())
+    except Exception:
+        file_path = str(__file__)
+
+    return {
+        "app_build_id": APP_BUILD_ID,
+        "app_version": APP_VERSION,
+        "app_name": APP_NAME,
+        "file": file_path,
+        "cwd": os.getcwd(),
+    }
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -1492,6 +1509,7 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
     
     # 3) Testo "MetaProos" al centro dei punti di incrocio delle linee
     text = "MetaProos"  # M e P maiuscole
+    logger.info(f"WATERMARK DEBUG: Creating overlay with text='{text}' for size {width}x{height}")
     # Carica font per testo
     text_size = max(14, int(module_size * 0.12))  # Dimensione testo
     try:
@@ -1586,6 +1604,7 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
 
 def _add_watermark(image_path: Path) -> bytes:
     """Aggiunge watermark pattern premium a griglia (stile GetPica) con logo Metaproos, linee e nodi"""
+    logger.info(f"WATERMARK DEBUG: _add_watermark called for {image_path}")
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -2230,10 +2249,23 @@ async def serve_photo(
                 # Blindatura: l'originale viene servito SOLO se is_paid == True dopo verifica reale
                 # Il parametro paid=true dalla query NON deve mai decidere nulla.
                 if not is_paid:
-                    # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
-                    # Redirect a Cloudinary per foto non pagate (più veloce)
-                    logger.info(f"Photo not paid, redirecting to Cloudinary (with watermark)")
-                    return RedirectResponse(url=url, status_code=302)
+                    # IMPORTANTE: NON fare redirect a Cloudinary perché potrebbe avere watermark vecchio
+                    # Scarica da Cloudinary e applica watermark lato server con testo corretto "MetaProos"
+                    logger.info(f"Photo not paid, downloading from Cloudinary to apply server-side watermark with 'MetaProos'")
+                    import requests
+                    response = requests.get(url, timeout=30)
+                    if response.status_code == 200:
+                        # Salva temporaneamente e applica watermark
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
+                            tmp_file.write(response.content)
+                            tmp_path = Path(tmp_file.name)
+                            watermarked_bytes = _add_watermark(tmp_path)
+                            tmp_path.unlink()  # Pulisci file temporaneo
+                            logger.info(f"Serving photo with server-side watermark (MetaProos) from Cloudinary source")
+                            return Response(content=watermarked_bytes, media_type="image/jpeg")
+                    else:
+                        logger.warning(f"Failed to download from Cloudinary: {response.status_code}, falling back to local")
                 
                 # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
                 # scarica da Cloudinary e serviamo originale senza watermark
