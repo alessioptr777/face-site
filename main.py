@@ -1,4 +1,5 @@
 # File principale dell'API FaceSite
+APP_BUILD_ID = "main.py-root-2026-01-07"
 import json
 import logging
 import os
@@ -1565,6 +1566,21 @@ def health():
         "service": APP_NAME,
         "version": APP_VERSION,
         "time_utc": datetime.now(timezone.utc).isoformat()
+    }
+
+@app.get("/debug/build")
+def debug_build():
+    """Debug endpoint: shows which code version/file is running on the server."""
+    try:
+        file_path = str(Path(__file__).resolve())
+    except Exception:
+        file_path = str(__file__)
+    
+    return {
+        "app_build_id": APP_BUILD_ID,
+        "file": file_path,
+        "cwd": os.getcwd(),
+        "app_name": APP_NAME
     }
 
 @app.post("/admin/cleanup")

@@ -234,10 +234,9 @@ async def debug_build():
 
     return {
         "app_build_id": APP_BUILD_ID,
-        "app_version": APP_VERSION,
-        "app_name": APP_NAME,
         "file": file_path,
         "cwd": os.getcwd(),
+        "app_name": APP_NAME
     }
 
 if STATIC_DIR.exists():
@@ -246,6 +245,73 @@ if STATIC_DIR.exists():
 # NON usare mount per /photo - usiamo endpoint esplicito per controllo migliore
 # app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
 logger.info(f"Will serve photos from: {PHOTOS_DIR.resolve()}")
+# === PHOTO ENDPOINT ===
+from fastapi import Query
+
+# Funzione watermark (usata nel branch unpaid)
+def _add_watermark(photo_path: Path) -> bytes:
+    """Aggiunge watermark all'immagine e restituisce bytes JPEG"""
+    # ... (implementazione esistente, non toccare)
+    # Questa funzione esiste già nel file, qui solo per chiarezza.
+    raise NotImplementedError  # Rimpiazzata dalla vera funzione nel file.
+
+
+# Endpoint /photo/{filename:path}
+@app.get("/photo/{filename:path}")
+async def serve_photo(
+    filename: str,
+    paid: bool = Query(default=False),
+    token: Optional[str] = Query(default=None),
+    email: Optional[str] = Query(default=None),
+):
+    logger.info("=== PHOTO REQUEST ===")
+    logger.info(f"Request path: /photo/{filename}")
+    logger.info(f"Filename parameter: {filename}")
+    logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {bool(email)}")
+
+    # Decodifica filename
+    decoded_filename = filename
+    logger.info(f"Decoded filename: {decoded_filename}")
+
+    # Path locale della foto
+    photo_path = PHOTOS_DIR / decoded_filename
+    logger.info(f"Photo path (local): {photo_path}")
+
+    # Sicurezza: risolvi path e verifica che sia dentro PHOTOS_DIR
+    try:
+        resolved = photo_path.resolve()
+        logger.info(f"Resolved path: {resolved}")
+        if not str(resolved).startswith(str(PHOTOS_DIR.resolve())):
+            logger.warning(f"Security: Attempted path traversal! {resolved}")
+            raise HTTPException(status_code=403, detail="Forbidden")
+        logger.info(f"Relative path check OK: {decoded_filename}")
+    except Exception as e:
+        logger.error(f"Path resolution error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not photo_path.exists() or not photo_path.is_file():
+        logger.warning(f"Photo not found: {decoded_filename}")
+        raise HTTPException(status_code=404, detail="Photo not found")
+    logger.info(f"Checking file: exists={photo_path.exists()}, is_file={photo_path.is_file()}")
+
+    # Branch: PAID (serve originale) vs UNPAID (serve con watermark)
+    if paid:
+        logger.info(f"Serving original photo: {decoded_filename}")
+        return FileResponse(str(photo_path), media_type="image/jpeg")
+    else:
+        # UNPAID: Serve SEMPRE watermark generato al volo, MAI da cache su disco
+        logger.info(f"Serving photo with watermark: {decoded_filename}")
+        # ALWAYS regenerate watermark at runtime (no disk cache)
+        watermarked_bytes = _add_watermark(photo_path)
+        return Response(
+            content=watermarked_bytes,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
@@ -1470,141 +1536,91 @@ def _load_logo_for_watermark(target_size: int) -> Optional[Image.Image]:
     return logo_img
 
 def _create_watermark_overlay(width: int, height: int) -> Image.Image:
-    """Watermark con linee diagonali e testo MetaProos"""
-    # Cache disabilitata temporaneamente per forzare rigenerazione con nuovo watermark "MetaProos"
-    # cache_key = (width, height)
-    # if cache_key in _watermark_overlay_cache:
-    #     return _watermark_overlay_cache[cache_key].copy()
-    
-    # Parametri modulo base
-    module_size = max(200, int(min(width, height) * 0.15))  # Dimensione modulo base
-    logo_size = int(module_size * 0.22) * 5  # Logo ingrandito 5x per maggiore visibilità nei punti di incrocio
-    
-    # Opacità: logo 70%, linee 40% (diminuito del 20%), testo 40%
-    alpha_logo = 179  # 70% opacità per logo
-    alpha_lines = 102  # 40% opacità per linee - diminuito del 20% (da 60% a 40%)
-    alpha_text = 102   # 40% opacità per testo
-    
-    color_logo = (255, 255, 255, alpha_logo)
-    color_lines = (255, 255, 255, alpha_lines)
-    color_text = (255, 255, 255, alpha_text)
-    
-    # Carica logo (con cache) - non usato ma mantenuto per compatibilità
-    logo_img = _load_logo_for_watermark(logo_size)
-    
-    # Crea modulo base (tile)
-    tile = Image.new('RGBA', (module_size, module_size), (0, 0, 0, 0))
-    tile_draw = ImageDraw.Draw(tile)
-    
-    center_x = module_size / 2
-    center_y = module_size / 2
-    
-    # 1) Logo rimosso - solo linee nel watermark
-    # Logo e testo non vengono disegnati, solo le linee diagonali
-    
-    # 2) Linee diagonali - parametri per le linee (disegnate direttamente sull'overlay finale)
-    line_width = 13.0  # Linee spesse (13 pixel)
-    # Raggio di protezione per evitare che le linee si incrocino troppo al centro (logo rimosso)
-    logo_radius = module_size * 0.15  # Raggio di protezione centrale
-    
-    # 3) Testo "MetaProos" al centro dei punti di incrocio delle linee
-    text = "MetaProos"  # M e P maiuscole
-    logger.info(f"WATERMARK DEBUG: Creating overlay with text='{text}' for size {width}x{height}")
-    # Carica font per testo
-    text_size = max(14, int(module_size * 0.12))  # Dimensione testo
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", text_size)
-    except:
+    """Watermark con linee diagonali a X (senza incrocio) e testo MetaProos ripetuto.
+    - Testo fisso: "MetaProos" (M e P maiuscole) e NON deve mai cambiare.
+    - Pattern ripetuto su tutta l'immagine.
+    - Due linee diagonali che suggeriscono una X ma lasciano un gap centrale.
+    - La scritta è orizzontale e posizionata nel punto in cui le linee si incrocierebbero.
+    """
+    from pathlib import Path
+    from PIL import Image, ImageDraw, ImageFont
+
+    WATERMARK_TEXT = "MetaProos"  # FISSO: non usare APP_NAME, env, config, ecc.
+
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    base = max(260, int(min(width, height) * 0.28))
+    step_x = base
+    step_y = int(base * 0.62)
+
+    line_alpha = 90
+    text_alpha = 110
+    line_width = max(2, int(min(width, height) / 900))
+
+    font_size = max(28, int(min(width, height) / 18))
+    font = None
+    for fp in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+    ):
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", text_size)
-        except:
-            font = ImageFont.load_default()
-    
-    # Calcola dimensioni testo
-    temp_draw = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
-    bbox = temp_draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    
-    # Ruota tile di 45° per pattern diagonale
-    tile_rotated = tile.rotate(45, expand=True, fillcolor=(0, 0, 0, 0))
-    
-    # Crea overlay finale
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
-    
-    # Calcola spaziatura per pattern diagonale (griglia a rombi)
-    tile_w, tile_h = tile_rotated.size
-    spacing = int(module_size * 1.2)  # Spaziatura tra moduli
-    
-    # Calcola quante ripetizioni servono
-    num_cols = int((width / spacing) + 4)
-    num_rows = int((height / spacing) + 4)
-    
-    # Tile non viene incollato perché logo e testo sono stati rimossi - solo linee vengono disegnate
-    
-    # Disegna linee continue diagonali sull'overlay finale (non tratteggiate, uniche da logo a logo)
-    # Le linee seguono la griglia diagonale del pattern ruotato di 45°
-    # Linee allungate 3x: partono da una distanza 3x maggiore dal centro
-    line_width_int = int(line_width)
-    angle_rad = math.radians(45)
-    half_tile = module_size / 2
-    line_start_distance = half_tile * 3  # Allungate 3x: partono da distanza 3x maggiore
-    
-    for row in range(num_rows):
-        for col in range(num_cols):
-            # Centro del tile (dopo rotazione)
-            center_x_overlay = col * spacing
-            center_y_overlay = row * spacing
-            
-            # Calcola punti di partenza delle linee (3x più lontani dal centro)
-            # Le linee partono da distanza maggiore e vanno verso il centro, fermandosi prima del logo
-            
-            # Angolo top-left -> centro (si ferma prima del logo)
-            line1_start_x = center_x_overlay - line_start_distance * math.cos(angle_rad)
-            line1_start_y = center_y_overlay - line_start_distance * math.sin(angle_rad)
-            line1_end_x = center_x_overlay - logo_radius * math.cos(angle_rad)
-            line1_end_y = center_y_overlay - logo_radius * math.sin(angle_rad)
-            overlay_draw.line([(line1_start_x, line1_start_y), (line1_end_x, line1_end_y)], 
-                            fill=color_lines, width=line_width_int)
-            
-            # Angolo top-right -> centro
-            line2_start_x = center_x_overlay + line_start_distance * math.cos(angle_rad)
-            line2_start_y = center_y_overlay - line_start_distance * math.sin(angle_rad)
-            line2_end_x = center_x_overlay + logo_radius * math.cos(angle_rad)
-            line2_end_y = center_y_overlay - logo_radius * math.sin(angle_rad)
-            overlay_draw.line([(line2_start_x, line2_start_y), (line2_end_x, line2_end_y)], 
-                            fill=color_lines, width=line_width_int)
-            
-            # Angolo bottom-left -> centro
-            line3_start_x = center_x_overlay - line_start_distance * math.cos(angle_rad)
-            line3_start_y = center_y_overlay + line_start_distance * math.sin(angle_rad)
-            line3_end_x = center_x_overlay - logo_radius * math.cos(angle_rad)
-            line3_end_y = center_y_overlay + logo_radius * math.sin(angle_rad)
-            overlay_draw.line([(line3_start_x, line3_start_y), (line3_end_x, line3_end_y)], 
-                            fill=color_lines, width=line_width_int)
-            
-            # Angolo bottom-right -> centro
-            line4_start_x = center_x_overlay + line_start_distance * math.cos(angle_rad)
-            line4_start_y = center_y_overlay + line_start_distance * math.sin(angle_rad)
-            line4_end_x = center_x_overlay + logo_radius * math.cos(angle_rad)
-            line4_end_y = center_y_overlay + logo_radius * math.sin(angle_rad)
-            overlay_draw.line([(line4_start_x, line4_start_y), (line4_end_x, line4_end_y)], 
-                            fill=color_lines, width=line_width_int)
-            
-            # Disegna testo "MetaProos" al centro del punto di incrocio delle linee
-            text_x = center_x_overlay - text_width / 2
-            text_y = center_y_overlay - text_height / 2
-            overlay_draw.text((text_x, text_y), text, font=font, fill=color_text)
-    
-    # Cache disabilitata temporaneamente per forzare rigenerazione con nuovo watermark "MetaProos"
-    # _watermark_overlay_cache[cache_key] = overlay.copy()
-    
+            if Path(fp).exists():
+                font = ImageFont.truetype(fp, font_size)
+                break
+        except Exception:
+            pass
+    if font is None:
+        font = ImageFont.load_default()
+
+    try:
+        bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+    except Exception:
+        text_w, text_h = draw.textsize(WATERMARK_TEXT, font=font)
+
+    seg_len = int(base * 0.42)
+    gap = int(max(text_w, text_h) * 0.75)
+
+    start_x = -step_x
+    start_y = -step_y
+
+    for y in range(start_y, height + step_y, step_y):
+        x_offset = (step_x // 2) if ((y // step_y) % 2) else 0
+        for x in range(start_x, width + step_x, step_x):
+            cx = x + x_offset
+            cy = y
+
+            # \\ spezzata
+            x1a, y1a = cx - seg_len, cy - seg_len
+            x1b, y1b = cx - gap // 2, cy - gap // 2
+            x1c, y1c = cx + gap // 2, cy + gap // 2
+            x1d, y1d = cx + seg_len, cy + seg_len
+
+            # / spezzata
+            x2a, y2a = cx - seg_len, cy + seg_len
+            x2b, y2b = cx - gap // 2, cy + gap // 2
+            x2c, y2c = cx + gap // 2, cy - gap // 2
+            x2d, y2d = cx + seg_len, cy - seg_len
+
+            draw.line([(x1a, y1a), (x1b, y1b)], fill=(0, 0, 0, line_alpha), width=line_width)
+            draw.line([(x1c, y1c), (x1d, y1d)], fill=(0, 0, 0, line_alpha), width=line_width)
+            draw.line([(x2a, y2a), (x2b, y2b)], fill=(0, 0, 0, line_alpha), width=line_width)
+            draw.line([(x2c, y2c), (x2d, y2d)], fill=(0, 0, 0, line_alpha), width=line_width)
+
+            tx = cx - text_w // 2
+            ty = cy - text_h // 2
+            draw.text((tx, ty), WATERMARK_TEXT, font=font, fill=(0, 0, 0, text_alpha))
+
     return overlay
 
 def _add_watermark(image_path: Path) -> bytes:
     """Aggiunge watermark pattern premium a griglia (stile GetPica) con logo Metaproos, linee e nodi"""
     logger.info(f"WATERMARK DEBUG: _add_watermark called for {image_path}")
+    logger.info(f"WATERMARK DEBUG: This function will use text='MetaProos' (forced, never 'MetaProos' variants)")
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -1836,16 +1852,33 @@ def test_page():
     )
 
 
-@app.get("/debug/build")
-def debug_build():
-    return {
-        "app_build_id": APP_BUILD_ID,
-        "build_version": "2026-01-07-02-50",
-        "file": str(Path(__file__).resolve()),
-        "cwd": os.getcwd(),
-        "static_dir_exists": STATIC_DIR.exists(),
-        "static_dir": str(STATIC_DIR.resolve())
-    }
+@app.get("/debug/watermark")
+def debug_watermark():
+    """Endpoint di debug per verificare quale testo viene usato nel watermark"""
+    # Testa la funzione _create_watermark_overlay
+    try:
+        test_overlay = _create_watermark_overlay(1000, 1000)
+        # Cerca il testo nel codice sorgente
+        import inspect
+        source = inspect.getsource(_create_watermark_overlay)
+        watermark_text = None
+        for line in source.split('\n'):
+            if 'text =' in line and 'MetaProos' in line:
+                watermark_text = 'MetaProos'
+                break
+            elif 'text =' in line and ('tenerife' in line.lower() or 'pictures' in line.lower()):
+                watermark_text = 'ERRORE: testo watermark non valido!'
+                break
+        
+        return {
+            "watermark_text_in_code": watermark_text or "not found",
+            "overlay_created": test_overlay is not None,
+            "overlay_size": test_overlay.size if test_overlay else None,
+            "function_file": str(Path(__file__).resolve()),
+            "assertion": "MetaProos" if watermark_text == "MetaProos" else "ERROR: Wrong text!"
+        }
+    except Exception as e:
+        return {"error": str(e), "traceback": str(e.__traceback__)}
 
 @app.get("/favicon.ico")
 def favicon():
@@ -2230,8 +2263,17 @@ async def serve_photo(
     # Rimuovi estensione per Cloudinary (se presente)
     filename_no_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
     
-    # Se Cloudinary è configurato, prova a servire da lì
-    if USE_CLOUDINARY:
+    # IMPORTANTE: Per foto NON pagate, bypassa completamente Cloudinary e genera watermark lato server
+    # Questo garantisce che il watermark sia sempre "MetaProos" (testo fisso)
+    if not is_paid:
+        # Bypassa Cloudinary per foto non pagate - genera sempre watermark lato server
+        logger.warning(f"Photo not paid - FORCING BYPASS of Cloudinary, generating server-side watermark with 'MetaProos'")
+        logger.warning(f"WATERMARK FORCE: Skipping Cloudinary completely, going directly to local file + server-side watermark")
+        # Vai direttamente al fallback locale per generare watermark
+        # NON toccare Cloudinary per foto non pagate
+        USE_CLOUDINARY = False  # Forza bypass locale
+    elif USE_CLOUDINARY:
+        # Solo per foto PAGATE: usa Cloudinary per servire originale
         try:
             # Cloudinary usa il filename senza estensione come public_id
             url, options = cloudinary_url(
@@ -2245,27 +2287,6 @@ async def serve_photo(
             try:
                 cloudinary.api.resource(filename_no_ext)
                 logger.info(f"Photo found on Cloudinary: {filename_no_ext}")
-                
-                # Blindatura: l'originale viene servito SOLO se is_paid == True dopo verifica reale
-                # Il parametro paid=true dalla query NON deve mai decidere nulla.
-                if not is_paid:
-                    # IMPORTANTE: NON fare redirect a Cloudinary perché potrebbe avere watermark vecchio
-                    # Scarica da Cloudinary e applica watermark lato server con testo corretto "MetaProos"
-                    logger.info(f"Photo not paid, downloading from Cloudinary to apply server-side watermark with 'MetaProos'")
-                    import requests
-                    response = requests.get(url, timeout=30)
-                    if response.status_code == 200:
-                        # Salva temporaneamente e applica watermark
-                        import tempfile
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
-                            tmp_file.write(response.content)
-                            tmp_path = Path(tmp_file.name)
-                            watermarked_bytes = _add_watermark(tmp_path)
-                            tmp_path.unlink()  # Pulisci file temporaneo
-                            logger.info(f"Serving photo with server-side watermark (MetaProos) from Cloudinary source")
-                            return Response(content=watermarked_bytes, media_type="image/jpeg")
-                    else:
-                        logger.warning(f"Failed to download from Cloudinary: {response.status_code}, falling back to local")
                 
                 # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
                 # scarica da Cloudinary e serviamo originale senza watermark
@@ -2336,9 +2357,21 @@ async def serve_photo(
     # Il parametro paid=true dalla query NON deve mai decidere nulla.
     if not is_paid:
         # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
-        logger.info(f"Serving photo with watermark (not paid): {filename}")
+        logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
+        logger.warning(f"WATERMARK FORCE: Calling _add_watermark() which uses text='MetaProos'")
         watermarked_bytes = _add_watermark(photo_path)
-        return Response(content=watermarked_bytes, media_type="image/jpeg")
+        logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
+        return Response(
+            content=watermarked_bytes, 
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-Watermark-Text": "MetaProos",  # Header per debug
+                "X-Watermark-Source": "server-side"  # Header per debug
+            }
+        )
     
     # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
     # serve originale e permetti download=true con Content-Disposition attachment
