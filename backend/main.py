@@ -1,6 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-05-01-10-FORCE-REBUILD-COMPLETE-v2
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
+APP_BUILD_ID = "local-2026-01-07-02-50"
 import json
 import logging
 import os
@@ -10,7 +11,7 @@ import math
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 import numpy as np
 import cv2
@@ -1401,73 +1402,185 @@ def _read_image_from_bytes(file_bytes: bytes):
         )
 
 # Cache per overlay watermark (chiave: (width, height) -> overlay Image)
+# NOTA: Cache svuotata per forzare rigenerazione con nuovo watermark "MetaProos"
 _watermark_overlay_cache: Dict[Tuple[int, int], Image.Image] = {}
 
-def _create_watermark_overlay(width: int, height: int) -> Image.Image:
-    """Crea overlay watermark semplice con testo 'metaproos' ripetuto a griglia"""
+# Cache per logo watermark (chiave: target_size -> Image)
+_logo_watermark_cache: Dict[int, Image.Image] = {}
+
+def _load_logo_for_watermark(target_size: int) -> Optional[Image.Image]:
+    """Carica logo Metaproos bianco e lo prepara per watermark con opacità 40-50%"""
     # Controlla cache
-    cache_key = (width, height)
-    if cache_key in _watermark_overlay_cache:
-        return _watermark_overlay_cache[cache_key].copy()
+    if target_size in _logo_watermark_cache:
+        return _logo_watermark_cache[target_size].copy()
     
-    # Crea overlay RGBA
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
+    # Carica logo da metaproos-mark-3600.png
+    logo_path = BASE_DIR / "assets" / "branding" / "metaproos-mark-3600.png"
     
-    # Testo watermark (minuscolo senza spazio)
-    text = "metaproos"
-    
-    # Calcola dimensione font basata sull'altezza immagine (circa 2-3% per pattern a griglia)
-    font_size = max(16, int(height * 0.025))
+    if not logo_path.exists():
+        logger.warning(f"Logo not found: {logo_path}")
+        return None
     
     try:
-        # Prova a usare font di sistema
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+        logo_img = Image.open(logo_path)
+        # Converti in RGBA se necessario
+        if logo_img.mode != 'RGBA':
+            logo_img = logo_img.convert('RGBA')
+    except Exception as e:
+        logger.error(f"Error loading logo from {logo_path}: {e}")
+        return None
+    
+    # Ridimensiona mantenendo aspect ratio
+    logo_img.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
+    
+    # Applica opacità 70% per rendere il logo più visibile nei punti di incrocio (alpha 179 = 70% opaco) - aumentato del 20%
+    alpha_target = 179  # 70% opacità, 30% trasparenza - aumentato del 20%
+    logo_data = logo_img.getdata()
+    new_data = []
+    for item in logo_data:
+        if len(item) == 4:
+            r, g, b, a = item
+            # Combina alpha esistente con alpha target, converti tutto a bianco
+            new_alpha = int((a / 255.0) * alpha_target)
+            new_data.append((255, 255, 255, new_alpha))
+        else:
+            new_data.append((255, 255, 255, alpha_target))
+    
+    logo_img.putdata(new_data)
+    
+    # Salva in cache
+    _logo_watermark_cache[target_size] = logo_img.copy()
+    return logo_img
+
+def _create_watermark_overlay(width: int, height: int) -> Image.Image:
+    """Watermark con linee diagonali e testo MetaProos"""
+    # Cache disabilitata temporaneamente per forzare rigenerazione con nuovo watermark "MetaProos"
+    # cache_key = (width, height)
+    # if cache_key in _watermark_overlay_cache:
+    #     return _watermark_overlay_cache[cache_key].copy()
+    
+    # Parametri modulo base
+    module_size = max(200, int(min(width, height) * 0.15))  # Dimensione modulo base
+    logo_size = int(module_size * 0.22) * 5  # Logo ingrandito 5x per maggiore visibilità nei punti di incrocio
+    
+    # Opacità: logo 70%, linee 40% (diminuito del 20%), testo 40%
+    alpha_logo = 179  # 70% opacità per logo
+    alpha_lines = 102  # 40% opacità per linee - diminuito del 20% (da 60% a 40%)
+    alpha_text = 102   # 40% opacità per testo
+    
+    color_logo = (255, 255, 255, alpha_logo)
+    color_lines = (255, 255, 255, alpha_lines)
+    color_text = (255, 255, 255, alpha_text)
+    
+    # Carica logo (con cache) - non usato ma mantenuto per compatibilità
+    logo_img = _load_logo_for_watermark(logo_size)
+    
+    # Crea modulo base (tile)
+    tile = Image.new('RGBA', (module_size, module_size), (0, 0, 0, 0))
+    tile_draw = ImageDraw.Draw(tile)
+    
+    center_x = module_size / 2
+    center_y = module_size / 2
+    
+    # 1) Logo rimosso - solo linee nel watermark
+    # Logo e testo non vengono disegnati, solo le linee diagonali
+    
+    # 2) Linee diagonali - parametri per le linee (disegnate direttamente sull'overlay finale)
+    line_width = 13.0  # Linee spesse (13 pixel)
+    # Raggio di protezione per evitare che le linee si incrocino troppo al centro (logo rimosso)
+    logo_radius = module_size * 0.15  # Raggio di protezione centrale
+    
+    # 3) Testo "MetaProos" al centro dei punti di incrocio delle linee
+    text = "MetaProos"  # M e P maiuscole
+    # Carica font per testo
+    text_size = max(14, int(module_size * 0.12))  # Dimensione testo
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", text_size)
     except:
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", text_size)
         except:
-            # Fallback a font default
             font = ImageFont.load_default()
     
     # Calcola dimensioni testo
-    bbox = draw.textbbox((0, 0), text, font=font)
+    temp_draw = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
+    bbox = temp_draw.textbbox((0, 0), text, font=font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
     
-    # Colore bianco semi-trasparente (RGBA)
-    # Opacità ~40-50% per essere visibile ma non invasivo
-    watermark_color = (255, 255, 255, 120)  # Opacità 120/255 (~47% visibile)
+    # Ruota tile di 45° per pattern diagonale
+    tile_rotated = tile.rotate(45, expand=True, fillcolor=(0, 0, 0, 0))
     
-    # Calcola dimensione celle griglia
-    # Ogni cella deve contenere il testo con un po' di padding
-    cell_padding = text_width * 0.3  # 30% di padding intorno al testo
-    cell_width = text_width + cell_padding
-    cell_height = text_height + cell_padding
+    # Crea overlay finale
+    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
     
-    # Calcola quante celle servono per coprire tutta l'immagine
-    num_cols = int((width / cell_width) + 2)  # +2 per margine
-    num_rows = int((height / cell_height) + 2)
+    # Calcola spaziatura per pattern diagonale (griglia a rombi)
+    tile_w, tile_h = tile_rotated.size
+    spacing = int(module_size * 1.2)  # Spaziatura tra moduli
     
-    # Disegna pattern a griglia
-    # Ogni cella contiene il testo centrato
+    # Calcola quante ripetizioni servono
+    num_cols = int((width / spacing) + 4)
+    num_rows = int((height / spacing) + 4)
+    
+    # Tile non viene incollato perché logo e testo sono stati rimossi - solo linee vengono disegnate
+    
+    # Disegna linee continue diagonali sull'overlay finale (non tratteggiate, uniche da logo a logo)
+    # Le linee seguono la griglia diagonale del pattern ruotato di 45°
+    # Linee allungate 3x: partono da una distanza 3x maggiore dal centro
+    line_width_int = int(line_width)
+    angle_rad = math.radians(45)
+    half_tile = module_size / 2
+    line_start_distance = half_tile * 3  # Allungate 3x: partono da distanza 3x maggiore
+    
     for row in range(num_rows):
         for col in range(num_cols):
-            # Calcola posizione centro cella
-            cell_x = col * cell_width
-            cell_y = row * cell_height
+            # Centro del tile (dopo rotazione)
+            center_x_overlay = col * spacing
+            center_y_overlay = row * spacing
             
-            # Centra il testo nella cella
-            text_x = cell_x + (cell_width - text_width) / 2
-            text_y = cell_y + (cell_height - text_height) / 2
+            # Calcola punti di partenza delle linee (3x più lontani dal centro)
+            # Le linee partono da distanza maggiore e vanno verso il centro, fermandosi prima del logo
             
-            # Disegna solo se la cella è visibile nell'immagine
-            if text_x + text_width > -50 and text_x < width + 50 and \
-               text_y + text_height > -50 and text_y < height + 50:
-                draw.text((text_x, text_y), text, font=font, fill=watermark_color)
+            # Angolo top-left -> centro (si ferma prima del logo)
+            line1_start_x = center_x_overlay - line_start_distance * math.cos(angle_rad)
+            line1_start_y = center_y_overlay - line_start_distance * math.sin(angle_rad)
+            line1_end_x = center_x_overlay - logo_radius * math.cos(angle_rad)
+            line1_end_y = center_y_overlay - logo_radius * math.sin(angle_rad)
+            overlay_draw.line([(line1_start_x, line1_start_y), (line1_end_x, line1_end_y)], 
+                            fill=color_lines, width=line_width_int)
+            
+            # Angolo top-right -> centro
+            line2_start_x = center_x_overlay + line_start_distance * math.cos(angle_rad)
+            line2_start_y = center_y_overlay - line_start_distance * math.sin(angle_rad)
+            line2_end_x = center_x_overlay + logo_radius * math.cos(angle_rad)
+            line2_end_y = center_y_overlay - logo_radius * math.sin(angle_rad)
+            overlay_draw.line([(line2_start_x, line2_start_y), (line2_end_x, line2_end_y)], 
+                            fill=color_lines, width=line_width_int)
+            
+            # Angolo bottom-left -> centro
+            line3_start_x = center_x_overlay - line_start_distance * math.cos(angle_rad)
+            line3_start_y = center_y_overlay + line_start_distance * math.sin(angle_rad)
+            line3_end_x = center_x_overlay - logo_radius * math.cos(angle_rad)
+            line3_end_y = center_y_overlay + logo_radius * math.sin(angle_rad)
+            overlay_draw.line([(line3_start_x, line3_start_y), (line3_end_x, line3_end_y)], 
+                            fill=color_lines, width=line_width_int)
+            
+            # Angolo bottom-right -> centro
+            line4_start_x = center_x_overlay + line_start_distance * math.cos(angle_rad)
+            line4_start_y = center_y_overlay + line_start_distance * math.sin(angle_rad)
+            line4_end_x = center_x_overlay + logo_radius * math.cos(angle_rad)
+            line4_end_y = center_y_overlay + logo_radius * math.sin(angle_rad)
+            overlay_draw.line([(line4_start_x, line4_start_y), (line4_end_x, line4_end_y)], 
+                            fill=color_lines, width=line_width_int)
+            
+            # Disegna testo "MetaProos" al centro del punto di incrocio delle linee
+            text_x = center_x_overlay - text_width / 2
+            text_y = center_y_overlay - text_height / 2
+            overlay_draw.text((text_x, text_y), text, font=font, fill=color_text)
     
-    # Salva in cache
-    _watermark_overlay_cache[cache_key] = overlay.copy()
+    # Cache disabilitata temporaneamente per forzare rigenerazione con nuovo watermark "MetaProos"
+    # _watermark_overlay_cache[cache_key] = overlay.copy()
     
     return overlay
 
@@ -1703,6 +1816,31 @@ def test_page():
         }
     )
 
+
+@app.get("/debug/build")
+def debug_build():
+    return {
+        "app_build_id": APP_BUILD_ID,
+        "build_version": "2026-01-07-02-50",
+        "file": str(Path(__file__).resolve()),
+        "cwd": os.getcwd(),
+        "static_dir_exists": STATIC_DIR.exists(),
+        "static_dir": str(STATIC_DIR.resolve())
+    }
+
+@app.get("/favicon.ico")
+def favicon():
+    path = STATIC_DIR / "favicon.ico"
+    if path.exists():
+        return FileResponse(str(path))
+    raise HTTPException(status_code=404, detail="favicon not found")
+
+@app.get("/apple-touch-icon.png")
+def apple_touch_icon():
+    path = STATIC_DIR / "apple-touch-icon.png"
+    if path.exists():
+        return FileResponse(str(path))
+    raise HTTPException(status_code=404, detail="apple touch icon not found")
 
 @app.get("/health")
 def health():
@@ -3572,6 +3710,256 @@ async def test_album(
             "error": str(e)
         }
 
+
+# ========== LOGICA RICONOSCIMENTO FACCIALE AVANZATA ==========
+
+
+# Helper per normalizzare la data tour (accetta YYYY-MM-DD o YYYYMMDD)
+def _normalize_tour_date(tour_date: Optional[str]) -> Optional[str]:
+    """Normalizza data tour. Accetta YYYY-MM-DD o YYYYMMDD e ritorna YYYY-MM-DD."""
+    if not tour_date:
+        return None
+    td = tour_date.strip()
+    # Se arriva già nel formato YYYY-MM-DD, lascialo così
+    if "-" in td and len(td) >= 10:
+        return td[:10]
+    # Se arriva come YYYYMMDD
+    digits = "".join(ch for ch in td if ch.isdigit())
+    if len(digits) == 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return td
+
+async def _find_connected_faces(
+    selfie_embedding: np.ndarray,
+    min_score: float = 0.25,
+    tour_date: Optional[str] = None
+) -> Dict[str, Set[int]]:
+    """
+    Identifica volti collegati al selfie.
+    
+    Un volto è "collegato" se appare insieme al volto del selfie in almeno una foto
+    dello stesso set fotografico (tour_date).
+    
+    Returns:
+        Dict[tour_date, Set[face_idx]]: Mappa tour_date -> set di indici FAISS dei volti collegati
+    """
+    connected_faces_by_date: Dict[str, Set[int]] = {}
+    
+    if faiss_index is None or len(meta_rows) == 0:
+        return connected_faces_by_date
+    
+    # Normalizza embedding selfie
+    selfie_emb = _normalize(selfie_embedding).reshape(1, -1)
+    
+    # Cerca tutte le foto che contengono il volto del selfie
+    D, I = faiss_index.search(selfie_emb, len(meta_rows))
+    
+    # Foto che contengono il selfie, raggruppate per photo_id e tour_date
+    selfie_photos: Dict[tuple, List[int]] = {}  # (photo_id, tour_date) -> [face_idx]
+    
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0 or idx >= len(meta_rows):
+            continue
+        if score < float(min_score):
+            continue
+
+        row = meta_rows[idx]
+        photo_id = row.get("photo_id")
+        if not photo_id:
+            continue
+
+        # Filtra per tour_date se fornita
+        raw_photo_tour_date = row.get("tour_date")
+        photo_tour_date = _normalize_tour_date(str(raw_photo_tour_date)) if raw_photo_tour_date else "unknown"
+        normalized_date = _normalize_tour_date(tour_date)
+        if normalized_date:
+            if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
+                continue
+
+        key = (photo_id, photo_tour_date)
+        if key not in selfie_photos:
+            selfie_photos[key] = []
+        selfie_photos[key].append(idx)
+    
+    # Per ogni foto che contiene il selfie, trova tutti gli altri volti in quella foto
+    for (photo_id, photo_tour_date), selfie_face_indices in selfie_photos.items():
+        # Trova tutti i volti in questa foto (tutti i face_idx che puntano a questo photo_id e stesso tour_date normalizzato)
+        all_faces_in_photo: Set[int] = set()
+        for i, row in enumerate(meta_rows):
+            if row.get("photo_id") != photo_id:
+                continue
+            raw_td = row.get("tour_date")
+            td = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
+            if td != photo_tour_date:
+                continue
+            all_faces_in_photo.add(i)
+
+        # I volti collegati sono tutti i volti nella foto tranne il selfie
+        connected_faces = all_faces_in_photo - set(selfie_face_indices)
+
+        # Aggiungi ai volti collegati per questo tour_date
+        if photo_tour_date not in connected_faces_by_date:
+            connected_faces_by_date[photo_tour_date] = set()
+        connected_faces_by_date[photo_tour_date].update(connected_faces)
+    
+    total_connected = sum(len(faces) for faces in connected_faces_by_date.values())
+    logger.info(f"[DEBUG] Connected faces: {total_connected} total across {len(connected_faces_by_date)} tour dates")
+    for date, faces_set in connected_faces_by_date.items():
+        logger.info(f"[DEBUG]   tour_date={date}: {len(faces_set)} connected faces")
+    return connected_faces_by_date
+
+
+async def _filter_photos_by_rules(
+    selfie_embedding: np.ndarray,
+    connected_faces_by_date: Dict[str, Set[int]],
+    min_score: float = 0.25,
+    tour_date: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Filtra le foto in base alle regole di riconoscimento facciale avanzato.
+    
+    Regole:
+    1. Mostra foto con solo il volto del selfie
+    2. Mostra foto con volto del selfie + volti collegati
+    3. Mostra foto con solo volti collegati (se esistono foto condivise)
+    4. NON mostrare foto con volti non collegati
+    
+    Returns:
+        List[Dict]: Lista di foto filtrate con metadata
+    """
+    filtered_results: List[Dict[str, Any]] = []
+    seen_photos = set()
+    
+    if faiss_index is None or len(meta_rows) == 0:
+        return filtered_results
+    
+    # Normalizza embedding selfie
+    selfie_emb = _normalize(selfie_embedding).reshape(1, -1)
+    
+    # Cerca tutte le foto che contengono il volto del selfie
+    D, I = faiss_index.search(selfie_emb, len(meta_rows))
+    
+    # Raccogli tutti i face_idx validi (selfie + collegati) per ogni tour_date
+    valid_faces_by_date: Dict[str, Set[int]] = {}
+    
+    # Aggiungi i face_idx del selfie per ogni tour_date
+    selfie_face_indices_by_date: Dict[str, Set[int]] = {}
+    normalized_date = _normalize_tour_date(tour_date)
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0 or idx >= len(meta_rows):
+            continue
+        if score < float(min_score):
+            continue
+        row = meta_rows[idx]
+        raw_td = row.get("tour_date")
+        photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
+        # Filtra per tour_date se fornita
+        if normalized_date:
+            if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
+                continue
+        if photo_tour_date not in selfie_face_indices_by_date:
+            selfie_face_indices_by_date[photo_tour_date] = set()
+        selfie_face_indices_by_date[photo_tour_date].add(idx)
+    
+    # Combina selfie + collegati per ogni tour_date
+    for date in set(list(selfie_face_indices_by_date.keys()) + list(connected_faces_by_date.keys())):
+        valid_faces_by_date[date] = set()
+        if date in selfie_face_indices_by_date:
+            valid_faces_by_date[date].update(selfie_face_indices_by_date[date])
+        if date in connected_faces_by_date:
+            valid_faces_by_date[date].update(connected_faces_by_date[date])
+    
+    # Per ogni foto nell'indice, verifica se deve essere mostrata
+    photo_faces: Dict[str, Set[int]] = {}  # photo_id -> set di face_idx in quella foto
+    photo_scores: Dict[tuple, float] = {}  # (photo_id, face_idx) -> score
+    
+    # Mappa rapida idx -> score per i match del selfie (evita O(n^2))
+    selfie_score_by_idx: Dict[int, float] = {}
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0:
+            continue
+        # se ci sono duplicati, tieni il migliore
+        s = float(score)
+        if (idx not in selfie_score_by_idx) or (s > selfie_score_by_idx[idx]):
+            selfie_score_by_idx[idx] = s
+
+    # Raggruppa tutti i volti per photo_id e salva gli score del selfie
+    for i, row in enumerate(meta_rows):
+        photo_id = row.get("photo_id")
+        if not photo_id:
+            continue
+
+        raw_td = row.get("tour_date")
+        photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
+
+        # Filtra per tour_date se fornita
+        if normalized_date:
+            if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
+                continue
+
+        if photo_id not in photo_faces:
+            photo_faces[photo_id] = set()
+        photo_faces[photo_id].add(i)
+
+        # Salva score se questo volto è il selfie
+        if i in selfie_score_by_idx:
+            photo_scores[(photo_id, i)] = selfie_score_by_idx[i]
+    
+    # Filtra le foto in base alle regole
+    for photo_id, face_indices in photo_faces.items():
+        if photo_id in seen_photos:
+            continue
+
+        # Trova il tour_date di questa foto (prendi il primo volto)
+        photo_tour_date = "unknown"
+        for face_idx in face_indices:
+            if face_idx < len(meta_rows):
+                raw_td = meta_rows[face_idx].get("tour_date")
+                photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
+                break
+
+        # Ottieni i volti validi per questo tour_date
+        valid_faces = valid_faces_by_date.get(photo_tour_date, set())
+        # Fallback: se i metadata hanno tour_date mancanti ("unknown"), usa l'unione dei volti validi
+        if (not valid_faces) and (photo_tour_date == "unknown") and valid_faces_by_date:
+            valid_faces = set().union(*valid_faces_by_date.values())
+
+        # Verifica se la foto contiene solo volti validi (selfie o collegati)
+        if face_indices.issubset(valid_faces):
+            # La foto contiene solo volti validi -> deve essere mostrata
+            seen_photos.add(photo_id)
+
+            # Trova il miglior score per questa foto (score del selfie se presente)
+            best_score = 0.0
+            has_selfie = False
+
+            for face_idx in face_indices:
+                key = (photo_id, face_idx)
+                if key in photo_scores:
+                    score = photo_scores[key]
+                    if score > best_score:
+                        best_score = score
+                        has_selfie = True
+
+            filtered_results.append({
+                "photo_id": str(photo_id),
+                "score": best_score if has_selfie else 0.0,
+                "has_face": True,
+                "has_selfie": has_selfie,
+                "tour_date": photo_tour_date,
+            })
+        # Se la foto contiene volti non validi, viene esclusa (non aggiunta)
+    
+    # Ordina per score decrescente
+    filtered_results.sort(key=lambda x: x["score"], reverse=True)
+    
+    # Log di debug
+    photos_with_selfie = sum(1 for r in filtered_results if r.get("has_selfie", False))
+    logger.info(f"[DEBUG] Filtered photos: {len(filtered_results)} total (with selfie: {photos_with_selfie}, without selfie: {len(filtered_results) - photos_with_selfie})")
+    if tour_date:
+        logger.info(f"[DEBUG] tour_date filter: {tour_date}")
+    return filtered_results
+
 # ========== ENDPOINT ESISTENTI ==========
 
 @app.post("/match_selfie")
@@ -3582,7 +3970,13 @@ async def match_selfie(
     min_score: float = Query(0.25, description="Soglia minima di similarità (0.0-1.0). Più alta = meno falsi positivi"),
     tour_date: Optional[str] = Query(None, description="Data del tour (YYYY-MM-DD) per filtrare foto di spalle")
 ):
-    """Endpoint per il face matching: trova foto simili al selfie + foto di spalle se tour_date fornita"""
+    """
+    Endpoint per il face matching con logica avanzata:
+    - Mostra foto con il volto del selfie
+    - Mostra foto con volti collegati (persone che appaiono insieme al selfie)
+    - Esclude foto con volti non collegati
+    - I collegamenti sono validi solo all'interno dello stesso set fotografico (tour_date)
+    """
     _ensure_ready()
     
     try:
@@ -3594,9 +3988,9 @@ async def match_selfie(
         assert face_app is not None
         faces = face_app.get(img)
         
-        # Mostriamo TUTTE le foto: matchate (con volti) + foto di spalle/ombra/silhouette (senza volti)
         matched_results: List[Dict[str, Any]] = []
-        seen_photos = set()  # Evita duplicati
+        # Set per evitare duplicati tra match e back photos
+        seen_photos: Set[str] = set()
         
         if faces:
             # Prendi il volto più grande (presumibilmente il selfie principale)
@@ -3606,55 +4000,38 @@ async def match_selfie(
                 reverse=True
             )
             
-            # Estrai embedding e normalizza
-            emb = faces_sorted[0].embedding.astype("float32")
-            emb = _normalize(emb).reshape(1, -1)
+            # Estrai embedding del selfie
+            selfie_embedding = faces_sorted[0].embedding.astype("float32")
             
-            # Cerca nell'indice FAISS (IndexFlatIP => score ~ cosine similarity se normalizzato)
-            assert faiss_index is not None
-            D, I = faiss_index.search(emb, top_k_faces)
+            # Log iniziale
+            logger.info(f"[DEBUG] Starting face matching: tour_date={tour_date}, min_score={min_score}")
             
-            # Costruisci i risultati delle foto matchate
-            for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                if idx < 0 or idx >= len(meta_rows):
-                    continue
-                if score < float(min_score):
-                    continue
-                
-                row = meta_rows[idx]
-                photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
-                if not photo_id:
-                    continue
-                
-                # Filtra per tour_date se fornita
-                if tour_date:
-                    normalized_date = tour_date.replace("-", "") if "-" not in tour_date else tour_date
-                    if len(normalized_date) == 8:  # YYYYMMDD
-                        normalized_date = f"{normalized_date[:4]}-{normalized_date[4:6]}-{normalized_date[6:8]}"
-                    
-                    photo_tour_date = row.get("tour_date")
-                    if photo_tour_date and normalized_date not in str(photo_tour_date):
-                        continue  # Salta questa foto se non corrisponde alla data
-                
-                # Evita duplicati (stessa foto con facce diverse)
-                if photo_id in seen_photos:
-                    continue
-                seen_photos.add(photo_id)
-                
-                matched_results.append({
-                    "photo_id": str(photo_id),
-                    "score": float(score),
-                    "has_face": True,
-                })
-                logger.debug(f"Added matched result: photo_id={photo_id}, score={score:.4f}")
-        
-        # Ordina per score decrescente e limita ai migliori match
-        matched_results.sort(key=lambda x: x["score"], reverse=True)
-        
-        # Limita a 50 risultati migliori per evitare troppi falsi positivi
-        if len(matched_results) > 50:
-            logger.info(f"Limiting results from {len(matched_results)} to 50 best matches")
-            matched_results = matched_results[:50]
+            # Identifica volti collegati (persone che appaiono insieme al selfie)
+            connected_faces_by_date = await _find_connected_faces(
+                selfie_embedding,
+                min_score=min_score,
+                tour_date=tour_date
+            )
+            
+            # Filtra le foto in base alle regole avanzate
+            matched_results = await _filter_photos_by_rules(
+                selfie_embedding,
+                connected_faces_by_date,
+                min_score=min_score,
+                tour_date=tour_date
+            )
+            
+            logger.info(f"[DEBUG] Final matched results: {len(matched_results)} photos")
+            
+            # Limita a 50 risultati migliori per evitare troppi falsi positivi
+            if len(matched_results) > 50:
+                logger.info(f"Limiting results from {len(matched_results)} to 50 best matches")
+                matched_results = matched_results[:50]
+            # Set per evitare duplicati tra match e back photos
+            seen_photos = set(r["photo_id"] for r in matched_results if r.get("photo_id"))
+        else:
+            # Se non ci sono faces, inizializza seen_photos vuoto
+            seen_photos = set()
         
         # Aggiungi foto di spalle/ombra/silhouette (senza volti visibili)
         back_results: List[Dict[str, Any]] = []
@@ -3662,9 +4039,7 @@ async def match_selfie(
         # Se tour_date fornita, filtra per data, altrimenti mostra tutte le foto di spalle
         if tour_date:
             # Normalizza formato data (accetta YYYY-MM-DD o YYYYMMDD)
-            normalized_date = tour_date.replace("-", "") if "-" not in tour_date else tour_date
-            if len(normalized_date) == 8:  # YYYYMMDD
-                normalized_date = f"{normalized_date[:4]}-{normalized_date[4:6]}-{normalized_date[6:8]}"
+            normalized_date = _normalize_tour_date(tour_date)
             
             seen_back_photos = set()
             for back_photo in back_photos:
@@ -3683,7 +4058,7 @@ async def match_selfie(
                 
                 # Filtra per data del tour
                 photo_tour_date = back_photo.get("tour_date")
-                if photo_tour_date and normalized_date in photo_tour_date:
+                if photo_tour_date and normalized_date and normalized_date in photo_tour_date:
                     back_results.append({
                         "photo_id": str(photo_id),
                         "score": 0.0,  # Foto di spalle non hanno score di matching
