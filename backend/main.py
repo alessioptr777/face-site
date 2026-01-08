@@ -231,6 +231,20 @@ else:
     else:
         logger.info("R2 not configured - using local file storage")
 
+# Log diagnostico R2 (dopo configurazione completa)
+logger.info(
+    "R2 diagnostic: BOTO3_AVAILABLE=%s, R2_ENDPOINT_URL present=%s len=%s, R2_BUCKET present=%s, R2_ACCESS_KEY_ID present=%s, R2_SECRET_ACCESS_KEY present=%s, USE_R2=%s, resolved_endpoint=%s, resolved_bucket=%s",
+    BOTO3_AVAILABLE,
+    bool(os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL")),
+    len((os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL") or "")),
+    bool(os.getenv("R2_BUCKET")),
+    bool(os.getenv("R2_ACCESS_KEY_ID")),
+    bool(os.getenv("R2_SECRET_ACCESS_KEY")),
+    USE_R2,
+    bool(R2_ENDPOINT_URL),
+    bool(R2_BUCKET),
+)
+
 # Configurazione SendGrid (opzionale)
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
 SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "tenerifestars.photo@gmail.com")
