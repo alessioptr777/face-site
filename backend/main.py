@@ -2464,195 +2464,61 @@ async def serve_photo(
             logger.error(f"Error checking paid photos: {e}")
 
     
-    # Rimuovi estensione per Cloudinary (se presente)
-    filename_no_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
+    # Servire da R2 (unico storage supportato)
+    if not USE_R2 or r2_client is None:
+        logger.error("R2 storage not configured. Cannot serve photos.")
+        raise HTTPException(status_code=503, detail="Photo storage not available")
     
-    # IMPORTANTE: Per foto NON pagate, bypassa completamente Cloudinary e genera watermark lato server
-    # Questo garantisce che il watermark sia sempre "MetaProos" (testo fisso)
-    if not is_paid:
-        # Bypassa Cloudinary per foto non pagate - genera sempre watermark lato server
-        logger.warning(f"Photo not paid - FORCING BYPASS of Cloudinary, generating server-side watermark with 'MetaProos'")
-        logger.warning(f"WATERMARK FORCE: Skipping Cloudinary completely, going directly to local file + server-side watermark")
-        # Vai direttamente al fallback locale per generare watermark
-        # NON toccare Cloudinary per foto non pagate
-        USE_CLOUDINARY = False  # Forza bypass locale
-    elif USE_CLOUDINARY:
-        # Solo per foto PAGATE: usa Cloudinary per servire originale
-        try:
-            # Cloudinary usa il filename senza estensione come public_id
-            url, options = cloudinary_url(
-                filename_no_ext,
-                format="jpg",
-                secure=True
-            )
-            logger.info(f"Cloudinary URL generated: {url}")
-            
-            # Verifica che l'immagine esista su Cloudinary
-            try:
-                cloudinary.api.resource(filename_no_ext)
-                logger.info(f"Photo found on Cloudinary: {filename_no_ext}")
-                
-                # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
-                # scarica da Cloudinary e serviamo originale senza watermark
-                logger.info(f"Photo is paid, downloading from Cloudinary to serve without watermark")
-                import requests
-                response = requests.get(url, timeout=30)
-                if response.status_code == 200:
-                    # Servi la foto scaricata da Cloudinary (senza watermark)
-                    logger.info(f"Serving paid photo from Cloudinary (no watermark)")
-                    _track_download(filename)
-                    
-                    # Log serve source (Cloudinary è un servizio esterno, non R2/LOCAL)
-                    logger.info(f"PHOTO SERVE: source=CLOUDINARY, filename={filename}")
-                    
-                    # Se download=true, forza il download con header Content-Disposition
-                    if download:
-                        headers = {
-                            "Content-Disposition": f'attachment; filename="{filename}"',
-                            "Content-Type": "image/jpeg"
-                        }
-                        return Response(content=response.content, headers=headers, media_type="image/jpeg")
-                    
-                    return Response(content=response.content, media_type="image/jpeg")
-                else:
-                    logger.warning(f"Failed to download from Cloudinary: {response.status_code}")
-                    # Fallback a locale
-            except cloudinary.api.NotFound:
-                logger.warning(f"Photo not found on Cloudinary: {filename_no_ext}, falling back to local")
-                # Fallback a file locale
-            except Exception as e:
-                logger.warning(f"Cloudinary error: {e}, falling back to local")
-        except Exception as e:
-            logger.warning(f"Cloudinary error: {e}, falling back to local storage")
-    
-    # Servire da R2 o locale in base a USE_R2
-    if USE_R2 and r2_client is not None:
-        # Leggi da R2
-        try:
-            photo_bytes = await _r2_get_object_bytes(filename)
-            logger.info(f"Serving photo from R2: key={filename}, bucket={R2_BUCKET}")
-            
-            # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
-            if not is_paid:
-                # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
-                logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
-                logger.warning(f"WATERMARK FORCE: Calling _add_watermark_from_bytes() which uses text='MetaProos'")
-                
-                logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
-                
-                watermarked_bytes = _add_watermark_from_bytes(photo_bytes)
-                logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
-                return Response(
-                    content=watermarked_bytes, 
-                    media_type="image/jpeg",
-                    headers={
-                        "Cache-Control": "no-cache, no-store, must-revalidate",
-                        "Pragma": "no-cache",
-                        "Expires": "0",
-                        "X-Watermark-Text": "MetaProos",  # Header per debug
-                        "X-Watermark-Source": "server-side"  # Header per debug
-                    }
-                )
-            
-            # SOLO se is_paid == True: serve originale senza watermark
-            logger.info(f"Returning original file (paid) from R2: {filename}")
-            _track_download(filename)
+    # Leggi da R2
+    try:
+        photo_bytes = await _r2_get_object_bytes(filename)
+        logger.info(f"Serving photo from R2: key={filename}, bucket={R2_BUCKET}")
+        
+        # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
+        if not is_paid:
+            # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
+            logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
+            logger.warning(f"WATERMARK FORCE: Calling _add_watermark_from_bytes() which uses text='MetaProos'")
             
             logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
             
-            # Se download=true, forza il download con header Content-Disposition
-            if download:
-                headers = {
-                    "Content-Disposition": f'attachment; filename="{filename}"',
-                    "Content-Type": "image/jpeg"
+            watermarked_bytes = _add_watermark_from_bytes(photo_bytes)
+            logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
+            return Response(
+                content=watermarked_bytes, 
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "X-Watermark-Text": "MetaProos",  # Header per debug
+                    "X-Watermark-Source": "server-side"  # Header per debug
                 }
-                return Response(content=photo_bytes, headers=headers, media_type="image/jpeg")
-            
-            # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
-            return Response(content=photo_bytes, media_type="image/jpeg")
-            
-        except HTTPException:
-            # Se R2 restituisce 404, fallback a locale
-            logger.warning(f"Photo not found in R2, falling back to local: {filename}")
-            # Continua con il codice locale sotto
-    
-    # Fallback: servire da file locale
-    photo_path = PHOTOS_DIR / filename
-    logger.info(f"Photo path (local): {photo_path}")
-    
-    # Sicurezza: previeni directory traversal
-    try:
-        resolved_path = photo_path.resolve()
-        resolved_photos_dir = PHOTOS_DIR.resolve()
-        relative_path = resolved_path.relative_to(resolved_photos_dir)
-        logger.info(f"Resolved path: {resolved_path}")
-        logger.info(f"Relative path check OK: {relative_path}")
-    except (ValueError, OSError) as e:
-        logger.error(f"Directory traversal attempt blocked: {filename} - {e}")
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Log per debug
-    logger.info(f"Checking file: exists={photo_path.exists()}, is_file={photo_path.is_file() if photo_path.exists() else False}")
-    
-    if not photo_path.exists():
-        logger.error(f"Photo not found: {filename}")
-        logger.error(f"Full path checked: {resolved_path}")
-        # Lista i file disponibili per debug
-        available_files = [p.name for p in PHOTOS_DIR.iterdir() if p.is_file()][:10]
-        logger.error(f"Available files (first 10): {available_files}")
-        logger.error(f"Looking for exact match of: '{filename}'")
-        # Prova a trovare file simili
-        similar = [f for f in available_files if filename.lower() in f.lower() or f.lower() in filename.lower()]
-        if similar:
-            logger.error(f"Similar files found: {similar}")
-        raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
-    
-    if not photo_path.is_file():
-        logger.error(f"Path is not a file: {filename}")
-        raise HTTPException(status_code=404, detail=f"Photo not found: {filename}")
-    
-    # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
-    # Il parametro paid=true dalla query NON deve mai decidere nulla.
-    if not is_paid:
-        # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
-        logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
-        logger.warning(f"WATERMARK FORCE: Calling _add_watermark() which uses text='MetaProos'")
+            )
         
-        logger.info(f"PHOTO SERVE: source=LOCAL, filename={filename}")
+        # SOLO se is_paid == True: serve originale senza watermark
+        logger.info(f"Returning original file (paid) from R2: {filename}")
+        _track_download(filename)
         
-        watermarked_bytes = _add_watermark(photo_path)
-        logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
-        return Response(
-            content=watermarked_bytes, 
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-                "X-Watermark-Text": "MetaProos",  # Header per debug
-                "X-Watermark-Source": "server-side"  # Header per debug
+        logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
+        
+        # Se download=true, forza il download con header Content-Disposition
+        if download:
+            headers = {
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "image/jpeg"
             }
-        )
-    
-    # SOLO se is_paid == True (token valido non scaduto o email pagata non scaduta):
-    # serve originale e permetti download=true con Content-Disposition attachment
-    logger.info(f"Returning original file (paid): {resolved_path}")
-    _track_download(filename)
-    
-    logger.info(f"PHOTO SERVE: source=LOCAL, filename={filename}")
-    
-    # Se download=true, forza il download con header Content-Disposition
-    if download:
-        with open(resolved_path, 'rb') as f:
-            content = f.read()
-        headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Type": "image/jpeg"
-        }
-        return Response(content=content, headers=headers, media_type="image/jpeg")
-    
-    # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
-    return FileResponse(resolved_path, media_type="image/jpeg")
+            return Response(content=photo_bytes, headers=headers, media_type="image/jpeg")
+        
+        # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
+        return Response(content=photo_bytes, media_type="image/jpeg")
+        
+    except HTTPException:
+        # Rilancia HTTPException (404, 500, ecc.)
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error serving photo from R2: {type(e).__name__}: {e}, filename={filename}")
+        raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
 
 # ========== ENDPOINT UTENTI ==========
 
@@ -6148,61 +6014,66 @@ async def admin_upload(
         # Leggi il contenuto del file
         content = await photo.read()
         
-        # Controlla se è già JPEG - se sì, salvalo direttamente senza riconversione
+        # Determina nome file finale (sempre JPEG)
         original_ext = Path(photo.filename).suffix.lower()
         if original_ext in ['.jpg', '.jpeg']:
-            # È già JPEG, salva direttamente senza riconversione per mantenere qualità originale
-            photo_path = PHOTOS_DIR / photo.filename
-            
-            # Evita duplicati: se esiste già, aggiungi un numero
-            counter = 1
-            original_name = Path(photo.filename).stem
-            while photo_path.exists():
-                jpeg_filename = f"{original_name}_{counter}.jpg"
-                photo_path = PHOTOS_DIR / jpeg_filename
-                counter += 1
-            
-            # Log storage target
-            storage_target = "R2" if USE_R2 else "LOCAL"
-            logger.info(f"PHOTO STORAGE: target={storage_target}, filename={photo_path.name}")
-            
-            with open(photo_path, 'wb') as f:
-                f.write(content)
-            
-            jpeg_filename = photo_path.name
-            logger.info(f"JPEG file saved directly (no conversion, max quality preserved): {jpeg_filename}")
+            # È già JPEG, usa nome originale
+            jpeg_filename = photo.filename
+            photo_bytes = content  # Usa contenuto originale senza riconversione
         else:
-            # Converti l'immagine in JPEG (indipendentemente dal formato originale)
+            # Converti l'immagine in JPEG
             img = _read_image_from_bytes(content)
-            
-            # Genera nome file JPEG (mantieni nome originale ma cambia estensione)
-            original_name = Path(photo.filename).stem  # Nome senza estensione
+            original_name = Path(photo.filename).stem
             jpeg_filename = f"{original_name}.jpg"
-            photo_path = PHOTOS_DIR / jpeg_filename
             
-            # Evita duplicati: se esiste già, aggiungi un numero
-            counter = 1
-            while photo_path.exists():
-                jpeg_filename = f"{original_name}_{counter}.jpg"
-                photo_path = PHOTOS_DIR / jpeg_filename
-                counter += 1
-            
-            # Log storage target
-            storage_target = "R2" if USE_R2 else "LOCAL"
-            logger.info(f"PHOTO STORAGE: target={storage_target}, filename={photo_path.name}")
-            
-            # Converti e salva come JPEG
+            # Converti e salva in bytes
             from io import BytesIO
-            
-            # Converti OpenCV (BGR) in PIL (RGB)
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(img_rgb)
             
-            # Salva come JPEG con qualità massima (100) e subsampling=0 (4:4:4, nessuna subsampling cromatica)
-            # Questo mantiene la massima qualità possibile in JPEG
-            pil_img.save(photo_path, 'JPEG', quality=100, optimize=False, subsampling=0)
-            
+            # Salva come JPEG con qualità massima (100) e subsampling=0
+            output = BytesIO()
+            pil_img.save(output, 'JPEG', quality=100, optimize=False, subsampling=0)
+            photo_bytes = output.getvalue()
             logger.info(f"Photo converted to JPEG (max quality, subsampling=0): {jpeg_filename} (original: {photo.filename})")
+        
+        # Verifica se R2 è configurato
+        if not USE_R2 or r2_client is None:
+            raise HTTPException(status_code=500, detail="R2 storage not configured. Cannot upload photos.")
+        
+        # Evita duplicati: verifica se esiste già su R2
+        counter = 1
+        original_name = Path(jpeg_filename).stem
+        final_filename = jpeg_filename
+        while True:
+            try:
+                r2_client.head_object(Bucket=R2_BUCKET, Key=final_filename)
+                # Esiste già, prova con numero
+                final_filename = f"{original_name}_{counter}.jpg"
+                counter += 1
+            except ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    # Non esiste, usa questo nome
+                    break
+                else:
+                    raise
+        
+        # Salva su R2
+        try:
+            r2_client.put_object(
+                Bucket=R2_BUCKET,
+                Key=final_filename,
+                Body=photo_bytes,
+                ContentType='image/jpeg'
+            )
+            logger.info(f"PHOTO STORAGE: target=R2, filename={final_filename}")
+            logger.info(f"Photo saved to R2: {final_filename} ({len(photo_bytes) / 1024:.1f} KB)")
+        except Exception as e:
+            logger.error(f"Error saving photo to R2: {e}")
+            raise HTTPException(status_code=500, detail=f"Error saving photo to R2: {str(e)}")
+        
+        # Usa final_filename per indicizzazione
+        jpeg_filename = final_filename
         
         # Leggi l'immagine per l'indicizzazione (usa il contenuto originale)
         img = _read_image_from_bytes(content)
