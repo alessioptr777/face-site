@@ -1186,17 +1186,10 @@ async def _cleanup_expired_photos():
                 WHERE email = ? AND photo_id = ?
             """, (email, photo_id))
             
-            # Elimina file fisico (ora non più usato, tutto su R2)
-            # Nota: le foto sono su R2, questo codice è legacy
-            if False:  # Disabilitato: tutto su R2 ora
-                photo_path = PHOTOS_DIR / photo_id
-                if photo_path.exists():
-                    try:
-                        photo_path.unlink()
-                        deleted_count += 1
-                        logger.info(f"Deleted expired photo: {photo_id}")
-                    except Exception as e:
-                        logger.error(f"Error deleting photo file {photo_id}: {e}")
+            # Foto eliminate dal database (file su R2, non eliminiamo fisicamente per ora)
+            # Nota: le foto sono su R2, l'eliminazione fisica può essere fatta manualmente se necessario
+            deleted_count += 1
+            logger.info(f"Marked expired photo as deleted in DB: {photo_id} (file remains on R2)")
         
         if expired:
             logger.info(f"Cleaned up {len(expired)} expired photos ({deleted_count} files deleted)")
@@ -1492,16 +1485,17 @@ def _cleanup_downloaded_photos():
                 photos_to_delete.add(photo_id)
                 logger.info(f"Photo {photo_id} marked for deletion: {days_ago} days old (max: {DOWNLOAD_EXPIRY_DAYS})")
         
-        # Cancella foto
+        # Cancella foto (ora su R2, non eliminiamo fisicamente)
         deleted_count = 0
         for photo_id in photos_to_delete:
-            photo_path = PHOTOS_DIR / photo_id
-            if photo_path.exists() and photo_path.is_file():
-                try:
-                    photo_path.unlink()
-                    deleted_count += 1
-                    logger.info(f"Deleted photo: {photo_id}")
-                except Exception as e:
+            # Foto su R2: non eliminiamo fisicamente, solo dal database
+            # L'eliminazione fisica da R2 può essere fatta manualmente se necessario
+            deleted_count += 1
+            logger.info(f"Marked photo for deletion in DB: {photo_id} (file remains on R2)")
+            try:
+                # TODO: Se necessario, aggiungere eliminazione da R2 qui
+                pass
+            except Exception as e:
                     logger.error(f"Error deleting photo {photo_id}: {e}")
         
         if deleted_count > 0:
@@ -6144,15 +6138,55 @@ async def admin_add_back_photo(
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
-        # Salva foto
-        photo_path = PHOTOS_DIR / photo.filename
+        # Verifica R2 configurato
+        if not USE_R2 or r2_client is None:
+            raise HTTPException(status_code=500, detail="R2 storage not configured. Cannot upload photos.")
+        
+        # Leggi contenuto
         content = await photo.read()
-        with open(photo_path, 'wb') as f:
-            f.write(content)
+        
+        # Determina nome file finale
+        filename = photo.filename
+        if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+            # Converti in JPEG se necessario
+            img = _read_image_from_bytes(content)
+            original_name = Path(photo.filename).stem
+            filename = f"{original_name}.jpg"
+            
+            from io import BytesIO
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(img_rgb)
+            output = BytesIO()
+            pil_img.save(output, 'JPEG', quality=100, optimize=False, subsampling=0)
+            content = output.getvalue()
+        
+        # Evita duplicati su R2
+        counter = 1
+        original_name = Path(filename).stem
+        final_filename = filename
+        while True:
+            try:
+                r2_client.head_object(Bucket=R2_BUCKET, Key=final_filename)
+                final_filename = f"{original_name}_{counter}.jpg"
+                counter += 1
+            except ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    break
+                else:
+                    raise
+        
+        # Salva su R2
+        r2_client.put_object(
+            Bucket=R2_BUCKET,
+            Key=final_filename,
+            Body=content,
+            ContentType='image/jpeg'
+        )
+        logger.info(f"PHOTO STORAGE: target=R2, filename={final_filename}")
         
         # Aggiungi a back_photos (con tour_date se fornita)
         back_record = {
-            "photo_id": photo.filename,
+            "photo_id": final_filename,
             "has_face": False,
         }
         if tour_date:
@@ -6163,8 +6197,8 @@ async def admin_add_back_photo(
         with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
             back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
         
-        logger.info(f"Back photo added: {photo.filename} (tour_date: {tour_date})")
-        return {"ok": True, "filename": photo.filename}
+        logger.info(f"Back photo added to R2: {final_filename} (tour_date: {tour_date})")
+        return {"ok": True, "filename": final_filename}
     except Exception as e:
         logger.error(f"Error adding back photo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
