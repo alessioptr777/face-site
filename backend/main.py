@@ -2509,6 +2509,11 @@ async def serve_photo(
         # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
         logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
         logger.warning(f"WATERMARK FORCE: Calling _add_watermark() which uses text='MetaProos'")
+        
+        # Log serve source
+        serve_source = "R2" if USE_R2 else "LOCAL"
+        logger.info(f"PHOTO SERVE: source={serve_source}, filename={filename}")
+        
         watermarked_bytes = _add_watermark(photo_path)
         logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
         return Response(
@@ -2527,6 +2532,10 @@ async def serve_photo(
     # serve originale e permetti download=true con Content-Disposition attachment
     logger.info(f"Returning original file (paid): {resolved_path}")
     _track_download(filename)
+    
+    # Log serve source
+    serve_source = "R2" if USE_R2 else "LOCAL"
+    logger.info(f"PHOTO SERVE: source={serve_source}, filename={filename}")
     
     # Se download=true, forza il download con header Content-Disposition
     if download:
@@ -5734,6 +5743,10 @@ async def download_photo(
         # Traccia download
         _track_download(photo_id)
         
+        # Log serve source
+        serve_source = "R2" if USE_R2 else "LOCAL"
+        logger.info(f"PHOTO SERVE: source={serve_source}, filename={photo_id}")
+        
         return FileResponse(photo_path)
     
     except HTTPException:
@@ -6045,6 +6058,10 @@ async def admin_upload(
                 photo_path = PHOTOS_DIR / jpeg_filename
                 counter += 1
             
+            # Log storage target
+            storage_target = "R2" if USE_R2 else "LOCAL"
+            logger.info(f"PHOTO STORAGE: target={storage_target}, filename={photo_path.name}")
+            
             with open(photo_path, 'wb') as f:
                 f.write(content)
             
@@ -6065,6 +6082,10 @@ async def admin_upload(
                 jpeg_filename = f"{original_name}_{counter}.jpg"
                 photo_path = PHOTOS_DIR / jpeg_filename
                 counter += 1
+            
+            # Log storage target
+            storage_target = "R2" if USE_R2 else "LOCAL"
+            logger.info(f"PHOTO STORAGE: target={storage_target}, filename={photo_path.name}")
             
             # Converti e salva come JPEG
             from io import BytesIO
