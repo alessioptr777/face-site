@@ -228,13 +228,32 @@ if USE_R2:
             config=Config(signature_version='s3v4')
         )
         logger.info("R2 client created OK (no credentials printed). Now testing connection...")
-        # Test connessione (opzionale)
+        # Test connessione: verifica accesso al bucket specifico (più affidabile di list_buckets su R2)
         try:
-            r2_client.list_buckets()
-            logger.info(f"R2 configured successfully - endpoint: {R2_ENDPOINT_URL}, bucket: {R2_BUCKET}")
+            r2_client.head_bucket(Bucket=R2_BUCKET)
+            masked_key = ("****" + R2_ACCESS_KEY_ID[-4:]) if R2_ACCESS_KEY_ID else "missing"
+            logger.info(
+                "R2 configured successfully - "
+                f"endpoint={R2_ENDPOINT_URL}, bucket={R2_BUCKET}, access_key_id={masked_key}"
+            )
         except Exception as e:
-            logger.warning(f"R2 connection test failed: {type(e).__name__}: {e}")
-            logger.warning("R2 will be disabled. Check credentials and endpoint URL.")
+            # Prova a estrarre info dall'errore boto3 (AccessDenied, NoSuchBucket, ecc.)
+            err_code = None
+            err_msg = str(e)
+            try:
+                err_code = getattr(e, "response", {}).get("Error", {}).get("Code")
+                err_msg2 = getattr(e, "response", {}).get("Error", {}).get("Message")
+                if err_msg2:
+                    err_msg = err_msg2
+            except Exception:
+                pass
+
+            masked_key = ("****" + R2_ACCESS_KEY_ID[-4:]) if R2_ACCESS_KEY_ID else "missing"
+            logger.warning(
+                "R2 connection test failed (head_bucket). "
+                f"code={err_code}, message={err_msg}, endpoint={R2_ENDPOINT_URL}, bucket={R2_BUCKET}, access_key_id={masked_key}"
+            )
+            logger.warning("R2 will be disabled. Check R2 token permissions for this bucket and the endpoint URL.")
             USE_R2 = False
             r2_client = None
     except Exception as e:
