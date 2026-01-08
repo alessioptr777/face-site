@@ -273,6 +273,11 @@ else:
         logger.info("R2 not configured - using local file storage")
     logger.info("R2 final status: USE_R2=%s | r2_client_is_none=%s", USE_R2, r2_client is None)
 
+logger.info(
+    "R2 final status: "
+    f"BOTO3_AVAILABLE={BOTO3_AVAILABLE}, USE_R2={USE_R2}, endpoint_set={bool(R2_ENDPOINT_URL)}, bucket_set={bool(R2_BUCKET)}"
+)
+
 # Log diagnostico R2 (dopo configurazione completa)
 logger.info(
     "R2 diagnostic: BOTO3_AVAILABLE=%s, R2_ENDPOINT_URL present=%s len=%s, R2_BUCKET present=%s, R2_ACCESS_KEY_ID present=%s, R2_SECRET_ACCESS_KEY present=%s, USE_R2=%s, resolved_endpoint=%s, resolved_bucket=%s",
