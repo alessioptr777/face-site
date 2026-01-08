@@ -18,7 +18,7 @@ import cv2
 import faiss
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -46,9 +46,11 @@ except ImportError:
 try:
     import boto3
     from botocore.config import Config
+    from botocore.exceptions import ClientError
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
+    ClientError = None
 
 # SendGrid per email
 try:
@@ -1800,6 +1802,58 @@ def _add_watermark(image_path: Path) -> bytes:
         with open(image_path, 'rb') as f:
             return f.read()
 
+def _add_watermark_from_bytes(image_bytes: bytes) -> bytes:
+    """Aggiunge watermark a un'immagine da bytes (per foto da R2)"""
+    try:
+        # Apri immagine da bytes con Pillow
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Converti in RGB se necessario
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Converti in RGBA per watermark
+        img_rgba = img.convert('RGBA')
+        
+        # Crea overlay watermark (con cache)
+        watermark_overlay = _create_watermark_overlay(img.width, img.height)
+        
+        # Combina watermark con immagine
+        img_with_watermark = Image.alpha_composite(img_rgba, watermark_overlay).convert('RGB')
+        
+        # Salva in bytes
+        output = io.BytesIO()
+        img_with_watermark.save(output, format='JPEG', quality=88)
+        output.seek(0)
+        return output.getvalue()
+    
+    except Exception as e:
+        logger.error(f"Error adding watermark from bytes: {e}", exc_info=True)
+        # Fallback: ritorna immagine originale
+        return image_bytes
+
+async def _r2_get_object_bytes(key: str) -> bytes:
+    """Legge un oggetto da R2 e restituisce i bytes"""
+    if not USE_R2 or r2_client is None:
+        raise ValueError("R2 not configured")
+    
+    try:
+        response = r2_client.get_object(Bucket=R2_BUCKET, Key=key)
+        return response['Body'].read()
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+        
+        if error_code == 'NoSuchKey':
+            logger.warning(f"Photo not found in R2: key={key}")
+            raise HTTPException(status_code=404, detail=f"Photo not found: {key}")
+        else:
+            logger.error(f"R2 error reading photo: code={error_code}, message={error_message}, key={key}")
+            raise HTTPException(status_code=500, detail=f"Error reading photo from R2")
+    except Exception as e:
+        logger.error(f"Unexpected error reading from R2: {type(e).__name__}: {e}, key={key}")
+        raise HTTPException(status_code=500, detail=f"Error reading photo from R2")
+
 def _ensure_ready():
     """Verifica che face_app e faiss_index siano caricati"""
     if face_app is None:
@@ -2471,6 +2525,57 @@ async def serve_photo(
         except Exception as e:
             logger.warning(f"Cloudinary error: {e}, falling back to local storage")
     
+    # Servire da R2 o locale in base a USE_R2
+    if USE_R2 and r2_client is not None:
+        # Leggi da R2
+        try:
+            photo_bytes = await _r2_get_object_bytes(filename)
+            logger.info(f"Serving photo from R2: key={filename}, bucket={R2_BUCKET}")
+            
+            # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
+            if not is_paid:
+                # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
+                logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
+                logger.warning(f"WATERMARK FORCE: Calling _add_watermark_from_bytes() which uses text='MetaProos'")
+                
+                logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
+                
+                watermarked_bytes = _add_watermark_from_bytes(photo_bytes)
+                logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
+                return Response(
+                    content=watermarked_bytes, 
+                    media_type="image/jpeg",
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                        "X-Watermark-Text": "MetaProos",  # Header per debug
+                        "X-Watermark-Source": "server-side"  # Header per debug
+                    }
+                )
+            
+            # SOLO se is_paid == True: serve originale senza watermark
+            logger.info(f"Returning original file (paid) from R2: {filename}")
+            _track_download(filename)
+            
+            logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
+            
+            # Se download=true, forza il download con header Content-Disposition
+            if download:
+                headers = {
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Content-Type": "image/jpeg"
+                }
+                return Response(content=photo_bytes, headers=headers, media_type="image/jpeg")
+            
+            # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
+            return Response(content=photo_bytes, media_type="image/jpeg")
+            
+        except HTTPException:
+            # Se R2 restituisce 404, fallback a locale
+            logger.warning(f"Photo not found in R2, falling back to local: {filename}")
+            # Continua con il codice locale sotto
+    
     # Fallback: servire da file locale
     photo_path = PHOTOS_DIR / filename
     logger.info(f"Photo path (local): {photo_path}")
@@ -2513,9 +2618,7 @@ async def serve_photo(
         logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
         logger.warning(f"WATERMARK FORCE: Calling _add_watermark() which uses text='MetaProos'")
         
-        # Log serve source
-        serve_source = "R2" if USE_R2 else "LOCAL"
-        logger.info(f"PHOTO SERVE: source={serve_source}, filename={filename}")
+        logger.info(f"PHOTO SERVE: source=LOCAL, filename={filename}")
         
         watermarked_bytes = _add_watermark(photo_path)
         logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
@@ -2536,9 +2639,7 @@ async def serve_photo(
     logger.info(f"Returning original file (paid): {resolved_path}")
     _track_download(filename)
     
-    # Log serve source
-    serve_source = "R2" if USE_R2 else "LOCAL"
-    logger.info(f"PHOTO SERVE: source={serve_source}, filename={filename}")
+    logger.info(f"PHOTO SERVE: source=LOCAL, filename={filename}")
     
     # Se download=true, forza il download con header Content-Disposition
     if download:
