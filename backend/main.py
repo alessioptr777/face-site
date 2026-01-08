@@ -239,6 +239,25 @@ async def debug_build():
         "app_name": APP_NAME
     }
 
+@app.get("/debug/index-status")
+def debug_index_status():
+    """Debug endpoint: shows status of FAISS index and metadata files."""
+    faces_index_exists = INDEX_PATH.exists()
+    faces_meta_exists = META_PATH.exists()
+    
+    return {
+        "base_dir": str(BASE_DIR.resolve()),
+        "data_dir": str(DATA_DIR.resolve()),
+        "faces_index_path": str(INDEX_PATH.resolve()),
+        "faces_meta_path": str(META_PATH.resolve()),
+        "faces_index_exists": faces_index_exists,
+        "faces_meta_exists": faces_meta_exists,
+        "faces_index_size_bytes": INDEX_PATH.stat().st_size if faces_index_exists else 0,
+        "faces_meta_size_bytes": META_PATH.stat().st_size if faces_meta_exists else 0,
+        "faiss_loaded": faiss_index is not None,
+        "meta_loaded": len(meta_rows) > 0
+    }
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
