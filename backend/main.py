@@ -33,15 +33,6 @@ try:
 except ImportError:
     STRIPE_AVAILABLE = False
 
-# Cloudinary per storage esterno (opzionale)
-try:
-    import cloudinary
-    import cloudinary.api
-    from cloudinary.utils import cloudinary_url
-    CLOUDINARY_AVAILABLE = True
-except ImportError:
-    CLOUDINARY_AVAILABLE = False
-
 # Cloudflare R2 (S3 compatible) per storage esterno (opzionale)
 try:
     import boto3
@@ -160,16 +151,6 @@ else:
         logger.warning("Stripe not configured - STRIPE_SECRET_KEY environment variable not set or empty")
     else:
         logger.warning("Stripe not configured - payment features disabled")
-
-# Configurazione Cloudinary (opzionale) - dopo logger
-CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "")
-USE_CLOUDINARY = CLOUDINARY_AVAILABLE and bool(CLOUDINARY_URL)
-
-if USE_CLOUDINARY:
-    cloudinary.config()
-    logger.info("Cloudinary configured - using external storage")
-else:
-    logger.info("Cloudinary not configured - using local file storage")
 
 logger.info(
     "R2 startup check: BOTO3_AVAILABLE=%s | env_endpoint_present=%s env_endpoint_len=%s | env_bucket_present=%s | env_access_key_present=%s env_access_key_len=%s | env_secret_present=%s env_secret_len=%s",
@@ -407,63 +388,6 @@ def _add_watermark(photo_path: Path) -> bytes:
     # Questa funzione esiste già nel file, qui solo per chiarezza.
     raise NotImplementedError  # Rimpiazzata dalla vera funzione nel file.
 
-
-# Endpoint /photo/{filename:path}
-@app.get("/photo/{filename:path}")
-async def serve_photo(
-    filename: str,
-    paid: bool = Query(default=False),
-    token: Optional[str] = Query(default=None),
-    email: Optional[str] = Query(default=None),
-):
-    logger.info("=== PHOTO REQUEST ===")
-    logger.info(f"Request path: /photo/{filename}")
-    logger.info(f"Filename parameter: {filename}")
-    logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {bool(email)}")
-
-    # Decodifica filename
-    decoded_filename = filename
-    logger.info(f"Decoded filename: {decoded_filename}")
-
-    # Path locale della foto
-    photo_path = PHOTOS_DIR / decoded_filename
-    logger.info(f"Photo path (local): {photo_path}")
-
-    # Sicurezza: risolvi path e verifica che sia dentro PHOTOS_DIR
-    try:
-        resolved = photo_path.resolve()
-        logger.info(f"Resolved path: {resolved}")
-        if not str(resolved).startswith(str(PHOTOS_DIR.resolve())):
-            logger.warning(f"Security: Attempted path traversal! {resolved}")
-            raise HTTPException(status_code=403, detail="Forbidden")
-        logger.info(f"Relative path check OK: {decoded_filename}")
-    except Exception as e:
-        logger.error(f"Path resolution error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid filename")
-
-    if not photo_path.exists() or not photo_path.is_file():
-        logger.warning(f"Photo not found: {decoded_filename}")
-        raise HTTPException(status_code=404, detail="Photo not found")
-    logger.info(f"Checking file: exists={photo_path.exists()}, is_file={photo_path.is_file()}")
-
-    # Branch: PAID (serve originale) vs UNPAID (serve con watermark)
-    if paid:
-        logger.info(f"Serving original photo: {decoded_filename}")
-        return FileResponse(str(photo_path), media_type="image/jpeg")
-    else:
-        # UNPAID: Serve SEMPRE watermark generato al volo, MAI da cache su disco
-        logger.info(f"Serving photo with watermark: {decoded_filename}")
-        # ALWAYS regenerate watermark at runtime (no disk cache)
-        watermarked_bytes = _add_watermark(photo_path)
-        return Response(
-            content=watermarked_bytes,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
-        )
 
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
@@ -1262,8 +1186,9 @@ async def _cleanup_expired_photos():
                 WHERE email = ? AND photo_id = ?
             """, (email, photo_id))
             
-            # Elimina file fisico (se locale, non Cloudinary)
-            if not USE_CLOUDINARY:
+            # Elimina file fisico (ora non più usato, tutto su R2)
+            # Nota: le foto sono su R2, questo codice è legacy
+            if False:  # Disabilitato: tutto su R2 ora
                 photo_path = PHOTOS_DIR / photo_id
                 if photo_path.exists():
                     try:
@@ -5705,19 +5630,25 @@ async def download_photo(
         if order_data.get('session_id') != session_id:
             raise HTTPException(status_code=403, detail="Invalid session")
         
-        # Servi foto originale (senza watermark)
-        photo_path = PHOTOS_DIR / photo_id
-        if not photo_path.exists():
-            raise HTTPException(status_code=404, detail="Photo not found")
+        # Servi foto originale (senza watermark) da R2
+        if not USE_R2 or r2_client is None:
+            raise HTTPException(status_code=503, detail="R2 storage not configured")
         
-        # Traccia download
-        _track_download(photo_id)
-        
-        # Log serve source
-        serve_source = "R2" if USE_R2 else "LOCAL"
-        logger.info(f"PHOTO SERVE: source={serve_source}, filename={photo_id}")
-        
-        return FileResponse(photo_path)
+        try:
+            photo_bytes = await _r2_get_object_bytes(photo_id)
+            logger.info(f"Serving photo from R2: key={photo_id}, bucket={R2_BUCKET}")
+            
+            # Traccia download
+            _track_download(photo_id)
+            
+            logger.info(f"PHOTO SERVE: source=R2, filename={photo_id}")
+            
+            return Response(content=photo_bytes, media_type="image/jpeg")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error serving photo from R2: {e}")
+            raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
     
     except HTTPException:
         raise
