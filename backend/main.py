@@ -42,6 +42,14 @@ try:
 except ImportError:
     CLOUDINARY_AVAILABLE = False
 
+# Cloudflare R2 (S3 compatible) per storage esterno (opzionale)
+try:
+    import boto3
+    from botocore.config import Config
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
 # SendGrid per email
 try:
     from sendgrid import SendGridAPIClient
@@ -160,6 +168,82 @@ if USE_CLOUDINARY:
     logger.info("Cloudinary configured - using external storage")
 else:
     logger.info("Cloudinary not configured - using local file storage")
+
+# Log diagnostico R2
+logger.info(
+    "R2 diagnostic: BOTO3_AVAILABLE=%s, R2_ENDPOINT_URL present=%s len=%s, R2_BUCKET present=%s, R2_ACCESS_KEY_ID present=%s, R2_SECRET_ACCESS_KEY present=%s, USE_R2=%s, resolved_endpoint=%s, resolved_bucket=%s",
+    BOTO3_AVAILABLE,
+    bool(os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL")),
+    len((os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL") or "")),
+    bool(os.getenv("R2_BUCKET")),
+    bool(os.getenv("R2_ACCESS_KEY_ID")),
+    bool(os.getenv("R2_SECRET_ACCESS_KEY")),
+    USE_R2,
+    bool(R2_ENDPOINT_URL),
+    bool(R2_BUCKET),
+)
+
+# Configurazione Cloudflare R2 (S3 compatible) - dopo logger
+# Variabili standardizzate: R2_ENDPOINT_URL, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "")
+# Supporto per variabili legacy (alias)
+if not R2_ENDPOINT_URL:
+    R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT", "")
+if not R2_ENDPOINT_URL:
+    R2_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "")
+
+R2_BUCKET = os.getenv("R2_BUCKET", "")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+
+# Controllo e pulizia endpoint: rimuovi path se presente
+if R2_ENDPOINT_URL:
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(R2_ENDPOINT_URL)
+    if "/metaproos" in parsed.path.lower() or "/photos" in parsed.path.lower() or "/bucket" in parsed.path.lower():
+        logger.warning(f"R2_ENDPOINT_URL contains path component: {parsed.path}. Removing path, keeping only base URL.")
+        # Ricostruisci URL senza path
+        cleaned = urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+        R2_ENDPOINT_URL = cleaned
+        logger.info(f"Cleaned R2_ENDPOINT_URL: {R2_ENDPOINT_URL}")
+
+USE_R2 = BOTO3_AVAILABLE and bool(R2_ENDPOINT_URL) and bool(R2_BUCKET) and bool(R2_ACCESS_KEY_ID) and bool(R2_SECRET_ACCESS_KEY)
+
+# Inizializza client S3/R2 se configurato
+r2_client = None
+if USE_R2:
+    try:
+        r2_client = boto3.client(
+            's3',
+            endpoint_url=R2_ENDPOINT_URL,  # Solo base URL, senza path
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            config=Config(signature_version='s3v4')
+        )
+        # Test connessione (opzionale)
+        try:
+            r2_client.list_buckets()
+            logger.info(f"R2 configured successfully - endpoint: {R2_ENDPOINT_URL}, bucket: {R2_BUCKET}")
+        except Exception as e:
+            logger.warning(f"R2 client created but connection test failed: {e}")
+            logger.warning("R2 will be disabled. Check credentials and endpoint URL.")
+            USE_R2 = False
+            r2_client = None
+    except Exception as e:
+        logger.error(f"Error initializing R2 client: {e}")
+        USE_R2 = False
+        r2_client = None
+else:
+    if not BOTO3_AVAILABLE:
+        logger.info("R2 not configured - boto3 package not available")
+    elif not R2_ENDPOINT_URL:
+        logger.info("R2 not configured - R2_ENDPOINT_URL not set")
+    elif not R2_BUCKET:
+        logger.info("R2 not configured - R2_BUCKET not set")
+    elif not R2_ACCESS_KEY_ID or not R2_SECRET_ACCESS_KEY:
+        logger.info("R2 not configured - R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY not set")
+    else:
+        logger.info("R2 not configured - using local file storage")
 
 # Configurazione SendGrid (opzionale)
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
