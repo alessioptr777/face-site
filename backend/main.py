@@ -207,6 +207,15 @@ if R2_ENDPOINT_URL:
 
 USE_R2 = BOTO3_AVAILABLE and bool(R2_ENDPOINT_URL) and bool(R2_BUCKET) and bool(R2_ACCESS_KEY_ID) and bool(R2_SECRET_ACCESS_KEY)
 
+logger.info(
+    "R2 resolved config: endpoint_present=%s endpoint_len=%s | bucket_present=%s bucket_len=%s | USE_R2=%s",
+    bool(R2_ENDPOINT_URL),
+    len(R2_ENDPOINT_URL or ""),
+    bool(R2_BUCKET),
+    len(R2_BUCKET or ""),
+    USE_R2,
+)
+
 # Inizializza client S3/R2 se configurato
 r2_client = None
 if USE_R2:
@@ -218,12 +227,13 @@ if USE_R2:
             aws_secret_access_key=R2_SECRET_ACCESS_KEY,
             config=Config(signature_version='s3v4')
         )
+        logger.info("R2 client created OK (no credentials printed). Now testing connection...")
         # Test connessione (opzionale)
         try:
             r2_client.list_buckets()
             logger.info(f"R2 configured successfully - endpoint: {R2_ENDPOINT_URL}, bucket: {R2_BUCKET}")
         except Exception as e:
-            logger.warning(f"R2 client created but connection test failed: {e}")
+            logger.warning(f"R2 connection test failed: {type(e).__name__}: {e}")
             logger.warning("R2 will be disabled. Check credentials and endpoint URL.")
             USE_R2 = False
             r2_client = None
