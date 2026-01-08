@@ -6065,8 +6065,16 @@ async def admin_photos_by_date(password: str = Query(..., description="Password 
     try:
         photos_by_date = defaultdict(list)
         
-        # Foto con volti (da meta_rows)
-        for record in meta_rows:
+        # Ricarica sempre i dati dai file JSON per avere dati aggiornati
+        # Foto con volti (da META_PATH)
+        current_meta_rows = []
+        if META_PATH.exists():
+            current_meta_rows = _load_meta_jsonl(META_PATH)
+        else:
+            # Fallback a meta_rows in memoria se il file non esiste
+            current_meta_rows = meta_rows
+        
+        for record in current_meta_rows:
             photo_id = record.get("photo_id")
             tour_date = record.get("tour_date", "Senza data")
             if photo_id:
@@ -6078,8 +6086,15 @@ async def admin_photos_by_date(password: str = Query(..., description="Password 
                         "det_score": record.get("det_score", 0.0)
                     })
         
-        # Foto senza volti (da back_photos)
-        for record in back_photos:
+        # Foto senza volti (da BACK_PHOTOS_PATH)
+        current_back_photos = []
+        if BACK_PHOTOS_PATH.exists():
+            current_back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
+        else:
+            # Fallback a back_photos in memoria se il file non esiste
+            current_back_photos = back_photos
+        
+        for record in current_back_photos:
             photo_id = record.get("photo_id")
             tour_date = record.get("tour_date", "Senza data")
             if photo_id:
