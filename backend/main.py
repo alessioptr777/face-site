@@ -252,6 +252,7 @@ else:
         logger.info("R2 not configured - R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY not set")
     else:
         logger.info("R2 not configured - using local file storage")
+    logger.info("R2 final status: USE_R2=%s | r2_client_is_none=%s", USE_R2, r2_client is None)
 
 # Log diagnostico R2 (dopo configurazione completa)
 logger.info(
