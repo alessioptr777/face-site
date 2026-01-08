@@ -169,6 +169,18 @@ if USE_CLOUDINARY:
 else:
     logger.info("Cloudinary not configured - using local file storage")
 
+logger.info(
+    "R2 startup check: BOTO3_AVAILABLE=%s | env_endpoint_present=%s env_endpoint_len=%s | env_bucket_present=%s | env_access_key_present=%s env_access_key_len=%s | env_secret_present=%s env_secret_len=%s",
+    BOTO3_AVAILABLE,
+    bool(os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL")),
+    len((os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL") or "")),
+    bool(os.getenv("R2_BUCKET")),
+    bool(os.getenv("R2_ACCESS_KEY_ID")),
+    len((os.getenv("R2_ACCESS_KEY_ID") or "")),
+    bool(os.getenv("R2_SECRET_ACCESS_KEY")),
+    len((os.getenv("R2_SECRET_ACCESS_KEY") or "")),
+)
+
 # Configurazione Cloudflare R2 (S3 compatible) - dopo logger
 # Variabili standardizzate: R2_ENDPOINT_URL, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "")
