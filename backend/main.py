@@ -2448,6 +2448,9 @@ async def serve_photo(
                     logger.info(f"Serving paid photo from Cloudinary (no watermark)")
                     _track_download(filename)
                     
+                    # Log serve source (Cloudinary è un servizio esterno, non R2/LOCAL)
+                    logger.info(f"PHOTO SERVE: source=CLOUDINARY, filename={filename}")
+                    
                     # Se download=true, forza il download con header Content-Disposition
                     if download:
                         headers = {
