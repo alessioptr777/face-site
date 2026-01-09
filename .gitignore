@@ -15,3 +15,4 @@ backend/photos/
 photos_backup/
 backend/data/
 .DS_Store
+_local_docs/
