@@ -83,6 +83,10 @@ DATA_DIR = BASE_DIR / "data"
 PHOTOS_DIR = BASE_DIR / "photos"
 STATIC_DIR = REPO_ROOT / "static"  # Static files dalla root del repo
 
+# R2_ONLY_MODE: disabilita completamente filesystem per foto e index
+R2_ONLY_MODE = os.getenv("R2_ONLY_MODE", "1") == "1"
+
+# Path per file index/tracking (disabilitati in R2_ONLY_MODE)
 INDEX_PATH = DATA_DIR / "faces.index"
 META_PATH = DATA_DIR / "faces.meta.jsonl"
 BACK_PHOTOS_PATH = DATA_DIR / "back_photos.jsonl"  # Foto senza volti (di spalle)
@@ -344,18 +348,21 @@ logger.info(f"📂 BASE_DIR (absolute): {BASE_DIR.resolve()}")
 logger.info(f"📂 Current working directory: {os.getcwd()}")
 logger.info(f"📂 __file__ location: {Path(__file__).resolve()}")
 logger.info("")
-logger.info(f"📁 PHOTOS_DIR (absolute): {PHOTOS_DIR.resolve()}")
-logger.info(f"   PHOTOS_DIR exists: {PHOTOS_DIR.exists()}")
-if PHOTOS_DIR.exists():
-    try:
-        photo_files = list(PHOTOS_DIR.iterdir())
-        logger.info(f"   Photos found: {len(photo_files)}")
-        if photo_files:
-            logger.info(f"   First 5 files: {[p.name for p in photo_files[:5]]}")
-    except Exception as e:
-        logger.error(f"   Error listing photos: {e}")
+if R2_ONLY_MODE:
+    logger.info(f"📁 PHOTOS_DIR: DISABLED (R2_ONLY_MODE enabled - photos served only from R2)")
 else:
-    logger.warning("   ⚠️  PHOTOS_DIR does not exist!")
+    logger.info(f"📁 PHOTOS_DIR (absolute): {PHOTOS_DIR.resolve()}")
+    logger.info(f"   PHOTOS_DIR exists: {PHOTOS_DIR.exists()}")
+    if PHOTOS_DIR.exists():
+        try:
+            photo_files = list(PHOTOS_DIR.iterdir())
+            logger.info(f"   Photos found: {len(photo_files)}")
+            if photo_files:
+                logger.info(f"   First 5 files: {[p.name for p in photo_files[:5]]}")
+        except Exception as e:
+            logger.error(f"   Error listing photos: {e}")
+    else:
+        logger.warning("   ⚠️  PHOTOS_DIR does not exist!")
 logger.info("=" * 80)
 
 app = FastAPI(title="Face Match API")
@@ -700,7 +707,9 @@ async def _get_user_paid_photos(email: str) -> List[str]:
         """, (email,))
         photo_ids = [row['photo_id'] for row in rows]
         # R2 is the source of truth: if the object was deleted from R2, do not return it.
-        if USE_R2 and os.getenv("R2_SOURCE_OF_TRUTH", "1") == "1":
+        # In R2_ONLY_MODE, R2 è sempre la fonte di verità
+        r2_source_of_truth = R2_ONLY_MODE or os.getenv("R2_SOURCE_OF_TRUTH", "1") == "1"
+        if USE_R2 and r2_source_of_truth:
             kept: List[str] = []
             missing: List[str] = []
             for pid in photo_ids:
@@ -739,7 +748,9 @@ async def _get_user_found_photos(email: str, limit: Optional[int] = None) -> Lis
             {limit_clause}
         """, (email,))
         # R2 is the source of truth: if the object was deleted from R2, do not return it.
-        if USE_R2 and os.getenv("R2_SOURCE_OF_TRUTH", "1") == "1":
+        # In R2_ONLY_MODE, R2 è sempre la fonte di verità
+        r2_source_of_truth = R2_ONLY_MODE or os.getenv("R2_SOURCE_OF_TRUTH", "1") == "1"
+        if USE_R2 and r2_source_of_truth:
             kept_rows: List[Dict[str, Any]] = []
             missing: List[str] = []
             for row in rows:
@@ -1198,7 +1209,11 @@ def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
     return rows
 
 def _track_download(photo_id: str):
-    """Traccia un download per cleanup futuro"""
+    """Traccia un download per cleanup futuro (disabilitato in R2_ONLY_MODE)"""
+    if R2_ONLY_MODE:
+        # In R2_ONLY_MODE non tracciamo download su filesystem
+        return
+    
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         download_record = {
@@ -1211,7 +1226,11 @@ def _track_download(photo_id: str):
         logger.warning(f"Error tracking download: {e}")
 
 def _cleanup_downloaded_photos():
-    """Cancella foto scaricate dopo X giorni o dopo N download"""
+    """Cancella foto scaricate dopo X giorni o dopo N download (disabilitato in R2_ONLY_MODE)"""
+    if R2_ONLY_MODE:
+        # In R2_ONLY_MODE non usiamo filesystem per tracking
+        return
+    
     if not DOWNLOADS_TRACK_PATH.exists():
         return
     
@@ -1573,6 +1592,19 @@ async def startup():
     logger.info("✅ PostgreSQL database initialized and ready")
     logger.info("=" * 80)
     
+    # Log R2_ONLY_MODE
+    logger.info("=" * 80)
+    logger.info("📦 R2_ONLY_MODE CONFIGURATION")
+    logger.info("=" * 80)
+    logger.info(f"R2_ONLY_MODE enabled: {R2_ONLY_MODE}")
+    if R2_ONLY_MODE:
+        logger.info("✅ R2_ONLY_MODE: Filesystem disabled for photos and index files")
+        logger.info("   - Photos served ONLY from R2")
+        logger.info("   - Index files (faces.index, faces.meta.jsonl, downloads_track.jsonl, back_photos.jsonl) disabled")
+    else:
+        logger.info("⚠️  R2_ONLY_MODE disabled: Filesystem fallback enabled")
+    logger.info("=" * 80)
+    
     logger.info("Loading face recognition model...")
     try:
         face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
@@ -1583,13 +1615,49 @@ async def startup():
         face_app = None
         return
     
-    # Carica indice FAISS e metadata
-    if not INDEX_PATH.exists() or not META_PATH.exists():
-        logger.warning(f"Index files not found: {INDEX_PATH} or {META_PATH}")
-        logger.warning("Face matching will not work until index is created")
+    # In R2_ONLY_MODE: disabilita completamente file su filesystem
+    if R2_ONLY_MODE:
+        logger.info("R2_ONLY_MODE: Index files disabled - face matching will use in-memory index only")
         faiss_index = None
         meta_rows = []
         back_photos = []
+    else:
+        # Carica indice FAISS e metadata (solo se R2_ONLY_MODE è disabilitato)
+        if not INDEX_PATH.exists() or not META_PATH.exists():
+            logger.warning(f"Index files not found: {INDEX_PATH} or {META_PATH}")
+            logger.warning("Face matching will not work until index is created")
+            faiss_index = None
+            meta_rows = []
+            back_photos = []
+        else:
+            try:
+                logger.info(f"Loading FAISS index from {INDEX_PATH}")
+                faiss_index = faiss.read_index(str(INDEX_PATH))
+                logger.info(f"FAISS index loaded: {faiss_index.ntotal} vectors")
+            except Exception as e:
+                logger.error(f"Error loading FAISS index: {e}")
+                faiss_index = None
+            
+            try:
+                logger.info(f"Loading metadata from {META_PATH}")
+                meta_rows = _load_meta_jsonl(META_PATH)
+                logger.info(f"Metadata loaded: {len(meta_rows)} records")
+            except Exception as e:
+                logger.error(f"Error loading metadata: {e}")
+                meta_rows = []
+            
+            # Carica foto di spalle (senza volti)
+            try:
+                if BACK_PHOTOS_PATH.exists():
+                    logger.info(f"Loading back photos from {BACK_PHOTOS_PATH}")
+                    back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
+                    logger.info(f"Back photos loaded: {len(back_photos)} records")
+                else:
+                    logger.info("Back photos file not found - skipping")
+                    back_photos = []
+            except Exception as e:
+                logger.error(f"Error loading back photos: {e}")
+                back_photos = []
     
     # Esegui cleanup iniziale
     logger.info("Running initial cleanup...")
@@ -1610,36 +1678,6 @@ async def startup():
     # Avvia task in background
     asyncio.create_task(periodic_tasks())
     logger.info("Periodic tasks started (cleanup every 6 hours)")
-    
-    try:
-        logger.info(f"Loading FAISS index from {INDEX_PATH}")
-        faiss_index = faiss.read_index(str(INDEX_PATH))
-        logger.info(f"FAISS index loaded: {faiss_index.ntotal} vectors")
-    except Exception as e:
-        logger.error(f"Error loading FAISS index: {e}")
-        faiss_index = None
-        # Non fare return qui - continua a caricare metadata e back_photos
-    
-    try:
-        logger.info(f"Loading metadata from {META_PATH}")
-        meta_rows = _load_meta_jsonl(META_PATH)
-        logger.info(f"Metadata loaded: {len(meta_rows)} records")
-    except Exception as e:
-        logger.error(f"Error loading metadata: {e}")
-        meta_rows = []
-    
-    # Carica foto di spalle (senza volti)
-    try:
-        if BACK_PHOTOS_PATH.exists():
-            logger.info(f"Loading back photos from {BACK_PHOTOS_PATH}")
-            back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
-            logger.info(f"Back photos loaded: {len(back_photos)} records")
-        else:
-            logger.info("Back photos file not found - skipping")
-            back_photos = []
-    except Exception as e:
-        logger.error(f"Error loading back photos: {e}")
-        back_photos = []
     
     # ============================================================
     # LOGGING DEFINITIVO: PATH ESATTI DEI FILE STATICI
@@ -1819,14 +1857,19 @@ async def cleanup_downloads():
 def debug_paths():
     """Endpoint di debug per verificare paths in produzione"""
     cwd = os.getcwd()
-    photos_absolute = str(PHOTOS_DIR.resolve())
-    photos_exists = PHOTOS_DIR.exists()
-    photos_files = []
-    if PHOTOS_DIR.exists():
-        try:
-            photos_files = [p.name for p in PHOTOS_DIR.iterdir() if p.is_file()][:20]
-        except Exception as e:
-            photos_files = [f"Error listing: {str(e)}"]
+    if R2_ONLY_MODE:
+        photos_absolute = "DISABLED (R2_ONLY_MODE)"
+        photos_exists = False
+        photos_files = ["R2_ONLY_MODE: PHOTOS_DIR disabled"]
+    else:
+        photos_absolute = str(PHOTOS_DIR.resolve())
+        photos_exists = PHOTOS_DIR.exists()
+        photos_files = []
+        if PHOTOS_DIR.exists():
+            try:
+                photos_files = [p.name for p in PHOTOS_DIR.iterdir() if p.is_file()][:20]
+            except Exception as e:
+                photos_files = [f"Error listing: {str(e)}"]
     
     static_files = []
     if STATIC_DIR.exists():
@@ -3545,6 +3588,9 @@ async def test_album(
     email: Optional[str] = Query("test@example.com", description="Email di test")
 ):
     """Endpoint di test per mostrare galleria con foto di prova senza passare per la camera"""
+    if R2_ONLY_MODE:
+        raise HTTPException(status_code=503, detail="Test album endpoint disabled in R2_ONLY_MODE. Use R2 for photos.")
+    
     try:
         # Prendi le prime 20 foto dalla cartella photos
         photo_files = list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.jpeg"))
@@ -5112,6 +5158,9 @@ async def test_download_page(
     photo_id: str = Query(None, description="ID foto di test (opzionale)")
 ):
     """Pagina di test per verificare il download su iPhone senza completare il flusso completo"""
+    if R2_ONLY_MODE:
+        raise HTTPException(status_code=503, detail="Test download endpoint disabled in R2_ONLY_MODE. Use R2 for photos.")
+    
     try:
         # Se non specificato, prendi la prima foto disponibile
         if not photo_id:
@@ -5482,12 +5531,21 @@ async def download_photo(
 # ========== ADMIN PANEL ==========
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Cambia in produzione!
+ADMIN_RESET_SECRET = os.getenv("ADMIN_RESET_SECRET", "")  # Secret per reset database
 
 def _check_admin_auth(password: Optional[str] = None) -> bool:
     """Verifica autenticazione admin"""
     if not password:
         return False
     return password == ADMIN_PASSWORD
+
+def _check_admin_reset_secret(request: Request) -> bool:
+    """Verifica header X-Admin-Secret per operazioni critiche"""
+    secret = request.headers.get("X-Admin-Secret", "")
+    if not ADMIN_RESET_SECRET:
+        logger.warning("ADMIN_RESET_SECRET not configured - reset endpoint disabled")
+        return False
+    return secret == ADMIN_RESET_SECRET
 
 @app.get("/check-version")
 async def check_version():
@@ -5705,8 +5763,11 @@ async def admin_stats(password: str = Query(..., description="Password admin")):
                     'download_token': row['download_token']
                 })
         
-        # Foto totali
-        total_photos = len(list(PHOTOS_DIR.glob("*.jpg"))) + len(list(PHOTOS_DIR.glob("*.jpeg"))) + len(list(PHOTOS_DIR.glob("*.png")))
+        # Foto totali (disabilitato in R2_ONLY_MODE)
+        if R2_ONLY_MODE:
+            total_photos = 0  # In R2_ONLY_MODE non contiamo foto da filesystem
+        else:
+            total_photos = len(list(PHOTOS_DIR.glob("*.jpg"))) + len(list(PHOTOS_DIR.glob("*.jpeg"))) + len(list(PHOTOS_DIR.glob("*.png")))
         
         return {
             "ok": True,
@@ -5853,13 +5914,20 @@ async def admin_upload(
                         record["tour_date"] = tour_date
                     meta_rows.append(record)
                     
-                    # Salva meta su file
-                    with open(META_PATH, 'a', encoding='utf-8') as meta_f:
-                        meta_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    # Salva meta su file (disabilitato in R2_ONLY_MODE)
+                    if not R2_ONLY_MODE:
+                        with open(META_PATH, 'a', encoding='utf-8') as meta_f:
+                            meta_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    else:
+                        logger.info("R2_ONLY_MODE: Skipping metadata write to filesystem")
                 
                 # Salva indice aggiornato
                 if faiss_index is not None:
-                    faiss.write_index(faiss_index, str(INDEX_PATH))
+                    # In R2_ONLY_MODE non salviamo l'indice su filesystem
+                    if not R2_ONLY_MODE:
+                        faiss.write_index(faiss_index, str(INDEX_PATH))
+                    else:
+                        logger.info("R2_ONLY_MODE: Skipping FAISS index write to filesystem")
                 
                 logger.info(f"Photo indexed: {photo.filename} - {len(faces)} faces (tour_date: {tour_date})")
             else:
@@ -5872,9 +5940,12 @@ async def admin_upload(
                     back_record["tour_date"] = tour_date
                 back_photos.append(back_record)
                 
-                # Salva su file
-                with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
-                    back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
+                # Salva su file (disabilitato in R2_ONLY_MODE)
+                if not R2_ONLY_MODE:
+                    with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
+                        back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
+                else:
+                    logger.info("R2_ONLY_MODE: Skipping back_photos write to filesystem")
                 
                 logger.info(f"Photo added as back photo (no faces): {jpeg_filename} (original: {photo.filename}, tour_date: {tour_date})")
         
@@ -5954,7 +6025,10 @@ async def admin_back_photos(password: str = Query(..., description="Password adm
     
     try:
         photos = []
-        if BACK_PHOTOS_PATH.exists():
+        if R2_ONLY_MODE:
+            # In R2_ONLY_MODE usa solo back_photos in memoria
+            photos = back_photos
+        elif BACK_PHOTOS_PATH.exists():
             with open(BACK_PHOTOS_PATH, 'r', encoding='utf-8') as f:
                 for line in f:
                     if line.strip():
@@ -6035,9 +6109,12 @@ async def admin_add_back_photo(
             back_record["tour_date"] = tour_date
         back_photos.append(back_record)
         
-        # Salva su file
-        with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
-            back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
+        # Salva su file (disabilitato in R2_ONLY_MODE)
+        if not R2_ONLY_MODE:
+            with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
+                back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
+        else:
+            logger.info("R2_ONLY_MODE: Skipping back_photos write to filesystem")
         
         logger.info(f"Back photo added to R2: {final_filename} (tour_date: {tour_date})")
         return {"ok": True, "filename": final_filename}
@@ -6059,10 +6136,13 @@ async def admin_remove_back_photo(
         global back_photos
         back_photos = [p for p in back_photos if p.get('photo_id') != filename]
         
-        # Riscrivi file
-        with open(BACK_PHOTOS_PATH, 'w', encoding='utf-8') as f:
-            for record in back_photos:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        # Riscrivi file (disabilitato in R2_ONLY_MODE)
+        if not R2_ONLY_MODE:
+            with open(BACK_PHOTOS_PATH, 'w', encoding='utf-8') as f:
+                for record in back_photos:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        else:
+            logger.info("R2_ONLY_MODE: Skipping back_photos write to filesystem")
         
         logger.info(f"Back photo removed: {filename}")
         return {"ok": True}
@@ -6403,3 +6483,45 @@ async def admin_fix_all_orders(password: str = Query(..., description="Password 
     except Exception as e:
         logger.error(f"Error fixing all orders: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/reset-database")
+async def admin_reset_database(request: Request):
+    """Reset totale del database: TRUNCATE di tutte le tabelle con RESTART IDENTITY CASCADE.
+    
+    Richiede header X-Admin-Secret con valore corrispondente a ADMIN_RESET_SECRET env var.
+    """
+    if not _check_admin_reset_secret(request):
+        raise HTTPException(status_code=401, detail="Unauthorized: X-Admin-Secret header required and must match ADMIN_RESET_SECRET")
+    
+    try:
+        # Tabelle da resettare (in ordine per evitare problemi di foreign key)
+        tables = [
+            "email_followups",
+            "orders",
+            "carts",
+            "user_photos",
+            "users"
+        ]
+        
+        # Esegui TRUNCATE con RESTART IDENTITY CASCADE per ogni tabella
+        for table in tables:
+            await _db_execute_write(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE")
+            logger.info(f"Truncated table: {table}")
+        
+        # Verifica conteggi finali (tutti devono essere 0)
+        counts = {}
+        for table in tables:
+            result = await _db_execute_one(f"SELECT COUNT(*) as count FROM {table}")
+            counts[table] = result['count'] if result else 0
+        
+        logger.warning(f"Database reset completed by admin. All tables truncated. Final counts: {counts}")
+        
+        return {
+            "ok": True,
+            "message": "Database reset completed successfully",
+            "tables_truncated": tables,
+            "final_counts": counts
+        }
+    except Exception as e:
+        logger.error(f"Error resetting database: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error resetting database: {str(e)}")
