@@ -4093,6 +4093,37 @@ async def match_selfie(
     _ensure_ready()
     
     try:
+        # RICARICA SEMPRE I METADATA DAI FILE JSON (come /admin/photos-by-date)
+        # Questo assicura che i dati siano sempre aggiornati, anche dopo cancellazioni/aggiunte
+        current_meta_rows = []
+        if META_PATH.exists():
+            current_meta_rows = _load_meta_jsonl(META_PATH)
+            logger.info(f"Reloaded {len(current_meta_rows)} photo metadata from {META_PATH}")
+        else:
+            logger.warning(f"Metadata file not found: {META_PATH}")
+            current_meta_rows = []
+        
+        current_back_photos = []
+        if BACK_PHOTOS_PATH.exists():
+            current_back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
+            logger.info(f"Reloaded {len(current_back_photos)} back photos from {BACK_PHOTOS_PATH}")
+        else:
+            logger.info(f"Back photos file not found: {BACK_PHOTOS_PATH}")
+            current_back_photos = []
+        
+        # Se non ci sono metadata, non ci sono foto da cercare
+        if len(current_meta_rows) == 0 and len(current_back_photos) == 0:
+            logger.info("No photos in metadata files - returning empty result")
+            return {
+                "ok": True,
+                "count": 0,
+                "matches": [],
+                "results": [],
+                "matched_count": 0,
+                "back_photos_count": 0,
+                "message": "Nessuna foto disponibile. Carica delle foto dall'admin panel."
+            }
+        
         # Leggi l'immagine dal selfie
         file_bytes = await selfie.read()
         img = _read_image_from_bytes(file_bytes)
@@ -4119,20 +4150,33 @@ async def match_selfie(
             # Log iniziale
             logger.info(f"[DEBUG] Starting face matching: tour_date={tour_date}, min_score={min_score}")
             
-            # Identifica volti collegati (persone che appaiono insieme al selfie)
-            connected_faces_by_date = await _find_connected_faces(
-                selfie_embedding,
-                min_score=min_score,
-                tour_date=tour_date
-            )
+            # AGGIORNA TEMPORANEAMENTE LE VARIABILI GLOBALI CON I METADATA FRESCHI
+            # Così _find_connected_faces e _filter_photos_by_rules useranno i dati aggiornati
+            global meta_rows, back_photos
+            old_meta_rows = meta_rows
+            old_back_photos = back_photos
+            meta_rows = current_meta_rows
+            back_photos = current_back_photos
             
-            # Filtra le foto in base alle regole avanzate
-            matched_results = await _filter_photos_by_rules(
-                selfie_embedding,
-                connected_faces_by_date,
-                min_score=min_score,
-                tour_date=tour_date
-            )
+            try:
+                # Identifica volti collegati (persone che appaiono insieme al selfie)
+                connected_faces_by_date = await _find_connected_faces(
+                    selfie_embedding,
+                    min_score=min_score,
+                    tour_date=tour_date
+                )
+                
+                # Filtra le foto in base alle regole avanzate
+                matched_results = await _filter_photos_by_rules(
+                    selfie_embedding,
+                    connected_faces_by_date,
+                    min_score=min_score,
+                    tour_date=tour_date
+                )
+            finally:
+                # Ripristina le variabili globali originali (per sicurezza, anche se non necessario)
+                meta_rows = old_meta_rows
+                back_photos = old_back_photos
             
             logger.info(f"[DEBUG] Final matched results: {len(matched_results)} photos")
             
@@ -4155,7 +4199,7 @@ async def match_selfie(
             normalized_date = _normalize_tour_date(tour_date)
             
             seen_back_photos = set()
-            for back_photo in back_photos:
+            for back_photo in current_back_photos:
                 photo_id = back_photo.get("photo_id")
                 if not photo_id:
                     continue
@@ -4181,7 +4225,7 @@ async def match_selfie(
         else:
             # Senza tour_date, mostra tutte le foto di spalle/ombra/silhouette
             seen_back_photos = set()
-            for back_photo in back_photos:
+            for back_photo in current_back_photos:
                 photo_id = back_photo.get("photo_id")
                 if not photo_id:
                     continue
@@ -4213,7 +4257,59 @@ async def match_selfie(
         # Combina risultati: prima foto matchate, poi foto di spalle
         all_results = matched_results + back_results
         
-        logger.info(f"Match completed: {len(matched_results)} matched photos, {len(back_results)} back photos")
+        # Filtra foto che non esistono più su R2 (VERIFICA OBBLIGATORIA - solo R2)
+        if not USE_R2 or r2_client is None:
+            logger.error("R2 not configured - cannot verify photo existence")
+            return {
+                "ok": False,
+                "error": "Photo storage (R2) not configured. Please contact administrator.",
+                "count": 0,
+                "matches": [],
+                "results": []
+            }
+        
+        # VERIFICA OBBLIGATORIA: ogni foto deve esistere su R2
+        filtered_results = []
+        for result in all_results:
+            photo_id = result.get("photo_id")
+            if not photo_id:
+                continue
+            
+            try:
+                # Verifica rapida se la foto esiste su R2
+                r2_client.head_object(Bucket=R2_BUCKET, Key=photo_id)
+                filtered_results.append(result)
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                if error_code == 'NoSuchKey':
+                    logger.warning(f"Photo not found in R2, filtering out: {photo_id}")
+                    continue
+                # Per altri errori, escludi comunque (non vogliamo foto che non possiamo servire)
+                logger.warning(f"R2 error for photo {photo_id}: {error_code}, filtering out")
+                continue
+            except Exception as e:
+                logger.warning(f"Error checking photo existence in R2: {e}, filtering out: {photo_id}")
+                continue
+        
+        if len(filtered_results) < len(all_results):
+            logger.info(f"Filtered out {len(all_results) - len(filtered_results)} photos that don't exist in R2")
+        
+        all_results = filtered_results
+        
+        # Se dopo il filtro R2 non ci sono foto, restituisci messaggio chiaro
+        if len(all_results) == 0:
+            logger.info("No photos found after R2 verification")
+            return {
+                "ok": True,
+                "count": 0,
+                "matches": [],
+                "results": [],
+                "matched_count": 0,
+                "back_photos_count": 0,
+                "message": "Nessuna foto trovata. Le foto potrebbero essere state rimosse o non sono ancora state caricate su R2."
+            }
+        
+        logger.info(f"Match completed: {len(matched_results)} matched photos, {len(back_results)} back photos, {len(all_results)} after R2 filter")
         if all_results:
             logger.info(f"First 3 photo_ids: {[r['photo_id'] for r in all_results[:3]]}")
         
