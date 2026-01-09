@@ -367,6 +367,60 @@
       text-align: center;
     }
     
+    /* Selfie Error Box */
+    .selfie-error-box{
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      padding: 20px;
+    }
+    
+    .selfie-error-content{
+      background: var(--bg-dark);
+      border-radius: 16px;
+      padding: 32px 24px;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+    
+    .selfie-error-message{
+      font-size: 16px;
+      color: var(--text-light);
+      margin: 0 0 24px 0;
+      line-height: 1.5;
+    }
+    
+    .btn-retake-selfie{
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 14px 28px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.2s ease;
+    }
+    
+    .btn-retake-selfie:hover{
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+    
+    .btn-retake-selfie:active{
+      transform: translateY(0);
+    }
+    
     .upload-spinner{
       display: inline-block;
       width: 16px;
@@ -1212,6 +1266,14 @@
       <div class="upload-percentage" id="uploadPercentage">0%</div>
         </div>
       </div>
+    
+    <!-- Selfie Error Box - mostra errore quando match_selfie fallisce -->
+    <div class="selfie-error-box" id="selfieErrorBox" style="display: none;">
+      <div class="selfie-error-content">
+        <p class="selfie-error-message" id="selfieErrorMessage">Foto non trovate oppure ancora in elaborazione. Riprova più tardi.</p>
+        <button class="btn-retake-selfie" id="retakeSelfieBtn">Rifai selfie</button>
+      </div>
+    </div>
 
   <!-- Confirm Selfie Screen -->
   <div class="screen confirm-screen" id="confirmScreen">
@@ -1637,6 +1699,13 @@
     // Avvia inizializzazione quando DOM è pronto
     if(document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
+        // Setup bottone "Rifai selfie"
+        const retakeSelfieBtn = document.getElementById('retakeSelfieBtn');
+        if(retakeSelfieBtn) {
+          retakeSelfieBtn.addEventListener('click', function() {
+            resetSelfieState();
+          });
+        }
         initApp();
       });
     } else {
@@ -2502,6 +2571,69 @@
       matchPhotos();
     }
 
+    // Funzioni UI per gestione selfie loading/error
+    function showSelfieLoading(isLoading) {
+      const uploadStatus = document.getElementById('uploadStatus');
+      const selfieErrorBox = document.getElementById('selfieErrorBox');
+      const captureBtn = document.getElementById('captureBtn');
+      
+      if(isLoading) {
+        // Mostra loading, nascondi errore
+        if(uploadStatus) uploadStatus.classList.add('active');
+        if(selfieErrorBox) selfieErrorBox.style.display = 'none';
+        if(captureBtn) {
+          captureBtn.disabled = true;
+          captureBtn.style.opacity = '0.5';
+        }
+      } else {
+        // Nascondi loading
+        if(uploadStatus) uploadStatus.classList.remove('active');
+        if(captureBtn) {
+          captureBtn.disabled = false;
+          captureBtn.style.opacity = '1';
+        }
+      }
+    }
+    
+    function showSelfieError(message) {
+      const uploadStatus = document.getElementById('uploadStatus');
+      const selfieErrorBox = document.getElementById('selfieErrorBox');
+      const selfieErrorMessage = document.getElementById('selfieErrorMessage');
+      const captureBtn = document.getElementById('captureBtn');
+      
+      // Nascondi loading
+      if(uploadStatus) uploadStatus.classList.remove('active');
+      if(captureBtn) {
+        captureBtn.disabled = false;
+        captureBtn.style.opacity = '1';
+      }
+      
+      // Mostra errore
+      if(selfieErrorMessage) {
+        selfieErrorMessage.textContent = message || "Foto non trovate oppure ancora in elaborazione. Riprova più tardi.";
+      }
+      if(selfieErrorBox) {
+        selfieErrorBox.style.display = 'flex';
+      }
+    }
+    
+    function resetSelfieState() {
+      // Reset variabili
+      capturedBlob = null;
+      selfieCompleted = false;
+      allPhotos = [];
+      currentPhotoIndex = 0;
+      paidPhotos = [];
+      
+      // Nascondi errore
+      const selfieErrorBox = document.getElementById('selfieErrorBox');
+      if(selfieErrorBox) selfieErrorBox.style.display = 'none';
+      
+      // Torna allo schermo selfie e riavvia camera
+      showScreen('selfie');
+      startCamera();
+    }
+    
     // Funzioni matching
     async function matchPhotos() {
       if(!capturedBlob) {
@@ -2520,15 +2652,13 @@
       const uploadPercentage = document.getElementById('uploadPercentage');
       const captureBtn = document.getElementById('captureBtn');
       
-      // Mostra upload status e disabilita pulsante
-      if(uploadStatus) uploadStatus.classList.add('active');
+      // Mostra loading
+      showSelfieLoading(true);
+      
+      // Imposta testo e progress iniziale
       if(uploadStatusText) uploadStatusText.textContent = 'Loading photos...';
       if(uploadProgressBar) uploadProgressBar.style.width = '10%';
       if(uploadPercentage) uploadPercentage.textContent = '10%';
-      if(captureBtn) {
-        captureBtn.disabled = true;
-        captureBtn.style.opacity = '0.5';
-      }
       
       try {
         console.log("Inizio matchPhotos: invio selfie al server...");
@@ -2623,73 +2753,11 @@
           console.error("❌ Errore HTTP:", res.status, res.statusText);
           console.error("Response text completo:", res.responseText);
           
-          let errorMsg = "Error during processing. Please try again in a moment.";
+          // Usa sempre il messaggio richiesto per tutti gli errori
+          const errorMsg = "Foto non trovate oppure ancora in elaborazione. Riprova più tardi.";
           
-          // Traduci messaggio in base alla lingua
-          if(currentLang === 'it') {
-            errorMsg = "Errore durante l'elaborazione. Riprova tra qualche istante.";
-          } else if(currentLang === 'fr') {
-            errorMsg = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
-          } else if(currentLang === 'de') {
-            errorMsg = "Fehler bei der Verarbeitung. Bitte versuchen Sie es in einem Moment erneut.";
-          } else if(currentLang === 'es') {
-            errorMsg = "Error durante el procesamiento. Por favor, inténtelo de nuevo en un momento.";
-          }
-          
-          try {
-            if(res.responseText && res.responseText.trim()) {
-              const errorData = JSON.parse(res.responseText);
-              console.error("Errore dal server (JSON):", errorData);
-              
-              // Se il server fornisce un messaggio specifico, usalo
-              if(errorData.detail) {
-                errorMsg = errorData.detail;
-              } else if(errorData.error && errorData.error.message) {
-                errorMsg = errorData.error.message;
-              } else if(errorData.message) {
-                errorMsg = errorData.message;
-              }
-            }
-          } catch(e) {
-            console.error("Errore nel parsing JSON di errore:", e);
-            console.error("Response text non-JSON:", res.responseText);
-            
-            // Messaggi specifici per diversi status code
-            if(res.status === 500) {
-              errorMsg = "Server error. Please try again in a moment.";
-              if(currentLang === 'it') errorMsg = "Errore del server. Riprova tra qualche istante.";
-              else if(currentLang === 'fr') errorMsg = "Erreur serveur. Veuillez réessayer dans un instant.";
-              else if(currentLang === 'de') errorMsg = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
-              else if(currentLang === 'es') errorMsg = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
-            } else if(res.status === 503) {
-              errorMsg = "Service temporarily unavailable. Please try again in a moment.";
-              if(currentLang === 'it') errorMsg = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
-              else if(currentLang === 'fr') errorMsg = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
-              else if(currentLang === 'de') errorMsg = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
-              else if(currentLang === 'es') errorMsg = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
-            } else if(res.status === 0 || res.statusText === '') {
-              // Status 0 o vuoto spesso indica un problema di rete
-              errorMsg = 'Connection error. Check your internet connection and try again.';
-            } else {
-              errorMsg = `Errore ${res.status}: ${res.statusText || 'Errore sconosciuto'}`;
-            }
-          }
-          console.error("💥 Errore finale mostrato all'utente:", errorMsg);
-          
-          // Aggiungi dettagli tecnici al messaggio per debug
-          const debugInfo = `\n\n[Dettagli tecnici: Status ${res.status}, ${res.statusText || 'N/A'}]`;
-          const fullErrorMsg = errorMsg + debugInfo;
-          
-          // Nascondi upload status
-          if(uploadStatus) uploadStatus.classList.remove('active');
-          if(captureBtn) {
-            captureBtn.disabled = false;
-            captureBtn.style.opacity = '1';
-          }
-          
-          alert(fullErrorMsg);
-          showScreen('selfie');
-          startCamera();
+          // Mostra errore con bottone "Rifai selfie"
+          showSelfieError(errorMsg);
           return;
         }
         
@@ -2697,6 +2765,9 @@
         if(uploadProgressBar) uploadProgressBar.style.width = '100%';
         if(uploadPercentage) uploadPercentage.textContent = '100%';
         if(uploadStatusText) uploadStatusText.textContent = 'Completato!';
+        
+        // Nascondi loading quando tutto va bene (verrà mostrato l'album)
+        showSelfieLoading(false);
         
         // Verifica che la risposta non sia vuota
         if(!res.responseText || res.responseText.trim() === '') {
@@ -2849,54 +2920,11 @@
         console.error("Tipo errore:", err.name, "Messaggio:", err.message);
         console.error("Error type:", err.type, "Status:", err.status);
         
-        // Nascondi upload status
-        if(uploadStatus) uploadStatus.classList.remove('active');
-        if(captureBtn) {
-          captureBtn.disabled = false;
-          captureBtn.style.opacity = '1';
-        }
+        // Usa sempre il messaggio richiesto per tutti gli errori (503, network, timeout, ecc.)
+        const errorMessage = "Foto non trovate oppure ancora in elaborazione. Riprova più tardi.";
         
-        // Determina il tipo di errore e mostra messaggio appropriato
-        let errorMessage = 'Connection error. Check your internet connection and try again.'; // Default
-        
-        // Controlla il tipo di errore specifico
-        if(err.type === 'network') {
-          // Errore di rete reale (XMLHttpRequest error event)
-          errorMessage = 'Connection error. Check your internet connection and try again.';
-        } else if(err.type === 'timeout') {
-          // Timeout della richiesta
-          errorMessage = "La richiesta ha impiegato troppo tempo. Riprova.";
-          if(currentLang === 'en') errorMessage = "Request took too long. Please try again.";
-          else if(currentLang === 'fr') errorMessage = "La requête a pris trop de temps. Veuillez réessayer.";
-          else if(currentLang === 'de') errorMessage = "Die Anfrage hat zu lange gedauert. Bitte versuchen Sie es erneut.";
-          else if(currentLang === 'es') errorMessage = "La solicitud tardó demasiado. Por favor, inténtelo de nuevo.";
-        } else if(err.type === 'abort') {
-          // Upload annullato
-          errorMessage = "Upload annullato. Riprova.";
-          if(currentLang === 'en') errorMessage = "Upload cancelled. Please try again.";
-          else if(currentLang === 'fr') errorMessage = "Téléchargement annulé. Veuillez réessayer.";
-          else if(currentLang === 'de') errorMessage = "Upload abgebrochen. Bitte versuchen Sie es erneut.";
-          else if(currentLang === 'es') errorMessage = "Carga cancelada. Por favor, inténtelo de nuevo.";
-        } else if(err.status) {
-          // Errore HTTP con status code
-          if(err.status === 500) {
-            errorMessage = "Server error. Please try again in a moment.";
-            if(currentLang === 'it') errorMessage = "Errore del server. Riprova tra qualche istante.";
-            else if(currentLang === 'fr') errorMessage = "Erreur serveur. Veuillez réessayer dans un instant.";
-            else if(currentLang === 'de') errorMessage = "Serverfehler. Bitte versuchen Sie es in einem Moment erneut.";
-            else if(currentLang === 'es') errorMessage = "Error del servidor. Por favor, inténtelo de nuevo en un momento.";
-          } else if(err.status === 503) {
-            errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
-            if(currentLang === 'it') errorMessage = "Servizio temporaneamente non disponibile. Riprova tra qualche istante.";
-            else if(currentLang === 'fr') errorMessage = "Service temporairement indisponible. Veuillez réessayer dans un instant.";
-            else if(currentLang === 'de') errorMessage = "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.";
-            else if(currentLang === 'es') errorMessage = "Servicio temporalmente no disponible. Por favor, inténtelo de nuevo en un momento.";
-          } else {
-            errorMessage = `Error ${err.status}: ${err.statusText || 'Server error'}`;
-          }
-        } else if(err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed to fetch'))) {
-          // Errore di rete (fetch API)
-          errorMessage = 'Connection error. Check your internet connection and try again.';
+        // Mostra errore con bottone "Rifai selfie"
+        showSelfieError(errorMessage);
         } else if(err.message && err.message.includes('Network error')) {
           // Errore di rete esplicito
           errorMessage = 'Connection error. Check your internet connection and try again.';
