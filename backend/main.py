@@ -44,13 +44,7 @@ except ImportError:
     BOTO3_AVAILABLE = False
     ClientError = None
 
-# SendGrid per email
-try:
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail, Email, To, Content
-    SENDGRID_AVAILABLE = True
-except ImportError:
-    SENDGRID_AVAILABLE = False
+# Email system disabled - SendGrid removed
 
 # Database: PostgreSQL (obbligatorio in produzione)
 try:
@@ -310,31 +304,7 @@ async def _r2_object_exists(key: str) -> bool:
 
     return await asyncio.to_thread(_head)
 
-# Configurazione SendGrid (opzionale)
-SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
-SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "tenerifestars.photo@gmail.com")
-USE_SENDGRID = SENDGRID_AVAILABLE and bool(SENDGRID_API_KEY)
-
-if USE_SENDGRID:
-    try:
-        sg_client = SendGridAPIClient(SENDGRID_API_KEY)
-        logger.info("SendGrid configured - email sending enabled")
-        logger.info(f"SendGrid FROM email: {SENDGRID_FROM_EMAIL}")
-        # Test connessione SendGrid (opzionale, solo per debug)
-        # logger.info(f"SendGrid API Key length: {len(SENDGRID_API_KEY)} characters")
-    except Exception as e:
-        logger.error(f"Error initializing SendGrid client: {e}")
-        sg_client = None
-        USE_SENDGRID = False
-else:
-    sg_client = None
-    if not SENDGRID_AVAILABLE:
-        logger.warning("SendGrid not configured - sendgrid package not available")
-    elif not SENDGRID_API_KEY:
-        logger.warning("SendGrid not configured - SENDGRID_API_KEY not set")
-        logger.warning("Please set SENDGRID_API_KEY environment variable on Render")
-    else:
-        logger.warning("SendGrid not configured - email features disabled")
+# Email system disabled - no SendGrid configuration needed
 
 # Crea cartelle necessarie all'avvio
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -509,19 +479,6 @@ async def _init_database():
                     expires_at TIMESTAMP,
                     download_token VARCHAR(255) UNIQUE,
                     FOREIGN KEY (email) REFERENCES users(email)
-                )
-            """)
-            
-            # Tabella email follow-up
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS email_followups (
-                    id SERIAL PRIMARY KEY,
-                    email VARCHAR(255) NOT NULL,
-                    photo_id VARCHAR(255) NOT NULL,
-                    followup_type VARCHAR(50) NOT NULL,
-                    sent_at TIMESTAMP,
-                    FOREIGN KEY (email) REFERENCES users(email),
-                    UNIQUE(email, photo_id, followup_type)
                 )
             """)
             
@@ -868,95 +825,7 @@ async def _get_order_by_token(token: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Error getting order: {e}")
     return None
 
-async def _get_photos_for_followup() -> List[Dict[str, Any]]:
-    """Recupera foto che necessitano follow-up email"""
-    try:
-        now = datetime.now(timezone.utc)
-        # PostgreSQL usa EXTRACT(EPOCH FROM ...) per differenze di date
-        query = """
-            SELECT email, photo_id, found_at, 
-                   CASE 
-                       WHEN EXTRACT(EPOCH FROM ($1::timestamp - found_at)) / 86400 BETWEEN 6 AND 8 THEN '7days'
-                       WHEN EXTRACT(EPOCH FROM ($1::timestamp - found_at)) / 86400 BETWEEN 29 AND 31 THEN '30days'
-                       WHEN EXTRACT(EPOCH FROM ($1::timestamp - found_at)) / 86400 BETWEEN 59 AND 61 THEN '60days'
-                   END as followup_type
-            FROM user_photos
-            WHERE status = 'found'
-            AND (EXTRACT(EPOCH FROM ($1::timestamp - found_at)) / 86400 BETWEEN 6 AND 8
-                 OR EXTRACT(EPOCH FROM ($1::timestamp - found_at)) / 86400 BETWEEN 29 AND 31
-                 OR EXTRACT(EPOCH FROM ($1::timestamp - found_at)) / 86400 BETWEEN 59 AND 61)
-            AND NOT EXISTS (
-                SELECT 1 FROM email_followups 
-                WHERE email_followups.email = user_photos.email 
-                AND email_followups.photo_id = user_photos.photo_id
-                AND email_followups.followup_type = 
-                    CASE 
-                        WHEN EXTRACT(EPOCH FROM ($1::timestamp - user_photos.found_at)) / 86400 BETWEEN 6 AND 8 THEN '7days'
-                        WHEN EXTRACT(EPOCH FROM ($1::timestamp - user_photos.found_at)) / 86400 BETWEEN 29 AND 31 THEN '30days'
-                        WHEN EXTRACT(EPOCH FROM ($1::timestamp - user_photos.found_at)) / 86400 BETWEEN 59 AND 61 THEN '60days'
-                    END
-            )
-        """
-        params = (now,)
-        
-        rows = await _db_execute(query, params)
-        return [row for row in rows if row.get('followup_type')]
-    except Exception as e:
-        logger.error(f"Error getting photos for followup: {e}")
-    return []
-
-async def _mark_followup_sent(email: str, photo_id: str, followup_type: str):
-    """Marca follow-up email come inviata"""
-    try:
-        # PostgreSQL: usa NOW() per evitare problemi con timezone
-        await _db_execute_write("""
-            INSERT INTO email_followups (email, photo_id, followup_type, sent_at)
-            VALUES ($1, $2, $3, NOW())
-            ON CONFLICT (email, photo_id, followup_type) 
-            DO UPDATE SET sent_at = NOW()
-        """, (email, photo_id, followup_type))
-    except Exception as e:
-        logger.error(f"Error marking followup sent: {e}")
-
-async def _send_followup_emails():
-    """Invia email follow-up per foto non pagate"""
-    if not USE_SENDGRID:
-        return
-    
-    try:
-        photos_for_followup = await _get_photos_for_followup()
-        
-        if not photos_for_followup:
-            return
-        
-        # Raggruppa per email e followup_type
-        from collections import defaultdict
-        grouped = defaultdict(lambda: defaultdict(list))
-        
-        for item in photos_for_followup:
-            email = item['email']
-            followup_type = item['followup_type']
-            photo_id = item['photo_id']
-            grouped[email][followup_type].append(photo_id)
-        
-        base_url = os.getenv("BASE_URL", "https://face-site.onrender.com")
-        
-        sent_count = 0
-        for email, followups in grouped.items():
-            for followup_type, photo_ids in followups.items():
-                try:
-                    success = await _send_followup_email(email, photo_ids, followup_type, base_url)
-                    if success:
-                        for photo_id in photo_ids:
-                            await _mark_followup_sent(email, photo_id, followup_type)
-                        sent_count += 1
-                except Exception as e:
-                    logger.error(f"Error sending followup to {email}: {e}")
-        
-        if sent_count > 0:
-            logger.info(f"Sent {sent_count} follow-up emails")
-    except Exception as e:
-        logger.error(f"Error in follow-up email task: {e}")
+# Email system disabled - follow-up functions removed
 
 async def _cleanup_expired_photos():
     """Elimina foto scadute dal database e dal filesystem"""
@@ -988,213 +857,7 @@ async def _cleanup_expired_photos():
     except Exception as e:
         logger.error(f"Error cleaning up expired photos: {e}")
 
-# ========== FUNZIONI EMAIL SENDGRID ==========
-
-async def _send_email(to_email: str, subject: str, html_content: str, plain_content: str = None) -> bool:
-    """Invia email tramite SendGrid"""
-    if not USE_SENDGRID or not sg_client:
-        logger.warning(f"SendGrid not available - email not sent to {to_email}")
-        logger.warning(f"USE_SENDGRID={USE_SENDGRID}, sg_client={sg_client is not None}")
-        logger.warning(f"SENDGRID_AVAILABLE={SENDGRID_AVAILABLE}, SENDGRID_API_KEY set={bool(SENDGRID_API_KEY)}")
-        return False
-    
-    try:
-        logger.info(f"=== SENDING EMAIL ===")
-        logger.info(f"To: {to_email}")
-        logger.info(f"From: {SENDGRID_FROM_EMAIL}")
-        logger.info(f"Subject: {subject}")
-        
-        message = Mail(
-            from_email=Email(SENDGRID_FROM_EMAIL, "Tenerife Stars Pictures"),
-            to_emails=To(to_email),
-            subject=subject,
-            html_content=Content("text/html", html_content)
-        )
-        
-        if plain_content:
-            message.plain_text_content = Content("text/plain", plain_content)
-        
-        logger.info("Calling SendGrid API...")
-        response = sg_client.send(message)
-        logger.info(f"SendGrid response: status_code={response.status_code}")
-        logger.info(f"SendGrid response headers: {dict(response.headers)}")
-        
-        if response.status_code in [200, 201, 202]:
-            logger.info(f"✅ Email sent successfully to {to_email}")
-            return True
-        else:
-            logger.error(f"❌ SendGrid error: status_code={response.status_code}")
-            logger.error(f"SendGrid response body: {response.body}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Error sending email to {to_email}: {e}", exc_info=True)
-        logger.error(f"Exception type: {type(e).__name__}")
-        return False
-
-async def _send_payment_confirmation_email(email: str, photo_ids: List[str], download_token: str, base_url: str):
-    """Invia email di conferma pagamento"""
-    download_url = f"{base_url}/my-photos/{download_token}"
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-    expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00')).strftime("%d/%m/%Y")
-    
-    subject = "Le tue foto sono pronte! (Disponibili per 30 giorni)"
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #7b74ff, #5f58ff); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-            .button {{ display: inline-block; background: #7b74ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; margin: 20px 0; }}
-            .warning {{ background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }}
-            .footer {{ text-align: center; color: #666; font-size: 12px; margin-top: 30px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>✅ Pagamento completato!</h1>
-            </div>
-            <div class="content">
-                <p>Ciao,</p>
-                <p>Il tuo pagamento è stato confermato con successo!</p>
-                <p>Hai acquistato <strong>{len(photo_ids)} foto</strong> e ora puoi scaricarle in alta qualità.</p>
-                
-                <div style="text-align: center;">
-                    <a href="{download_url}" class="button">Scarica le tue foto</a>
-                </div>
-                
-                <div class="warning">
-                    <strong>⚠️ IMPORTANTE:</strong><br>
-                    Le tue foto saranno disponibili per <strong>30 giorni</strong> (fino al {expires_date}).<br>
-                    Assicurati di scaricarle nella tua galleria prima della scadenza!
-                </div>
-                
-                <p>Puoi anche accedere alle tue foto usando questo link permanente:</p>
-                <p style="background: #e9ecef; padding: 10px; border-radius: 5px; word-break: break-all;">
-                    {download_url}
-                </p>
-                
-                <p>Salva questo link per recuperare le tue foto in futuro.</p>
-            </div>
-            <div class="footer">
-                <p>Tenerife Stars Pictures</p>
-                <p>Se hai domande, rispondi a questa email.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    
-    plain_content = f"""
-Pagamento completato!
-
-Hai acquistato {len(photo_ids)} foto e ora puoi scaricarle.
-
-Link per scaricare: {download_url}
-
-⚠️ IMPORTANTE: Le foto saranno disponibili per 30 giorni (fino al {expires_date}).
-Assicurati di scaricarle prima della scadenza!
-
-Salva questo link per recuperare le tue foto in futuro.
-    """
-    
-    result = await _send_email(email, subject, html_content, plain_content)
-    if result:
-        logger.info(f"Payment confirmation email sent to {email} with {len(photo_ids)} photos")
-    else:
-        logger.error(f"Failed to send payment confirmation email to {email}")
-    return result
-
-async def _send_followup_email(email: str, photo_ids: List[str], followup_type: str, base_url: str):
-    """Invia email follow-up per foto non pagate"""
-    days_text = {
-        '7days': ('7 giorni fa', 'ancora 83 giorni'),
-        '30days': ('30 giorni fa', 'ancora 60 giorni'),
-        '60days': ('60 giorni fa', 'ancora 30 giorni')
-    }
-    
-    when_text, remaining_text = days_text.get(followup_type, ('', ''))
-    
-    if followup_type == '7days':
-        subject = "Non perdere le tue foto! Hai ancora tempo per acquistarle"
-        urgency = "Non perdere questa opportunità!"
-    elif followup_type == '30days':
-        subject = "Ultimi giorni! Le tue foto verranno eliminate tra 60 giorni"
-        urgency = "Tempo limitato!"
-    else:  # 60days
-        subject = "Ultima possibilità! Le foto verranno eliminate tra 30 giorni"
-        urgency = "ULTIMA CHANCE!"
-    
-    cart_url = f"{base_url}/?email={email}"
-    price = calculate_price(len(photo_ids))
-    price_euros = price / 100.0
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #7b74ff, #5f58ff); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-            .button {{ display: inline-block; background: #7b74ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; margin: 20px 0; }}
-            .warning {{ background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }}
-            .footer {{ text-align: center; color: #666; font-size: 12px; margin-top: 30px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>{urgency}</h1>
-            </div>
-            <div class="content">
-                <p>Ciao,</p>
-                <p>Hai trovato <strong>{len(photo_ids)} foto</strong> {when_text} e non le hai ancora acquistate.</p>
-                <p>Hai {remaining_text} per acquistarle prima che vengano eliminate.</p>
-                
-                <div style="text-align: center; background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                    <p style="font-size: 24px; margin: 0;"><strong>€{price_euros:.2f}</strong></p>
-                    <p style="margin: 10px 0;">per tutte le {len(photo_ids)} foto</p>
-                </div>
-                
-                <div style="text-align: center;">
-                    <a href="{cart_url}" class="button">Acquista le tue foto</a>
-                </div>
-                
-                <div class="warning">
-                    <strong>⏰ Attenzione:</strong><br>
-                    Le foto verranno eliminate automaticamente se non acquistate entro {remaining_text}.
-                </div>
-            </div>
-            <div class="footer">
-                <p>Tenerife Stars Pictures</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    
-    plain_content = f"""
-{urgency}
-
-Hai trovato {len(photo_ids)} foto {when_text} e non le hai ancora acquistate.
-Hai {remaining_text} per acquistarle.
-
-Prezzo: €{price_euros:.2f} per tutte le {len(photo_ids)} foto
-
-Link per acquistare: {cart_url}
-
-⏰ Attenzione: Le foto verranno eliminate se non acquistate entro {remaining_text}.
-    """
-    
-    return await _send_email(email, subject, html_content, plain_content)
+# Email system disabled - all email functions removed
 
 # ========== FUNZIONI HELPER ESISTENTI ==========
 
@@ -1675,15 +1338,15 @@ async def startup():
     logger.info("Running initial cleanup...")
     await _cleanup_expired_photos()
     
-    # Avvia task periodico per cleanup e follow-up (ogni 6 ore)
+    # Avvia task periodico per cleanup (ogni 6 ore)
     import asyncio
     async def periodic_tasks():
         while True:
             try:
                 await asyncio.sleep(6 * 60 * 60)  # 6 ore
-                logger.info("Running periodic cleanup and follow-up...")
+                logger.info("Running periodic cleanup...")
                 await _cleanup_expired_photos()
-                await _send_followup_emails()
+                # Email system disabled - no follow-up emails
             except Exception as e:
                 logger.error(f"Error in periodic tasks: {e}")
     
@@ -1829,23 +1492,20 @@ def debug_watermark():
     except Exception as e:
         return {"error": str(e), "traceback": str(e.__traceback__)}
 
-@app.get("/favicon.ico")
+@app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    """Serve favicon se presente, altrimenti 404 silenzioso (i browser lo richiedono automaticamente)"""
-    path = STATIC_DIR / "favicon.ico"
-    if path.exists():
-        return FileResponse(str(path))
-    # Non loggare errore: è normale che i browser richiedano favicon anche se non esiste
-    raise HTTPException(status_code=404, detail="favicon not found")
+    """Ritorna 204 per favicon (i browser lo richiedono automaticamente)"""
+    return Response(status_code=204)
 
-@app.get("/apple-touch-icon.png")
+@app.get("/apple-touch-icon.png", include_in_schema=False)
 def apple_touch_icon():
-    """Serve apple-touch-icon se presente, altrimenti 404 silenzioso (i browser lo richiedono automaticamente)"""
-    path = STATIC_DIR / "apple-touch-icon.png"
-    if path.exists():
-        return FileResponse(str(path))
-    # Non loggare errore: è normale che i browser richiedano apple-touch-icon anche se non esiste
-    raise HTTPException(status_code=404, detail="apple touch icon not found")
+    """Ritorna 204 per apple-touch-icon (i browser lo richiedono automaticamente)"""
+    return Response(status_code=204)
+
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+def apple_touch_icon_precomposed():
+    """Ritorna 204 per apple-touch-icon-precomposed (i browser lo richiedono automaticamente)"""
+    return Response(status_code=204)
 
 @app.get("/health")
 def health():
@@ -5057,25 +4717,8 @@ async def stripe_webhook(request: Request):
                     logger.error(f"❌ Order creation failed: {order_id}")
                 
                 if download_token:
-                    # Invia email di conferma pagamento
-                    try:
-                        logger.info(f"=== PAYMENT CONFIRMATION EMAIL ===")
-                        logger.info(f"Email: {email}")
-                        logger.info(f"Photos: {len(photo_ids)}")
-                        logger.info(f"Download token: {download_token}")
-                        logger.info(f"Base URL: {base_url}")
-                        logger.info(f"USE_SENDGRID: {USE_SENDGRID}")
-                        logger.info(f"sg_client available: {sg_client is not None}")
-                        
-                        email_sent = await _send_payment_confirmation_email(email, photo_ids, download_token, base_url)
-                        if email_sent:
-                            logger.info(f"✅ Payment confirmation email sent successfully to {email}")
-                        else:
-                            logger.error(f"❌ Payment confirmation email FAILED to send to {email}")
-                            logger.error("Check SendGrid configuration and logs above for details")
-                    except Exception as e:
-                        logger.error(f"❌ Exception sending payment confirmation email: {e}", exc_info=True)
-                        logger.error(f"Exception type: {type(e).__name__}")
+                    # Email system disabled - no payment confirmation email sent
+                    logger.info(f"Payment confirmed for {email} - {len(photo_ids)} photos (email disabled)")
                 
                 # Salva anche in file JSON per compatibilità
                 order_data = {
@@ -5126,46 +4769,12 @@ async def stripe_webhook(request: Request):
 async def test_email(
     email: str = Query(..., description="Email di test")
 ):
-    """Endpoint di test per verificare l'invio email"""
-    try:
-        logger.info(f"=== TEST EMAIL ENDPOINT ===")
-        logger.info(f"USE_SENDGRID: {USE_SENDGRID}")
-        logger.info(f"SENDGRID_AVAILABLE: {SENDGRID_AVAILABLE}")
-        logger.info(f"SENDGRID_API_KEY set: {bool(SENDGRID_API_KEY)}")
-        logger.info(f"SENDGRID_FROM_EMAIL: {SENDGRID_FROM_EMAIL}")
-        logger.info(f"sg_client available: {sg_client is not None}")
-        
-        if not USE_SENDGRID:
-            return {
-                "ok": False,
-                "error": "SendGrid not configured",
-                "details": {
-                    "SENDGRID_AVAILABLE": SENDGRID_AVAILABLE,
-                    "SENDGRID_API_KEY_set": bool(SENDGRID_API_KEY),
-                    "sg_client_available": sg_client is not None
-                }
-            }
-        
-        # Test invio email
-        test_subject = "Test Email - Tenerife Stars Pictures"
-        test_html = "<h1>Test Email</h1><p>Questa è una email di test.</p>"
-        test_plain = "Test Email - Questa è una email di test."
-        
-        result = await _send_email(email, test_subject, test_html, test_plain)
-        
-        return {
-            "ok": result,
-            "message": "Email sent successfully" if result else "Email failed to send",
-            "email": email,
-            "check_logs": True
-        }
-    except Exception as e:
-        logger.error(f"Error in test email endpoint: {e}", exc_info=True)
-        return {
-            "ok": False,
-            "error": str(e),
-            "type": type(e).__name__
-        }
+    """Endpoint di test email - DISABLED (email system removed)"""
+    return {
+        "ok": False,
+        "message": "Email system disabled - no emails will be sent",
+        "email": email
+    }
 
 @app.get("/test-download")
 async def test_download_page(
@@ -6512,7 +6121,6 @@ async def admin_reset_database(request: Request):
     try:
         # Tabelle da resettare (in ordine per evitare problemi di foreign key)
         tables = [
-            "email_followups",
             "orders",
             "carts",
             "user_photos",
