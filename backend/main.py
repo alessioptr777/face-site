@@ -1292,12 +1292,78 @@ async def startup():
         face_app = None
         return
     
-    # In R2_ONLY_MODE: disabilita completamente file su filesystem
+    # In R2_ONLY_MODE: carica indice e metadata da R2
     if R2_ONLY_MODE:
-        logger.info("R2_ONLY_MODE: Index files disabled - face matching will use in-memory index only")
-        faiss_index = None
-        meta_rows = []
-        back_photos = []
+        logger.info("R2_ONLY_MODE: Loading index files from R2...")
+        if USE_R2 and r2_client:
+            try:
+                # Carica indice FAISS da R2
+                logger.info("Loading FAISS index from R2...")
+                index_bytes = await _r2_get_object_bytes("faces.index")
+                # Salva temporaneamente in memoria e carica con FAISS
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                    tmp_file.write(index_bytes)
+                    tmp_path = tmp_file.name
+                try:
+                    faiss_index = faiss.read_index(tmp_path)
+                    logger.info(f"FAISS index loaded from R2: {faiss_index.ntotal} vectors")
+                finally:
+                    # Pulisci file temporaneo
+                    import os as os_module
+                    try:
+                        os_module.unlink(tmp_path)
+                    except:
+                        pass
+            except HTTPException as e:
+                if e.status_code == 404:
+                    logger.warning("FAISS index not found in R2 - face matching will not work until index is created")
+                else:
+                    logger.error(f"Error loading FAISS index from R2: {e}")
+                faiss_index = None
+            except Exception as e:
+                logger.error(f"Error loading FAISS index from R2: {e}")
+                faiss_index = None
+            
+            try:
+                # Carica metadata da R2
+                logger.info("Loading metadata from R2...")
+                meta_bytes = await _r2_get_object_bytes("faces.meta.jsonl")
+                meta_text = meta_bytes.decode('utf-8')
+                meta_rows = []
+                for line in meta_text.strip().split('\n'):
+                    if line.strip():
+                        meta_rows.append(json.loads(line))
+                logger.info(f"Metadata loaded from R2: {len(meta_rows)} records")
+            except HTTPException as e:
+                if e.status_code == 404:
+                    logger.warning("Metadata not found in R2 - face matching will not work until metadata is created")
+                else:
+                    logger.error(f"Error loading metadata from R2: {e}")
+                meta_rows = []
+            except Exception as e:
+                logger.error(f"Error loading metadata from R2: {e}")
+                meta_rows = []
+            
+            try:
+                # Carica foto di spalle da R2 (opzionale)
+                logger.info("Loading back photos from R2...")
+                back_bytes = await _r2_get_object_bytes("back_photos.jsonl")
+                back_text = back_bytes.decode('utf-8')
+                back_photos = []
+                for line in back_text.strip().split('\n'):
+                    if line.strip():
+                        back_photos.append(json.loads(line))
+                logger.info(f"Back photos loaded from R2: {len(back_photos)} records")
+            except Exception as e:
+                # Non è un errore critico se back_photos non esiste
+                logger.info(f"Back photos not found in R2 (optional): {e}")
+                back_photos = []
+        else:
+            logger.warning("R2_ONLY_MODE enabled but R2 not configured - face matching disabled")
+            faiss_index = None
+            meta_rows = []
+            back_photos = []
     else:
         # Carica indice FAISS e metadata (solo se R2_ONLY_MODE è disabilitato)
         if not INDEX_PATH.exists() or not META_PATH.exists():
