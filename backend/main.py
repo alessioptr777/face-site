@@ -18,7 +18,7 @@ import numpy as np
 import cv2
 import faiss
 
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form, Request as FastAPIRequest
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -366,6 +366,18 @@ else:
 logger.info("=" * 80)
 
 app = FastAPI(title="Face Match API")
+
+# Exception handler per non loggare 404 su favicon/apple-touch-icon (richieste automatiche browser)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: FastAPIRequest, exc: HTTPException):
+    """Handler personalizzato per HTTPException: non logga 404 su favicon/apple-touch-icon"""
+    # Non loggare come errore i 404 su favicon/apple-touch-icon (richieste automatiche browser)
+    if exc.status_code == 404 and request.url.path in ["/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]:
+        # Ritorna 404 senza loggare (i browser richiedono automaticamente questi file)
+        return JSONResponse(status_code=404, content={"detail": exc.detail})
+    # Per tutti gli altri errori, logga normalmente
+    logger.error(f"HTTPException: {exc.status_code} - {exc.detail} - Path: {request.url.path}")
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 app.add_middleware(
     CORSMiddleware,
@@ -1819,16 +1831,20 @@ def debug_watermark():
 
 @app.get("/favicon.ico")
 def favicon():
+    """Serve favicon se presente, altrimenti 404 silenzioso (i browser lo richiedono automaticamente)"""
     path = STATIC_DIR / "favicon.ico"
     if path.exists():
         return FileResponse(str(path))
+    # Non loggare errore: è normale che i browser richiedano favicon anche se non esiste
     raise HTTPException(status_code=404, detail="favicon not found")
 
 @app.get("/apple-touch-icon.png")
 def apple_touch_icon():
+    """Serve apple-touch-icon se presente, altrimenti 404 silenzioso (i browser lo richiedono automaticamente)"""
     path = STATIC_DIR / "apple-touch-icon.png"
     if path.exists():
         return FileResponse(str(path))
+    # Non loggare errore: è normale che i browser richiedano apple-touch-icon anche se non esiste
     raise HTTPException(status_code=404, detail="apple touch icon not found")
 
 @app.get("/health")
