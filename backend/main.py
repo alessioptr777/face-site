@@ -2,6 +2,11 @@
 # BUILD_VERSION: 2026-01-05-01-10-FORCE-REBUILD-COMPLETE-v2
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
 APP_BUILD_ID = "local-2026-01-07-02-50"
+
+# Carica variabili d'ambiente da .env (solo in locale, produzione usa env vars direttamente)
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import logging
 import os
@@ -1260,10 +1265,7 @@ async def startup():
         logger.info(f"DATABASE_URL: {masked_url}")
     
     logger.info("✅ Using PostgreSQL database (obbligatorio)")
-    
     await _init_database()
-    
-    # Verifica che il database sia stato creato
     logger.info("✅ PostgreSQL database initialized and ready")
     logger.info("=" * 80)
     

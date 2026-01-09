@@ -1534,9 +1534,16 @@
 
     // Funzioni screen management
     function showScreen(screenName) {
+      console.log('showScreen called with:', screenName);
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const screen = document.getElementById(screenName + 'Screen');
-      if(screen) screen.classList.add('active');
+      console.log('Screen element found:', screen ? 'YES' : 'NO', 'ID:', screenName + 'Screen');
+      if(screen) {
+        screen.classList.add('active');
+        console.log('Screen activated:', screenName);
+      } else {
+        console.error('Screen not found:', screenName + 'Screen');
+      }
       currentScreen = screenName;
     }
 
@@ -1547,6 +1554,7 @@
     // Separazione netta tra flusso base e flusso post-pagamento
     
     async function initApp() {
+      console.log('initApp() called');
       // 1. Controlla se è ritorno dopo pagamento (parametri URL)
       const urlParams = new URLSearchParams(window.location.search);
       const emailParam = urlParams.get('email');
@@ -1622,7 +1630,9 @@
       
       // 4. FLUSSO BASE: email → selfie (no language selection)
       // Mostra subito lo schermo email (non aspetta chiamate API)
+      console.log('About to show email screen');
       showScreen('email');
+      console.log('Email screen should be visible now');
     }
     
     // Funzione separata per caricare album dopo pagamento
@@ -1697,8 +1707,11 @@
     }
     
     // Avvia inizializzazione quando DOM è pronto
+    console.log('Script loaded, document.readyState:', document.readyState);
     if(document.readyState === 'loading') {
+      console.log('Waiting for DOMContentLoaded...');
       document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOMContentLoaded fired');
         // Setup bottone "Rifai selfie"
         const retakeSelfieBtn = document.getElementById('retakeSelfieBtn');
         if(retakeSelfieBtn) {
@@ -1706,11 +1719,33 @@
             resetSelfieState();
           });
         }
-        initApp();
+        try {
+          initApp();
+        } catch(e) {
+          console.error('Error in initApp():', e);
+          // Fallback: mostra sempre la schermata email in caso di errore
+          showScreen('email');
+        }
       });
     } else {
-      initApp();
+      console.log('DOM already ready, calling initApp() immediately');
+      try {
+        initApp();
+      } catch(e) {
+        console.error('Error in initApp():', e);
+        // Fallback: mostra sempre la schermata email in caso di errore
+        showScreen('email');
+      }
     }
+    
+    // Fallback finale: assicurati che la schermata email sia visibile dopo 1 secondo
+    setTimeout(() => {
+      const emailScreen = document.getElementById('emailScreen');
+      if(emailScreen && !emailScreen.classList.contains('active')) {
+        console.warn('Email screen not active after 1s, forcing activation');
+        showScreen('email');
+      }
+    }, 1000);
     
     // Event listener per email screen
     const emailInput = document.getElementById('emailInput');
@@ -2925,32 +2960,6 @@
         
         // Mostra errore con bottone "Rifai selfie"
         showSelfieError(errorMessage);
-        } else if(err.message && err.message.includes('Network error')) {
-          // Errore di rete esplicito
-          errorMessage = 'Connection error. Check your internet connection and try again.';
-        } else {
-          // Other error type (parsing, etc.)
-          errorMessage = "Error during processing. Please try again in a moment.";
-          if(currentLang === 'it') {
-            errorMessage = "Errore durante l'elaborazione. Riprova tra qualche istante.";
-          } else if(currentLang === 'fr') {
-            errorMessage = "Erreur lors du traitement. Veuillez réessayer dans un instant.";
-          } else if(currentLang === 'de') {
-            errorMessage = "Fehler bei der Verarbeitung. Bitte versuchen Sie es in einem Moment erneut.";
-          } else if(currentLang === 'es') {
-            errorMessage = "Error durante el procesamiento. Por favor, inténtelo de nuevo en un momento.";
-          }
-        }
-        
-        // In caso di errore, torna sempre alla schermata selfie per riprovare
-        // NON mostrare l'album vuoto
-        alert(errorMessage);
-        showScreen('selfie');
-        startCamera();
-        
-        // Reset delle variabili per evitare stati inconsistenti
-        allPhotos = [];
-        photosLoadedCount = 0;
       }
     }
 
