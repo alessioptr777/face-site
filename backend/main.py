@@ -101,7 +101,7 @@ MAX_DOWNLOADS_PER_PHOTO = int(os.getenv("MAX_DOWNLOADS_PER_PHOTO", "3"))  # Max 
 
 # Configurazione espansione linked faces (identità)
 LINKED_EXPAND_TOP_K = int(os.getenv("LINKED_EXPAND_TOP_K", "80"))  # Top K per search su embedding linked
-LINKED_EXPAND_MIN_SCORE = float(os.getenv("LINKED_EXPAND_MIN_SCORE", "0.62"))  # Soglia minima per espansione identità
+LINKED_EXPAND_MIN_SCORE = float(os.getenv("LINKED_EXPAND_MIN_SCORE", "0.65"))  # Soglia minima per espansione identità
 
 APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
 APP_NAME = os.getenv("APP_NAME", "TenerifePictures API")
@@ -3766,49 +3766,37 @@ async def _filter_photos_by_rules(
             # Aggiungi tutti i volti di questa foto a linked (inclusi quelli di primary, va bene)
             linked_face_indices.update(face_indices)
     
-    # 3b) LINKED_IDENTITY_EXPANSION: espandi linked_face_indices cercando la stessa persona con indici diversi
-    seed_linked = linked_face_indices - primary_face_indices
-    expanded_count = 0
-    
-    if seed_linked and faiss_index is not None:
-        logger.info(f"[DEBUG] Starting identity expansion: seed_linked={len(seed_linked)}, top_k={LINKED_EXPAND_TOP_K}, min_score={LINKED_EXPAND_MIN_SCORE}")
-        
-        for seed_idx in seed_linked:
+    # 3b) Identity expansion: espandi i linked_face_indices verso altri embedding simili (stessa persona)
+    if linked_face_indices and faiss_index is not None and getattr(faiss_index, "ntotal", 0) > 0:
+        expanded: Set[int] = set()
+        for seed_idx in list(linked_face_indices):
             try:
-                # Recupera embedding dal FAISS index
-                embedding = faiss_index.reconstruct(int(seed_idx))
-                embedding = embedding.reshape(1, -1).astype(np.float32)
-                embedding = _normalize(embedding.reshape(-1)).reshape(1, -1)
-                
-                # Cerca volti simili (stessa persona, indici diversi)
-                D_exp, I_exp = faiss_index.search(embedding, min(LINKED_EXPAND_TOP_K, faiss_index.ntotal))
-                
-                for score_exp, idx_exp in zip(D_exp[0].tolist(), I_exp[0].tolist()):
-                    if idx_exp < 0 or idx_exp >= len(meta_rows):
+                # reconstruct embedding vector from FAISS
+                v = faiss_index.reconstruct(int(seed_idx))
+                v = np.array(v, dtype=np.float32).reshape(1, -1)
+
+                D, I = faiss_index.search(v, LINKED_EXPAND_TOP_K)
+                for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                    if idx is None or idx < 0:
                         continue
-                    if score_exp < LINKED_EXPAND_MIN_SCORE:
-                        continue
-                    # Aggiungi a linked_face_indices se non è già presente
-                    if idx_exp not in linked_face_indices:
-                        linked_face_indices.add(idx_exp)
-                        expanded_count += 1
+                    if float(score) >= LINKED_EXPAND_MIN_SCORE:
+                        expanded.add(int(idx))
             except Exception as e:
-                logger.warning(f"[DEBUG] Error expanding identity for seed_idx={seed_idx}: {e}")
-                continue
-        
-        logger.info(f"[DEBUG] Identity expansion completed: added {expanded_count} faces to linked set")
+                logger.warning(f"[DEBUG] linked identity expansion failed for seed_idx={seed_idx}: {e}")
+
+        before = len(linked_face_indices)
+        linked_face_indices.update(expanded)
+        logger.info(f"[DEBUG] Linked identity expansion: before={before}, after={len(linked_face_indices)}, added={len(linked_face_indices)-before}")
     
     # 4) Definisci valid_faces = primary ∪ linked (dopo espansione)
     valid_faces = primary_face_indices.union(linked_face_indices)
     
     # Log DEBUG
-    logger.info(f"[DEBUG] Linked faces logic: primary={len(primary_face_indices)}, linked={len(linked_face_indices)} (seed={len(seed_linked)}, expanded={expanded_count}), valid={len(valid_faces)}")
+    logger.info(f"[DEBUG] Linked faces logic: primary={len(primary_face_indices)}, linked={len(linked_face_indices)}, valid={len(valid_faces)}")
     
     # 5) Filtra le foto: includi solo se face_indices.issubset(valid_faces)
     included_photos = []
     excluded_photos = []
-    # Traccia foto che erano escluse prima dell'espansione e ora incluse
-    photos_now_included_after_expansion = []
     
     for photo_id, face_indices in photo_faces.items():
         if photo_id in seen_photos:
@@ -3852,12 +3840,6 @@ async def _filter_photos_by_rules(
                     "tour_date": photo_tour_date,
                 })
                 included_photos.append(photo_id)
-                
-                # Verifica se questa foto è stata inclusa grazie all'espansione
-                # (contiene volti che erano in linked_face_indices dopo espansione ma non prima)
-                if expanded_count > 0 and not has_primary:
-                    # Foto linked-only che potrebbe essere stata inclusa grazie all'espansione
-                    photos_now_included_after_expansion.append(photo_id)
         else:
             # Foto esclusa: contiene volti fuori dal set valid_faces
             excluded_photos.append(photo_id)
@@ -3868,8 +3850,6 @@ async def _filter_photos_by_rules(
         logger.info(f"[DEBUG] Example included photos (first 5): {included_photos[:5]}")
     if excluded_photos:
         logger.info(f"[DEBUG] Example excluded photos (first 5): {excluded_photos[:5]} (reason: contains faces outside valid set)")
-    if photos_now_included_after_expansion:
-        logger.info(f"[DEBUG] Photos now included after identity expansion (first 5): {photos_now_included_after_expansion[:5]}")
     
     # Ordina per score decrescente
     filtered_results.sort(key=lambda x: x["score"], reverse=True)
