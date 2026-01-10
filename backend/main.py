@@ -3706,12 +3706,11 @@ async def _filter_photos_by_rules(
     # Cerca tutte le foto che contengono il volto del selfie
     D, I = faiss_index.search(selfie_emb, len(meta_rows))
     
-    # Raccogli tutti i face_idx validi (selfie + collegati) per ogni tour_date
-    valid_faces_by_date: Dict[str, Set[int]] = {}
-    
-    # Aggiungi i face_idx del selfie per ogni tour_date
-    selfie_face_indices_by_date: Dict[str, Set[int]] = {}
+    # 1) Identifica primary_face_indices: indici FAISS che hanno matchato il selfie
+    primary_face_indices: Set[int] = set()
     normalized_date = _normalize_tour_date(tour_date)
+    selfie_score_by_idx: Dict[int, float] = {}
+    
     for score, idx in zip(D[0].tolist(), I[0].tolist()):
         if idx < 0 or idx >= len(meta_rows):
             continue
@@ -3724,33 +3723,16 @@ async def _filter_photos_by_rules(
         if normalized_date:
             if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
                 continue
-        if photo_tour_date not in selfie_face_indices_by_date:
-            selfie_face_indices_by_date[photo_tour_date] = set()
-        selfie_face_indices_by_date[photo_tour_date].add(idx)
-    
-    # Combina selfie + collegati per ogni tour_date
-    for date in set(list(selfie_face_indices_by_date.keys()) + list(connected_faces_by_date.keys())):
-        valid_faces_by_date[date] = set()
-        if date in selfie_face_indices_by_date:
-            valid_faces_by_date[date].update(selfie_face_indices_by_date[date])
-        if date in connected_faces_by_date:
-            valid_faces_by_date[date].update(connected_faces_by_date[date])
-    
-    # Per ogni foto nell'indice, verifica se deve essere mostrata
-    photo_faces: Dict[str, Set[int]] = {}  # photo_id -> set di face_idx in quella foto
-    photo_scores: Dict[tuple, float] = {}  # (photo_id, face_idx) -> score
-    
-    # Mappa rapida idx -> score per i match del selfie (evita O(n^2))
-    selfie_score_by_idx: Dict[int, float] = {}
-    for score, idx in zip(D[0].tolist(), I[0].tolist()):
-        if idx < 0:
-            continue
-        # se ci sono duplicati, tieni il migliore
+        primary_face_indices.add(idx)
+        # Salva score (se ci sono duplicati, tieni il migliore)
         s = float(score)
         if (idx not in selfie_score_by_idx) or (s > selfie_score_by_idx[idx]):
             selfie_score_by_idx[idx] = s
-
-    # Raggruppa tutti i volti per photo_id e salva gli score del selfie
+    
+    # 2) Costruisci photo_faces: photo_id -> set di face_idx in quella foto
+    photo_faces: Dict[str, Set[int]] = {}  # photo_id -> set di face_idx in quella foto
+    photo_scores: Dict[tuple, float] = {}  # (photo_id, face_idx) -> score
+    
     for i, row in enumerate(meta_rows):
         photo_id = row.get("photo_id")
         if not photo_id:
@@ -3772,7 +3754,24 @@ async def _filter_photos_by_rules(
         if i in selfie_score_by_idx:
             photo_scores[(photo_id, i)] = selfie_score_by_idx[i]
     
-    # Filtra le foto in base alle regole
+    # 3) Costruisci linked_face_indices: volti che compaiono insieme al selfie in almeno una foto
+    linked_face_indices: Set[int] = set()
+    for photo_id, face_indices in photo_faces.items():
+        # Se questa foto contiene almeno un volto del selfie (primary)
+        if face_indices.intersection(primary_face_indices):
+            # Aggiungi tutti i volti di questa foto a linked (inclusi quelli di primary, va bene)
+            linked_face_indices.update(face_indices)
+    
+    # 4) Definisci valid_faces = primary ∪ linked
+    valid_faces = primary_face_indices.union(linked_face_indices)
+    
+    # Log DEBUG
+    logger.info(f"[DEBUG] Linked faces logic: primary={len(primary_face_indices)}, linked={len(linked_face_indices)}, valid={len(valid_faces)}")
+    
+    # 5) Filtra le foto: includi solo se face_indices.issubset(valid_faces)
+    included_photos = []
+    excluded_photos = []
+    
     for photo_id, face_indices in photo_faces.items():
         if photo_id in seen_photos:
             continue
@@ -3785,37 +3784,46 @@ async def _filter_photos_by_rules(
                 photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
                 break
 
-        # Ottieni i volti validi per questo tour_date
-        valid_faces = valid_faces_by_date.get(photo_tour_date, set())
-        # Fallback: se i metadata hanno tour_date mancanti ("unknown"), usa l'unione dei volti validi
-        if (not valid_faces) and (photo_tour_date == "unknown") and valid_faces_by_date:
-            valid_faces = set().union(*valid_faces_by_date.values())
-
         # Verifica se la foto contiene solo volti validi (selfie o collegati)
         if face_indices.issubset(valid_faces):
             # La foto contiene solo volti validi -> deve essere mostrata
-            seen_photos.add(photo_id)
+            # Includi foto "linked-only" (senza primary) SOLO se linked_face_indices non è vuoto
+            has_primary = bool(face_indices.intersection(primary_face_indices))
+            is_linked_only = not has_primary and bool(face_indices.intersection(linked_face_indices))
+            
+            if has_primary or (is_linked_only and linked_face_indices):
+                seen_photos.add(photo_id)
 
-            # Trova il miglior score per questa foto (score del selfie se presente)
-            best_score = 0.0
-            has_selfie = False
+                # Trova il miglior score per questa foto (score del selfie se presente)
+                best_score = 0.0
+                has_selfie = False
 
-            for face_idx in face_indices:
-                key = (photo_id, face_idx)
-                if key in photo_scores:
-                    score = photo_scores[key]
-                    if score > best_score:
-                        best_score = score
-                        has_selfie = True
+                for face_idx in face_indices:
+                    key = (photo_id, face_idx)
+                    if key in photo_scores:
+                        score = photo_scores[key]
+                        if score > best_score:
+                            best_score = score
+                            has_selfie = True
 
-            filtered_results.append({
-                "photo_id": str(photo_id),
-                "score": best_score if has_selfie else 0.0,
-                "has_face": True,
-                "has_selfie": has_selfie,
-                "tour_date": photo_tour_date,
-            })
-        # Se la foto contiene volti non validi, viene esclusa (non aggiunta)
+                filtered_results.append({
+                    "photo_id": str(photo_id),
+                    "score": best_score if has_selfie else 0.0,
+                    "has_face": True,
+                    "has_selfie": has_selfie,
+                    "tour_date": photo_tour_date,
+                })
+                included_photos.append(photo_id)
+        else:
+            # Foto esclusa: contiene volti fuori dal set valid_faces
+            excluded_photos.append(photo_id)
+    
+    # Log DEBUG con esempi
+    logger.info(f"[DEBUG] Photo filtering: {len(included_photos)} included, {len(excluded_photos)} excluded")
+    if included_photos:
+        logger.info(f"[DEBUG] Example included photos (first 5): {included_photos[:5]}")
+    if excluded_photos:
+        logger.info(f"[DEBUG] Example excluded photos (first 5): {excluded_photos[:5]} (reason: contains faces outside valid set)")
     
     # Ordina per score decrescente
     filtered_results.sort(key=lambda x: x["score"], reverse=True)
