@@ -23,7 +23,7 @@ import numpy as np
 import cv2
 import faiss
 
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form, Request as FastAPIRequest
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -84,6 +84,9 @@ STATIC_DIR = REPO_ROOT / "static"  # Static files dalla root del repo
 
 # R2_ONLY_MODE: disabilita completamente filesystem per foto e index
 R2_ONLY_MODE = os.getenv("R2_ONLY_MODE", "1") == "1"
+
+# R2_PHOTOS_PREFIX: prefisso per le foto su R2 (default vuoto o "photos/")
+R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
 
 # Path per file index/tracking (disabilitati in R2_ONLY_MODE)
 INDEX_PATH = DATA_DIR / "faces.index"
@@ -344,8 +347,8 @@ app = FastAPI(title="Face Match API")
 
 # Exception handler per non loggare 404 su favicon/apple-touch-icon (richieste automatiche browser)
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: FastAPIRequest, exc: HTTPException):
-    """Handler personalizzato per HTTPException: non logga 404 su favicon/apple-touch-icon"""
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handler unificato per HTTPException: non logga 404 su favicon/apple-touch-icon"""
     # Non loggare come errore i 404 su favicon/apple-touch-icon (richieste automatiche browser)
     if exc.status_code == 404 and request.url.path in ["/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]:
         # Ritorna 404 senza loggare (i browser richiedono automaticamente questi file)
@@ -404,15 +407,6 @@ if STATIC_DIR.exists():
 # app.mount("/photo", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
 logger.info(f"Will serve photos from: {PHOTOS_DIR.resolve()}")
 # === PHOTO ENDPOINT ===
-from fastapi import Query
-
-# Funzione watermark (usata nel branch unpaid)
-def _add_watermark(photo_path: Path) -> bytes:
-    """Aggiunge watermark all'immagine e restituisce bytes JPEG"""
-    # ... (implementazione esistente, non toccare)
-    # Questa funzione esiste già nel file, qui solo per chiarezza.
-    raise NotImplementedError  # Rimpiazzata dalla vera funzione nel file.
-
 
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
@@ -494,6 +488,14 @@ async def _init_database():
                     photo_ids TEXT NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Tabella foto indicizzate (per tracking indicizzazione automatica)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS indexed_photos (
+                    photo_id VARCHAR(255) PRIMARY KEY,
+                    indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
             
@@ -1242,11 +1244,10 @@ async def _r2_get_object_bytes(key: str) -> bytes:
         raise HTTPException(status_code=500, detail=f"Error reading photo from R2")
 
 def _ensure_ready():
-    """Verifica che face_app e faiss_index siano caricati"""
+    """Verifica che face_app sia caricato (indice può essere vuoto)"""
     if face_app is None:
         raise HTTPException(status_code=503, detail="Face recognition not initialized")
-    if faiss_index is None:
-        raise HTTPException(status_code=503, detail="Face index not loaded")
+    # Indice può essere vuoto - non fallire se None o vuoto
 
 @app.on_event("startup")
 async def startup():
@@ -1317,13 +1318,33 @@ async def startup():
                         pass
             except HTTPException as e:
                 if e.status_code == 404:
-                    logger.warning("FAISS index not found in R2 - face matching will not work until index is created")
+                    logger.info("FAISS index not found in R2 - creating empty index")
+                    # Crea indice vuoto
+                    faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+                    meta_rows = []
+                    # Salva indice vuoto su R2
+                    try:
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        faiss.write_index(faiss_index, tmp_path)
+                        with open(tmp_path, 'rb') as f:
+                            index_bytes = f.read()
+                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
+                        logger.info("Empty FAISS index created and uploaded to R2")
+                        import os as os_module
+                        os_module.unlink(tmp_path)
+                    except Exception as save_err:
+                        logger.error(f"Error saving empty index to R2: {save_err}")
                 else:
                     logger.error(f"Error loading FAISS index from R2: {e}")
-                faiss_index = None
+                    faiss_index = None
             except Exception as e:
                 logger.error(f"Error loading FAISS index from R2: {e}")
-                faiss_index = None
+                # Crea indice vuoto anche in caso di errore generico
+                logger.info("Creating empty FAISS index as fallback")
+                faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+                meta_rows = []
             
             try:
                 # Carica metadata da R2
@@ -1337,10 +1358,17 @@ async def startup():
                 logger.info(f"Metadata loaded from R2: {len(meta_rows)} records")
             except HTTPException as e:
                 if e.status_code == 404:
-                    logger.warning("Metadata not found in R2 - face matching will not work until metadata is created")
+                    logger.info("Metadata not found in R2 - creating empty metadata file")
+                    meta_rows = []
+                    # Salva metadata vuoto su R2
+                    try:
+                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=b"")
+                        logger.info("Empty metadata file created and uploaded to R2")
+                    except Exception as save_err:
+                        logger.error(f"Error saving empty metadata to R2: {save_err}")
                 else:
                     logger.error(f"Error loading metadata from R2: {e}")
-                meta_rows = []
+                    meta_rows = []
             except Exception as e:
                 logger.error(f"Error loading metadata from R2: {e}")
                 meta_rows = []
@@ -1367,11 +1395,19 @@ async def startup():
     else:
         # Carica indice FAISS e metadata (solo se R2_ONLY_MODE è disabilitato)
         if not INDEX_PATH.exists() or not META_PATH.exists():
-            logger.warning(f"Index files not found: {INDEX_PATH} or {META_PATH}")
-            logger.warning("Face matching will not work until index is created")
-            faiss_index = None
+            logger.info("Index files not found - creating empty index")
+            # Crea indice vuoto
+            faiss_index = faiss.IndexFlatIP(INDEX_DIM)
             meta_rows = []
             back_photos = []
+            # Salva indice vuoto su filesystem
+            try:
+                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                faiss.write_index(faiss_index, str(INDEX_PATH))
+                META_PATH.write_text("", encoding='utf-8')
+                logger.info("Empty FAISS index created on filesystem")
+            except Exception as save_err:
+                logger.error(f"Error saving empty index: {save_err}")
         else:
             try:
                 logger.info(f"Loading FAISS index from {INDEX_PATH}")
@@ -1402,11 +1438,170 @@ async def startup():
                 logger.error(f"Error loading back photos: {e}")
                 back_photos = []
     
+    # Inizializza indice vuoto se non esiste
+    if faiss_index is None:
+        logger.info("Initializing empty FAISS index")
+        faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+        meta_rows = []
+    
     # Esegui cleanup iniziale
     logger.info("Running initial cleanup...")
     await _cleanup_expired_photos()
     
-    # Avvia task periodico per cleanup (ogni 6 ore)
+    # Lock globale per indicizzazione (evita run simultanei)
+    indexing_lock = asyncio.Lock()
+    
+    # Funzione per indicizzare nuove foto da R2
+    async def index_new_r2_photos():
+        """Indicizza automaticamente nuove foto da R2"""
+        global faiss_index, meta_rows, back_photos
+        
+        if not USE_R2 or not r2_client or not R2_ONLY_MODE:
+            return
+        
+        # Evita run simultanei
+        if indexing_lock.locked():
+            return
+        
+        async with indexing_lock:
+            try:
+                start_time = datetime.now(timezone.utc)
+                logger.info("Starting automatic photo indexing from R2...")
+                
+                # Lista foto già indicizzate dal DB
+                indexed_photo_ids = set()
+                if db_pool:
+                    async with db_pool.acquire() as conn:
+                        rows = await conn.fetch("SELECT photo_id FROM indexed_photos")
+                        indexed_photo_ids = {row['photo_id'] for row in rows}
+                
+                # Lista oggetti R2 con paginator
+                new_photos = []
+                paginator = r2_client.get_paginator('list_objects_v2')
+                prefix = R2_PHOTOS_PREFIX if R2_PHOTOS_PREFIX else ""
+                
+                for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
+                    for obj in page.get('Contents', []):
+                        key = obj['Key']
+                        # Ignora file di sistema
+                        if key in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                            continue
+                        # Filtra solo immagini
+                        if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
+                            continue
+                        # Se non indicizzata, aggiungi
+                        if key not in indexed_photo_ids:
+                            new_photos.append(key)
+                
+                if not new_photos:
+                    logger.info("No new photos to index")
+                    return
+                
+                logger.info(f"Found {len(new_photos)} new photos to index")
+                
+                # Indicizza batch (max 50 per ciclo)
+                batch_size = 50
+                indexed_count = 0
+                new_embeddings = []
+                new_meta = []
+                new_back_photos = []
+                
+                for i, photo_key in enumerate(new_photos[:batch_size]):
+                    try:
+                        # Scarica foto da R2
+                        photo_bytes = await _r2_get_object_bytes(photo_key)
+                        
+                        # Decodifica immagine
+                        nparr = np.frombuffer(photo_bytes, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if img is None:
+                            continue
+                        
+                        # Estrai volti
+                        faces = face_app.get(img)
+                        
+                        if not faces:
+                            # Foto senza volti -> back_photos
+                            new_back_photos.append({"photo_id": photo_key})
+                            # Segna comunque come indicizzata
+                            if db_pool:
+                                async with db_pool.acquire() as conn:
+                                    await conn.execute(
+                                        "INSERT INTO indexed_photos (photo_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                                        photo_key
+                                    )
+                            continue
+                        
+                        # Per ogni volto, crea embedding
+                        for face in faces:
+                            embedding = face.embedding.astype(np.float32)
+                            embedding = _normalize(embedding)
+                            new_embeddings.append(embedding)
+                            
+                            # Metadata
+                            bbox = face.bbox
+                            new_meta.append({
+                                "photo_id": photo_key,
+                                "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+                                "det_score": float(face.det_score)
+                            })
+                        
+                        # Segna come indicizzata
+                        if db_pool:
+                            async with db_pool.acquire() as conn:
+                                await conn.execute(
+                                    "INSERT INTO indexed_photos (photo_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                                    photo_key
+                                )
+                        
+                        indexed_count += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error indexing photo {photo_key}: {e}")
+                        continue
+                
+                # Aggiungi embeddings all'indice
+                if new_embeddings and faiss_index is not None:
+                    embeddings_array = np.array(new_embeddings, dtype=np.float32)
+                    faiss_index.add(embeddings_array)
+                    meta_rows.extend(new_meta)
+                    back_photos.extend(new_back_photos)
+                    
+                    logger.info(f"Added {len(new_embeddings)} embeddings to index (total: {faiss_index.ntotal})")
+                    
+                    # Salva su R2
+                    try:
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        faiss.write_index(faiss_index, tmp_path)
+                        with open(tmp_path, 'rb') as f:
+                            index_bytes = f.read()
+                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
+                        
+                        # Salva metadata
+                        meta_lines = [json.dumps(m, ensure_ascii=False) for m in meta_rows]
+                        meta_bytes = '\n'.join(meta_lines).encode('utf-8')
+                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=meta_bytes)
+                        
+                        # Salva back_photos se presenti
+                        if new_back_photos:
+                            back_lines = [json.dumps(b, ensure_ascii=False) for b in back_photos]
+                            back_bytes = '\n'.join(back_lines).encode('utf-8')
+                            r2_client.put_object(Bucket=R2_BUCKET, Key="back_photos.jsonl", Body=back_bytes)
+                        
+                        import os as os_module
+                        os_module.unlink(tmp_path)
+                        
+                        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                        logger.info(f"Indexing completed: {indexed_count} photos, {len(new_embeddings)} faces, {elapsed:.2f}s")
+                    except Exception as e:
+                        logger.error(f"Error saving index to R2: {e}")
+                
+            except Exception as e:
+                logger.error(f"Error in automatic indexing: {e}", exc_info=True)
+    
+    # Avvia task periodico per cleanup (ogni 6 ore) e indicizzazione (ogni 60 secondi)
     import asyncio
     async def periodic_tasks():
         while True:
@@ -1418,9 +1613,19 @@ async def startup():
             except Exception as e:
                 logger.error(f"Error in periodic tasks: {e}")
     
+    async def indexing_task():
+        """Task periodico per indicizzazione automatica"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # 60 secondi
+                await index_new_r2_photos()
+            except Exception as e:
+                logger.error(f"Error in indexing task: {e}")
+    
     # Avvia task in background
     asyncio.create_task(periodic_tasks())
-    logger.info("Periodic tasks started (cleanup every 6 hours)")
+    asyncio.create_task(indexing_task())
+    logger.info("Periodic tasks started (cleanup every 6 hours, indexing every 60 seconds)")
     
     # ============================================================
     # LOGGING DEFINITIVO: PATH ESATTI DEI FILE STATICI
@@ -1467,18 +1672,7 @@ async def shutdown():
         await db_pool.close()
         logger.info("PostgreSQL connection pool closed")
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    logger.error(f"HTTPException: {exc.status_code} - {exc.detail}")
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": {
-                "message": exc.detail,
-                "code": exc.status_code
-            }
-        }
-    )
+# Handler HTTPException rimosso - già gestito sopra
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
@@ -3648,13 +3842,30 @@ async def match_selfie(
     - Esclude foto con volti non collegati
     - I collegamenti sono validi solo all'interno dello stesso set fotografico (tour_date)
     """
+    global meta_rows, back_photos
     _ensure_ready()
     
     try:
+        # Gestisci indice vuoto o metadata mancanti
+        if faiss_index is None or faiss_index.ntotal == 0 or len(meta_rows) == 0:
+            logger.info("Index is empty or not loaded - returning empty result")
+            return {
+                "ok": True,
+                "count": 0,
+                "matches": [],
+                "results": [],
+                "matched_count": 0,
+                "back_photos_count": 0,
+                "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
+            }
+        
         # RICARICA SEMPRE I METADATA DAI FILE JSON (come /admin/photos-by-date)
         # Questo assicura che i dati siano sempre aggiornati, anche dopo cancellazioni/aggiunte
         current_meta_rows = []
-        if META_PATH.exists():
+        if R2_ONLY_MODE:
+            # In R2_ONLY_MODE usa meta_rows già caricati
+            current_meta_rows = meta_rows
+        elif META_PATH.exists():
             current_meta_rows = _load_meta_jsonl(META_PATH)
             logger.info(f"Reloaded {len(current_meta_rows)} photo metadata from {META_PATH}")
         else:
@@ -3662,7 +3873,10 @@ async def match_selfie(
             current_meta_rows = []
         
         current_back_photos = []
-        if BACK_PHOTOS_PATH.exists():
+        if R2_ONLY_MODE:
+            # In R2_ONLY_MODE usa back_photos già caricati
+            current_back_photos = back_photos
+        elif BACK_PHOTOS_PATH.exists():
             current_back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
             logger.info(f"Reloaded {len(current_back_photos)} back photos from {BACK_PHOTOS_PATH}")
         else:
@@ -3671,7 +3885,7 @@ async def match_selfie(
         
         # Se non ci sono metadata, non ci sono foto da cercare
         if len(current_meta_rows) == 0 and len(current_back_photos) == 0:
-            logger.info("No photos in metadata files - returning empty result")
+            logger.info("No photos in metadata - returning empty result")
             return {
                 "ok": True,
                 "count": 0,
@@ -3679,7 +3893,7 @@ async def match_selfie(
                 "results": [],
                 "matched_count": 0,
                 "back_photos_count": 0,
-                "message": "Nessuna foto disponibile. Carica delle foto dall'admin panel."
+                "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
             }
         
         # Leggi l'immagine dal selfie
@@ -3710,7 +3924,6 @@ async def match_selfie(
             
             # AGGIORNA TEMPORANEAMENTE LE VARIABILI GLOBALI CON I METADATA FRESCHI
             # Così _find_connected_faces e _filter_photos_by_rules useranno i dati aggiornati
-            global meta_rows, back_photos
             old_meta_rows = meta_rows
             old_back_photos = back_photos
             meta_rows = current_meta_rows
