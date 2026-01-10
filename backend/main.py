@@ -412,6 +412,7 @@ face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
 meta_rows: List[Dict[str, Any]] = []
 back_photos: List[Dict[str, Any]] = []  # Foto senza volti (di spalle)
+indexing_lock: Optional[asyncio.Lock] = None  # Lock globale per indicizzazione automatica
 
 # Funzioni helper
 # ========== DATABASE (PostgreSQL) ==========
@@ -1448,8 +1449,10 @@ async def startup():
     logger.info("Running initial cleanup...")
     await _cleanup_expired_photos()
     
-    # Lock globale per indicizzazione (evita run simultanei)
-    indexing_lock = asyncio.Lock()
+    # Inizializza lock globale per indicizzazione (evita run simultanei)
+    global indexing_lock
+    if indexing_lock is None:
+        indexing_lock = asyncio.Lock()
     
     # Funzione per indicizzare nuove foto da R2
     async def index_new_r2_photos():
@@ -1602,7 +1605,6 @@ async def startup():
                 logger.error(f"Error in automatic indexing: {e}", exc_info=True)
     
     # Avvia task periodico per cleanup (ogni 6 ore) e indicizzazione (ogni 60 secondi)
-    import asyncio
     async def periodic_tasks():
         while True:
             try:
