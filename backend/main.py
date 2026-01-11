@@ -605,19 +605,38 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
     """Aggiunge una foto trovata per un utente"""
     try:
         email = _normalize_email(email)
-        
-        # Verifica se esiste già
+
+        # Verifica se esiste già (e qual è lo stato attuale)
         exists = await _db_execute_one(
-            "SELECT id FROM user_photos WHERE email = $1 AND photo_id = $2",
+            "SELECT id, status, expires_at FROM user_photos WHERE email = $1 AND photo_id = $2",
             (email, photo_id)
         )
-        
+
         # PostgreSQL: usa NOW() e INTERVAL per evitare problemi con timezone
         days = 30 if status == "paid" else 90
+
         if exists:
-            # Aggiorna - usa f-string per INTERVAL
+            current_status = (exists.get("status") or "").lower()
+
+            # NON degradare mai una foto già pagata a 'found' (succede quando match_selfie ri-salva la lista)
+            if current_status == "paid" and status != "paid":
+                await _db_execute_write(
+                    """
+                    UPDATE user_photos
+                    SET found_at = NOW()
+                    WHERE email = $1 AND photo_id = $2
+                    """,
+                    (email, photo_id)
+                )
+                return True
+
+            # Se è stata marcata come deleted, non riattivarla automaticamente
+            if current_status == "deleted" and status != "paid":
+                return True
+
+            # Aggiorna normalmente (può anche promuovere a 'paid')
             await _db_execute_write(f"""
-                UPDATE user_photos 
+                UPDATE user_photos
                 SET found_at = NOW(), status = $1, expires_at = NOW() + INTERVAL '{days} days'
                 WHERE email = $2 AND photo_id = $3
             """, (status, email, photo_id))
@@ -627,7 +646,7 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
                 INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
                 VALUES ($1, $2, NOW(), $3, NOW() + INTERVAL '{days} days')
             """, (email, photo_id, status))
-        
+
         return True
     except Exception as e:
         logger.error(f"Error adding user photo: {e}")

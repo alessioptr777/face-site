@@ -1511,6 +1511,8 @@
     let currentPhotoIndex = 0;
     let paidPhotos = []; // Array di photo_id pagate
     let selfieCompleted = false; // Flag per tracciare se il selfie è stato completato
+    let photosLoaded = false; // Flag per tracciare se le foto sono state caricate
+    let fromStripeSuccess = false; // Flag per tracciare se arrivo da Stripe success
 
     // Elementi DOM
     const welcomeScreen = document.getElementById("welcomeScreen");
@@ -1545,6 +1547,24 @@
         console.error('Screen not found:', screenName + 'Screen');
       }
       currentScreen = screenName;
+      
+      // Gestione stickyOfferBar: visibile SOLO quando albumScreen è attivo
+      const stickyOfferBar = document.getElementById('stickyOfferBar');
+      if(stickyOfferBar) {
+        if(screenName !== 'album') {
+          stickyOfferBar.classList.remove('active');
+          stickyOfferBar.style.display = 'none';
+        }
+        // Se è album, verrà mostrato dopo che le foto sono renderizzate
+      }
+      
+      // Gestione selfieErrorBox: nascondi quando non siamo in selfieScreen
+      const selfieErrorBox = document.getElementById('selfieErrorBox');
+      if(selfieErrorBox) {
+        if(screenName !== 'selfie') {
+          selfieErrorBox.style.display = 'none';
+        }
+      }
     }
 
     // Variabile globale per email utente
@@ -1926,34 +1946,46 @@
               return { hasPaid: hasAnyPaid, hasFound: false, shown: true };
             } else {
               // Se ha foto pagate ma non found_photos, mostra album con solo foto pagate
-              if(hasAnyPaid && data.paid_photos && data.paid_photos.length > 0) {
-                console.log('No found photos but has paid photos, showing album with paid photos');
-                userEmail = email;
-                localStorage.setItem('userEmail', email);
+              // NON richiedere selfie se ha foto pagate
+              if(hasAnyPaid) {
+                // Prepara foto pagate da mostrare
+                let paidPhotosToShow = [];
                 
-                allPhotos = data.paid_photos.map(photoId => ({
-                  photo_id: photoId,
-                  score: 0,
-                  has_face: true,
-                  paid: true
-                }));
-                
-                showScreen('album');
-                await displayPhotos();
-                
-                // Nascondi sticky bar (tutte le foto sono pagate)
-                const stickyBar = document.getElementById('stickyOfferBar');
-                if(stickyBar) {
-                  stickyBar.style.display = 'none';
+                // Aggiungi foto pagate da paid_photos
+                if(data.paid_photos && data.paid_photos.length > 0) {
+                  paidPhotosToShow = data.paid_photos.map(photoId => ({
+                    photo_id: photoId,
+                    score: 0,
+                    has_face: true,
+                    paid: true
+                  }));
                 }
                 
-                return { hasPaid: true, hasFound: false, shown: true };
-              } else {
-                console.log('No photos found, showing selfie');
-                showScreen('selfie');
-                await startCamera();
-                return { hasPaid: false, hasFound: false, shown: false };
+                // Se abbiamo foto pagate da mostrare, mostra la griglia
+                if(paidPhotosToShow.length > 0) {
+                  console.log('No found photos but has paid photos, showing album with paid photos (no selfie required)');
+                  userEmail = email;
+                  localStorage.setItem('userEmail', email);
+                  
+                  allPhotos = paidPhotosToShow;
+                  showScreen('album');
+                  await displayPhotos();
+                  
+                  // Nascondi sticky bar (tutte le foto sono pagate)
+                  const stickyBar = document.getElementById('stickyOfferBar');
+                  if(stickyBar) {
+                    stickyBar.style.display = 'none';
+                  }
+                  
+                  return { hasPaid: true, hasFound: false, shown: true };
+                }
               }
+              
+              // Solo se NON ha foto (né trovate né pagate) → richiedi selfie
+              console.log('No photos found (neither found nor paid), showing selfie');
+              showScreen('selfie');
+              await startCamera();
+              return { hasPaid: false, hasFound: false, shown: false };
             }
           }
         }
@@ -2004,7 +2036,7 @@
           // Continua comunque
         }
         
-        // 2. Controlla foto dell'utente PRIMA di mostrare selfie
+        // 2. Controlla foto dell'utente - NON avviare camera automaticamente
         const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
         const data = await res.json();
         
@@ -2020,26 +2052,32 @@
         if(data.ok) {
           const hasPaid = data.paid_photos && data.paid_photos.length > 0;
           const hasFound = data.found_photos && data.found_photos.length > 0;
+          const foundCount = data.found_photos ? data.found_photos.length : 0;
+          const paidCount = data.paid_photos ? data.paid_photos.length : 0;
+          const totalPhotos = foundCount + paidCount;
           
           // Controlla anche se ci sono foto trovate con status='paid'
           const hasPaidInFound = data.found_photos && data.found_photos.some(p => p.status === 'paid');
           const hasAnyPaid = hasPaid || hasPaidInFound;
           
-          console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound=${hasPaidInFound}`);
+          console.log(`User state: hasPaid=${hasPaid} (${paidCount} photos), hasFound=${hasFound} (${foundCount} photos), hasPaidInFound=${hasPaidInFound}, total=${totalPhotos}`);
           
-          // Mostra SEMPRE la griglia (album) quando l'utente inserisce email
-          // Le foto pagate vengono mostrate con badge "paid" e sono scaricabili
-          if(hasFound) {
-            // Mostra TUTTE le foto trovate (pagate e non pagate) nella griglia
-            let photosToShow = data.found_photos.map(p => ({
-              photo_id: p.photo_id,
-              score: 0,
-              has_face: true,
-              paid: p.status === 'paid'
-            }));
+          // Se ha foto (found_count > 0 o photo_ids.length > 0) → mostra direttamente la griglia
+          if(totalPhotos > 0 || hasFound || hasAnyPaid) {
+            let photosToShow = [];
+            
+            // Se ha found_photos, aggiungile tutte (pagate e non pagate)
+            if(hasFound) {
+              photosToShow = data.found_photos.map(p => ({
+                photo_id: p.photo_id,
+                score: 0,
+                has_face: true,
+                paid: p.status === 'paid'
+              }));
+            }
             
             // Aggiungi anche le foto pagate che non sono in found_photos
-            if(data.paid_photos && data.paid_photos.length > 0) {
+            if(hasPaid && data.paid_photos && data.paid_photos.length > 0) {
               const foundPhotoIds = new Set(photosToShow.map(p => p.photo_id));
               data.paid_photos.forEach(photoId => {
                 if(!foundPhotoIds.has(photoId)) {
@@ -2053,52 +2091,54 @@
               });
             }
             
-            console.log(`Showing ${photosToShow.length} photos in album (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
-            
-            allPhotos = photosToShow;
-            showScreen('album');
-            await displayPhotos();
-            
-            // Mostra sticky bar solo con conteggio foto NON pagate
-            const unpaidCount = photosToShow.filter(p => !p.paid).length;
-            if(unpaidCount > 0) {
-              showStickyOfferBar(unpaidCount);
-            } else {
-              // Nascondi sticky bar se tutte le foto sono pagate
-              const stickyBar = document.getElementById('stickyOfferBar');
-              if(stickyBar) {
-                stickyBar.style.display = 'none';
+            // Se abbiamo foto da mostrare, mostra la griglia
+            if(photosToShow.length > 0) {
+              console.log(`Showing ${photosToShow.length} photos in album (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
+              
+              allPhotos = photosToShow;
+              // NON impostare photosLoaded qui - verrà impostato in displayPhotos() dopo il render
+              showScreen('album');
+              await displayPhotos();
+              // photosLoaded sarà true dopo displayPhotos() completa
+              
+              // Abilita banner solo dopo che la griglia è pronta
+              const unpaidCount = photosToShow.filter(p => !p.paid).length;
+              if(unpaidCount > 0) {
+                showStickyOfferBar(unpaidCount);
+              } else {
+                // Nascondi sticky bar se tutte le foto sono pagate
+                const stickyBar = document.getElementById('stickyOfferBar');
+                if(stickyBar) {
+                  stickyBar.style.display = 'none';
+                }
               }
+              
+              return; // Esci, album mostrato - NON richiedere selfie
             }
-            
-            return; // Esci, album mostrato
-          } else if(hasAnyPaid && data.paid_photos && data.paid_photos.length > 0) {
-            // Se ha solo foto pagate (non in found_photos), mostra album con solo foto pagate
-            console.log(`Showing ${data.paid_photos.length} paid photos in album`);
-            
-            allPhotos = data.paid_photos.map(photoId => ({
-              photo_id: photoId,
-              score: 0,
-              has_face: true,
-              paid: true
-            }));
-            
-            showScreen('album');
-            await displayPhotos();
-            
-            // Nascondi sticky bar (tutte le foto sono pagate)
-            const stickyBar = document.getElementById('stickyOfferBar');
-            if(stickyBar) {
-              stickyBar.style.display = 'none';
-            }
-            
-            return; // Esci, album mostrato
           }
+          
+          // Se 0 foto: mostra selfieScreen ma SENZA avviare camera automaticamente
+          console.log('No photos found (0 photos), showing selfie screen without auto-starting camera');
+          showScreen('selfie');
+          // NON chiamare startCamera() qui - solo quando l'utente clicca il bottone
+          // NON mostrare selfieErrorBox (appare solo dopo /match_selfie)
+          const selfieErrorBox = document.getElementById('selfieErrorBox');
+          if(selfieErrorBox) {
+            selfieErrorBox.style.display = 'none';
+          }
+          // Il bottone captureBtn sarà abilitato quando l'utente clicca e avvia camera
+          return;
         }
         
-        // Non ha nulla → flusso normale: vai al selfie
+        // Se errore nella chiamata, mostra selfie con CTA
+        console.log('Error in user photos response, showing selfie screen with CTA');
         showScreen('selfie');
-      await startCamera();
+        const captureBtn = document.getElementById('captureBtn');
+        if(captureBtn) {
+          captureBtn.style.display = 'block';
+          captureBtn.disabled = false;
+          captureBtn.style.opacity = '1';
+        }
       } catch(e) {
         console.error('Error checking user state:', e);
         
@@ -2289,7 +2329,13 @@
       observer.observe(welcomeScreen, { attributes: true });
     }
 
-    document.getElementById("captureBtn").addEventListener("click", captureSelfie);
+    document.getElementById("captureBtn").addEventListener("click", async () => {
+      // Se la camera non è ancora avviata, avviala prima di catturare
+      if(!stream) {
+        await startCamera();
+      }
+      captureSelfie();
+    });
     document.getElementById("confirmBtn").addEventListener("click", confirmSelfie);
     document.getElementById("retakeBtn").addEventListener("click", () => {
       startCamera();
@@ -3164,11 +3210,13 @@
     }
     
     async function displayPhotos() {
+      // Reset photosLoaded all'inizio
+      photosLoaded = false;
+      
       if(!allPhotos || allPhotos.length === 0) {
         console.warn("displayPhotos chiamato ma non ci sono foto!");
-        alert('No photos found. Try again.');
-        showScreen('selfie');
-        startCamera();
+        // NON mostrare alert, NON chiamare showSelfieError, NON avviare camera
+        // L'utente può tornare al selfie manualmente se vuole
         return;
       }
 
@@ -3406,9 +3454,16 @@
         return;
       }
       
-      // Verifica che lo schermo album sia attivo
+      // Verifica che lo schermo album sia attivo E le foto siano state renderizzate
       if(!albumScreen || !albumScreen.classList.contains('active')) {
         console.warn("Schermo album non attivo, aspetto...");
+        setTimeout(() => showStickyOfferBar(photoCount), 200);
+        return;
+      }
+      
+      // Verifica che le foto siano state caricate
+      if(!photosLoaded) {
+        console.warn("Foto non ancora caricate, aspetto...");
         setTimeout(() => showStickyOfferBar(photoCount), 200);
         return;
       }
