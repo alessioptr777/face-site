@@ -1827,43 +1827,37 @@
           }
         }
         
-        // 3. PRIORITÀ: Se ha foto pagate (anche solo una) → redirect a /my-photos (pagina post-pagamento)
-        // MA: se forceAlbum=true, mostra l'album invece di fare redirect
-        if(hasAnyPaid && !forceAlbum) {
-          const paidCount = (data.paid_photos?.length || 0) + (data.found_photos?.filter(p => p.status === 'paid').length || 0);
-          console.log(`User has ${paidCount} paid photos (in paid_photos or found_photos), redirecting to /my-photos`);
-          window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-          return { hasPaid: true, hasFound: hasFound, redirect: true };
-        }
-        
-        // 4. Se ha foto trovate → mostra album
+        // 3. Se ha foto trovate → mostra album (SEMPRE, anche se ha foto pagate)
+        // Le foto pagate vengono mostrate nella griglia con badge "paid" e sono scaricabili
         if(hasFound) {
           userEmail = email;
           localStorage.setItem('userEmail', email);
           
-          // Se forceAlbum=true, mostra TUTTE le foto (pagate + non pagate)
-          // Se forceAlbum=false, mostra solo foto NON pagate
-          let photosToShow = [];
-          if(forceAlbum) {
-            // Mostra TUTTE le foto trovate (pagate e non pagate)
-            photosToShow = data.found_photos.map(p => ({
-              photo_id: p.photo_id,
-              score: 0,
-              has_face: true,
-              paid: p.status === 'paid'
-            }));
-            console.log(`forceAlbum=true: showing ALL ${photosToShow.length} found photos (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
-          } else {
-            // Mostra solo foto NON pagate
-            const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
-            photosToShow = unpaidPhotos.map(p => ({
-              photo_id: p.photo_id,
-              score: 0,
-              has_face: true,
-              paid: false
-            }));
-            console.log(`Showing ${photosToShow.length} unpaid found photos`);
+          // Mostra TUTTE le foto trovate (pagate e non pagate) nella griglia
+          // Le foto pagate avranno badge "paid" e saranno scaricabili
+          let photosToShow = data.found_photos.map(p => ({
+            photo_id: p.photo_id,
+            score: 0,
+            has_face: true,
+            paid: p.status === 'paid'
+          }));
+          
+          // Aggiungi anche le foto pagate che non sono in found_photos
+          if(data.paid_photos && data.paid_photos.length > 0) {
+            const foundPhotoIds = new Set(photosToShow.map(p => p.photo_id));
+            data.paid_photos.forEach(photoId => {
+              if(!foundPhotoIds.has(photoId)) {
+                photosToShow.push({
+                  photo_id: photoId,
+                  score: 0,
+                  has_face: true,
+                  paid: true
+                });
+              }
+            });
           }
+          
+          console.log(`Showing ${photosToShow.length} photos in album (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
           
           if(photosToShow.length > 0) {
             allPhotos = photosToShow;
@@ -1931,11 +1925,29 @@
               
               return { hasPaid: hasAnyPaid, hasFound: false, shown: true };
             } else {
-              // Redirecta a /my-photos se ha foto pagate, altrimenti selfie
-              if(hasAnyPaid) {
-                console.log('No found photos but has paid photos, redirecting to /my-photos');
-                window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-                return { hasPaid: true, hasFound: false, redirect: true };
+              // Se ha foto pagate ma non found_photos, mostra album con solo foto pagate
+              if(hasAnyPaid && data.paid_photos && data.paid_photos.length > 0) {
+                console.log('No found photos but has paid photos, showing album with paid photos');
+                userEmail = email;
+                localStorage.setItem('userEmail', email);
+                
+                allPhotos = data.paid_photos.map(photoId => ({
+                  photo_id: photoId,
+                  score: 0,
+                  has_face: true,
+                  paid: true
+                }));
+                
+                showScreen('album');
+                await displayPhotos();
+                
+                // Nascondi sticky bar (tutte le foto sono pagate)
+                const stickyBar = document.getElementById('stickyOfferBar');
+                if(stickyBar) {
+                  stickyBar.style.display = 'none';
+                }
+                
+                return { hasPaid: true, hasFound: false, shown: true };
               } else {
                 console.log('No photos found, showing selfie');
                 showScreen('selfie');
@@ -2015,41 +2027,72 @@
           
           console.log(`User state: hasPaid=${hasPaid} (${data.paid_photos?.length || 0} photos), hasFound=${hasFound} (${data.found_photos?.length || 0} photos), hasPaidInFound=${hasPaidInFound}`);
           
-          // PRIORITÀ ASSOLUTA: Se ha foto pagate (anche solo una) → redirect IMMEDIATO a /my-photos
-          // NON mostrare album, NON fare altri controlli, vai DIRETTAMENTE alle foto pagate
-          if(hasAnyPaid) {
-            console.log(`User has paid photos, redirecting immediately to /my-photos`);
-            window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-            return; // Esci subito, il redirect è in corso - NON fare altro
-          }
-          
-          // Se ha solo foto trovate (non pagate) → mostra album
+          // Mostra SEMPRE la griglia (album) quando l'utente inserisce email
+          // Le foto pagate vengono mostrate con badge "paid" e sono scaricabili
           if(hasFound) {
-            // FILTRA: mostra solo foto NON pagate
-            const unpaidPhotos = data.found_photos.filter(p => p.status !== 'paid');
+            // Mostra TUTTE le foto trovate (pagate e non pagate) nella griglia
+            let photosToShow = data.found_photos.map(p => ({
+              photo_id: p.photo_id,
+              score: 0,
+              has_face: true,
+              paid: p.status === 'paid'
+            }));
             
-            if(unpaidPhotos.length > 0) {
-              console.log(`User has ${unpaidPhotos.length} unpaid found photos, showing album`);
-              
-              // Prepara foto da mostrare (solo quelle non pagate)
-              allPhotos = unpaidPhotos.map(p => ({
-                photo_id: p.photo_id,
-                score: 0,
-                has_face: true,
-                paid: false
-              }));
-              
-              // Mostra album
-              showScreen('album');
-              await displayPhotos();
-              showStickyOfferBar(allPhotos.length);
-              return; // Esci, album mostrato
-            } else {
-              // Tutte le foto trovate sono già pagate, redirecta a /my-photos
-              console.log('All found photos are already paid, redirecting to /my-photos');
-              window.location.href = `/my-photos?email=${encodeURIComponent(email)}`;
-              return; // Esci, redirect in corso
+            // Aggiungi anche le foto pagate che non sono in found_photos
+            if(data.paid_photos && data.paid_photos.length > 0) {
+              const foundPhotoIds = new Set(photosToShow.map(p => p.photo_id));
+              data.paid_photos.forEach(photoId => {
+                if(!foundPhotoIds.has(photoId)) {
+                  photosToShow.push({
+                    photo_id: photoId,
+                    score: 0,
+                    has_face: true,
+                    paid: true
+                  });
+                }
+              });
             }
+            
+            console.log(`Showing ${photosToShow.length} photos in album (${photosToShow.filter(p => p.paid).length} paid, ${photosToShow.filter(p => !p.paid).length} unpaid)`);
+            
+            allPhotos = photosToShow;
+            showScreen('album');
+            await displayPhotos();
+            
+            // Mostra sticky bar solo con conteggio foto NON pagate
+            const unpaidCount = photosToShow.filter(p => !p.paid).length;
+            if(unpaidCount > 0) {
+              showStickyOfferBar(unpaidCount);
+            } else {
+              // Nascondi sticky bar se tutte le foto sono pagate
+              const stickyBar = document.getElementById('stickyOfferBar');
+              if(stickyBar) {
+                stickyBar.style.display = 'none';
+              }
+            }
+            
+            return; // Esci, album mostrato
+          } else if(hasAnyPaid && data.paid_photos && data.paid_photos.length > 0) {
+            // Se ha solo foto pagate (non in found_photos), mostra album con solo foto pagate
+            console.log(`Showing ${data.paid_photos.length} paid photos in album`);
+            
+            allPhotos = data.paid_photos.map(photoId => ({
+              photo_id: photoId,
+              score: 0,
+              has_face: true,
+              paid: true
+            }));
+            
+            showScreen('album');
+            await displayPhotos();
+            
+            // Nascondi sticky bar (tutte le foto sono pagate)
+            const stickyBar = document.getElementById('stickyOfferBar');
+            if(stickyBar) {
+              stickyBar.style.display = 'none';
+            }
+            
+            return; // Esci, album mostrato
           }
         }
         
