@@ -1542,6 +1542,57 @@
     let paidPhotos = []; // Array di photo_id pagate
     let selfieCompleted = false; // Flag per tracciare se il selfie è stato completato
     let photosLoaded = false; // Flag per tracciare se le foto sono state caricate
+    
+    // Carrello locale (localStorage) - istantaneo, senza chiamate backend
+    const CART_KEY = "cart_photo_ids";
+    
+    function loadCart() {
+      try {
+        const stored = localStorage.getItem(CART_KEY);
+        return stored ? JSON.parse(stored) : [];
+      } catch(e) {
+        console.error("Error loading cart from localStorage:", e);
+        return [];
+      }
+    }
+    
+    function saveCart(ids) {
+      try {
+        localStorage.setItem(CART_KEY, JSON.stringify(ids));
+      } catch(e) {
+        console.error("Error saving cart to localStorage:", e);
+      }
+    }
+    
+    function addToCartLocal(photoId) {
+      const ids = new Set(loadCart());
+      ids.add(photoId);
+      const updated = [...ids];
+      saveCart(updated);
+      return updated;
+    }
+    
+    function removeFromCartLocal(photoId) {
+      const ids = new Set(loadCart());
+      ids.delete(photoId);
+      const updated = [...ids];
+      saveCart(updated);
+      return updated;
+    }
+    
+    function syncCartFromLocalStorage() {
+      const photoIds = loadCart();
+      const count = photoIds.length;
+      const priceCents = calculatePrice(count);
+      currentCart = {
+        photo_ids: photoIds,
+        count: count,
+        price_cents: priceCents,
+        price_euros: priceCents / 100.0
+      };
+      updateCart();
+      updateCartModal();
+    }
     let fromStripeSuccess = false; // Flag per tracciare se arrivo da Stripe success
 
     // Elementi DOM
@@ -1649,6 +1700,16 @@
       return success === '1' && (!!sessionId || !!token);
     }
     
+    // Flag globale per bloccare flusso normale durante post-pagamento
+    let IS_STRIPE_SUCCESS_FLOW = false;
+    
+    // Funzione per tornare al flusso normale (welcome/selfie)
+    function goToNormalFlowStart() {
+      console.log('[StripeSuccess] Returning to normal flow (welcome screen)');
+      IS_STRIPE_SUCCESS_FLOW = false; // Reset flag
+      showScreen('welcome');
+    }
+    
     // Bootstrap app: mostra sempre welcome/selfie screen (stateless)
     async function bootApp() {
       console.log('bootApp() called (stateless mode)');
@@ -1657,10 +1718,27 @@
       if (hasStripeSuccessParams()) {
         const urlParams = new URLSearchParams(window.location.search);
         const sessionId = urlParams.get('session_id');
+        const token = urlParams.get('download_token');
+        const sid = sessionId || token;
         
-        if (sessionId) {
+        // Controlla se questo session_id è già stato "consumato" (anti-refresh)
+        if (sid) {
+          const consumedKey = "stripe_consumed_" + sid;
+          if (sessionStorage.getItem(consumedKey) === "1") {
+            console.log('[StripeSuccess] Session ID already consumed, going to normal flow');
+            goToNormalFlowStart();
+            return;
+          }
+        }
+        
+        // Se non consumato, entra nel flusso post-pagamento
+        IS_STRIPE_SUCCESS_FLOW = true;
+        console.log('[StripeSuccess] Detected success params, entering post-payment flow');
+        
+        if (sid) {
           // FLUSSO POST-PAGAMENTO: carica pagina download usando session_id
-          await loadAlbumAfterPayment(sessionId);
+          console.log('[StripeSuccess] Loading album after payment...');
+          await loadAlbumAfterPayment(sid);
           return;
         }
       }
@@ -1672,45 +1750,84 @@
     
     // Funzione separata per caricare album dopo pagamento (stateless: usa session_id)
     async function loadAlbumAfterPayment(sessionId) {
+      console.log('[StripeSuccess] loadAlbumAfterPayment called with sessionId:', sessionId);
+      
       // Stateless mode: usa session_id per recuperare foto pagate da Stripe
       if (!sessionId) {
-        console.error('No session_id provided');
-        showScreen('welcome');
+        console.error('[StripeSuccess] No session_id provided');
+        IS_STRIPE_SUCCESS_FLOW = false; // Reset flag se errore
+        goToNormalFlowStart();
+        return;
+      }
+      
+      // Controlla se questo session_id è già stato "consumato" (anti-refresh)
+      const consumedKey = "stripe_consumed_" + sessionId;
+      if (sessionStorage.getItem(consumedKey) === "1") {
+        console.log('[StripeSuccess] Session ID already consumed, going to normal flow');
+        goToNormalFlowStart();
         return;
       }
       
       try {
+        console.log('[StripeSuccess] Fetching /stripe/verify...');
         const res = await fetch(`/stripe/verify?session_id=${encodeURIComponent(sessionId)}`);
+        
+        if (!res.ok) {
+          console.error('[StripeSuccess] /stripe/verify failed:', res.status, res.statusText);
+          IS_STRIPE_SUCCESS_FLOW = false; // Reset flag se errore
+          goToNormalFlowStart();
+          return;
+        }
+        
         const data = await res.json();
+        console.log('[StripeSuccess] /stripe/verify response:', data);
         
         if(data.ok && data.photo_ids && data.photo_ids.length > 0) {
+          console.log('[StripeSuccess] Found', data.photo_ids.length, 'paid photos');
+          
           // Prepara foto pagate da mostrare
           const photosToShow = data.photo_ids.map(photoId => ({
-            photo_id: photoId,
-            score: 0,
-            has_face: true,
-            paid: true
-          }));
-          
+                photo_id: photoId,
+                score: 0,
+                has_face: true,
+                paid: true
+              }));
+            
           allPhotos = photosToShow;
           paidPhotos = data.photo_ids;
           userEmail = data.customer_email || null;
           
+          console.log('[StripeSuccess] Showing album with', allPhotos.length, 'paid photos');
           showScreen('album');
           await displayPhotos();
-          showStickyOfferBar(allPhotos.length);
+          
+          // Non mostrare sticky bar per foto pagate (sono già tutte pagate)
+          const stickyBar = document.getElementById('stickyOfferBar');
+          if(stickyBar) {
+            stickyBar.style.display = 'none';
+          }
+          
+          // IMPORTANTE: marca questo session_id come "consumato" (anti-refresh)
+          sessionStorage.setItem(consumedKey, "1");
+          console.log('[StripeSuccess] Marked session_id as consumed in sessionStorage');
+          
+          // IMPORTANTE: pulisci URL immediatamente (così refresh non rilancia il success flow)
+          const cleanUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, "", cleanUrl);
+          console.log('[StripeSuccess] Cleaned URL, removed success params');
+          
+          console.log('[StripeSuccess] Post-payment page displayed successfully');
+          // Mantieni IS_STRIPE_SUCCESS_FLOW = true per bloccare altri flussi
         } else {
-          console.error('No photos found in Stripe session');
-          showScreen('welcome');
+          console.error('[StripeSuccess] No photos found in Stripe session');
+          IS_STRIPE_SUCCESS_FLOW = false; // Reset flag se errore
+          goToNormalFlowStart();
         }
       } catch(e) {
-        console.error('Error loading album after payment:', e);
-        showScreen('welcome');
+        console.error('[StripeSuccess] Error loading album after payment:', e);
+        IS_STRIPE_SUCCESS_FLOW = false; // Reset flag se errore
+        goToNormalFlowStart();
       }
-      
-      // Se dopo 3 tentativi non ci sono foto, mostra welcome screen
-      console.warn("No paid photos found after 3 attempts");
-      showScreen('welcome');
     }
     
     // Setup bottone "Rifai selfie" (una volta sola)
@@ -1769,21 +1886,21 @@
       
       // Codice vecchio disabilitato (stateless mode):
       if(false) {
+      try {
+        // 1. Salva l'utente solo con email
         try {
-          // 1. Salva l'utente solo con email
-          try {
-            await fetch(`/user/register?email=${encodeURIComponent(email)}`, {
-              method: 'POST'
-            });
-            console.log('User registered/updated with email:', email);
-          } catch(e) {
-            console.error('Error registering user:', e);
-            // Continua comunque
-          }
-          
-          // 2. Controlla foto dell'utente
-          const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
-          const data = await res.json();
+          await fetch(`/user/register?email=${encodeURIComponent(email)}`, {
+            method: 'POST'
+          });
+          console.log('User registered/updated with email:', email);
+        } catch(e) {
+          console.error('Error registering user:', e);
+          // Continua comunque
+        }
+        
+        // 2. Controlla foto dell'utente
+        const res = await fetch(`/user/photos?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
         
         console.log('checkUserState - API response:', data);
         console.log('checkUserState - paid_photos:', data.paid_photos);
@@ -1806,11 +1923,11 @@
         // (potrebbero essere rimaste da una sessione precedente)
         if(hasAnyPaid) {
           try {
-            // Carica carrello corrente
-            const cartRes = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
-            const cartData = await cartRes.json();
+            // Carica carrello corrente dal localStorage
+            syncCartFromLocalStorage();
+            const cartPhotoIds = currentCart.photo_ids || [];
             
-            if(cartData.ok && cartData.photo_ids && cartData.photo_ids.length > 0) {
+            if(cartPhotoIds.length > 0) {
               // Raccogli tutte le foto pagate
               const allPaidPhotoIds = new Set();
               if(data.paid_photos) {
@@ -1820,21 +1937,11 @@
                 data.found_photos.filter(p => p.status === 'paid').forEach(p => allPaidPhotoIds.add(p.photo_id));
               }
               
-              // Rimuovi tutte le foto pagate dal carrello
-              for(const photoId of cartData.photo_ids) {
-                if(allPaidPhotoIds.has(photoId)) {
-                  await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
-                    method: "DELETE"
-                  });
-                }
-              }
-              
-              // Aggiorna carrello locale
-              const updatedCartRes = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
-              const updatedCartData = await updatedCartRes.json();
-              if(updatedCartData.ok) {
-                currentCart = updatedCartData;
-                updateCart();
+              // Rimuovi tutte le foto pagate dal carrello locale
+              const unpaidPhotoIds = cartPhotoIds.filter(photoId => !allPaidPhotoIds.has(photoId));
+              if(unpaidPhotoIds.length !== cartPhotoIds.length) {
+                saveCart(unpaidPhotoIds);
+                syncCartFromLocalStorage();
               }
             }
           } catch(e) {
@@ -1960,7 +2067,7 @@
                 // Se abbiamo foto pagate da mostrare, mostra la griglia
                 if(paidPhotosToShow.length > 0) {
                   console.log('No found photos but has paid photos, showing album with paid photos (no selfie required)');
-                  userEmail = email;
+      userEmail = email;
                   // Stateless: non salvare email
                   
                   allPhotos = paidPhotosToShow;
@@ -2006,7 +2113,7 @@
         showScreen('selfie');
         // Camera verrà avviata quando l'utente clicca "Start Camera"
       });
-    }
+      }
     
     // Funzione per caricare album di test (salta camera)
     async function loadTestAlbum() {
@@ -2104,9 +2211,9 @@
       welcomeContinueBtn.addEventListener("click", async () => {
         // Stateless: vai direttamente al selfie senza email o check utente
         console.log('Welcome Continue clicked - going to selfie screen and requesting camera');
-        showScreen('selfie');
+      showScreen('selfie');
         // QUI e SOLO QUI richiediamo permesso camera
-        await startCamera();
+      await startCamera();
       });
     }
     
@@ -2128,6 +2235,12 @@
       await startCamera();
     });
     document.getElementById("retryCameraBtn")?.addEventListener("click", async () => {
+      // Guardia: blocca se siamo in flusso post-pagamento
+      if (IS_STRIPE_SUCCESS_FLOW) {
+        console.log('[StripeSuccess] Blocked retryCameraBtn click - post-payment flow active');
+        return;
+      }
+      
       const placeholder = document.getElementById('videoPlaceholder');
       const retryCameraBtn = document.getElementById('retryCameraBtn');
       if(placeholder) placeholder.style.display = 'none';
@@ -2138,6 +2251,12 @@
     const startCameraBtn = document.getElementById('startCameraBtn');
     if(startCameraBtn) {
       startCameraBtn.addEventListener('click', async () => {
+        // Guardia: blocca se siamo in flusso post-pagamento
+        if (IS_STRIPE_SUCCESS_FLOW) {
+          console.log('[StripeSuccess] Blocked startCameraBtn click - post-payment flow active');
+          return;
+        }
+        
         console.log('[CAM] Start camera button clicked');
         const startCameraPrompt = document.getElementById('startCameraPrompt');
         if(startCameraPrompt) {
@@ -2147,6 +2266,12 @@
       });
     }
     document.getElementById("skipAddPersonBtn").addEventListener("click", async () => {
+      // Guardia: blocca se siamo in flusso post-pagamento
+      if (IS_STRIPE_SUCCESS_FLOW) {
+        console.log('[StripeSuccess] Blocked skipAddPersonBtn click - post-payment flow active');
+        return;
+      }
+      
       // Se le foto sono già state caricate, mostra direttamente l'album
       if(allPhotos && allPhotos.length > 0) {
         await displayPhotos();
@@ -2157,6 +2282,12 @@
       }
     });
     document.getElementById("addPersonConfirmBtn").addEventListener("click", async () => {
+      // Guardia: blocca se siamo in flusso post-pagamento
+      if (IS_STRIPE_SUCCESS_FLOW) {
+        console.log('[StripeSuccess] Blocked addPersonConfirmBtn click - post-payment flow active');
+        return;
+      }
+      
       // Per ora salta, poi implementeremo aggiunta persone
       // Se le foto sono già state caricate, mostra direttamente l'album
       if(allPhotos && allPhotos.length > 0) {
@@ -2738,6 +2869,12 @@
 
     // Funzioni camera
     async function startCamera() {
+      // Guardia: blocca se siamo in flusso post-pagamento
+      if (IS_STRIPE_SUCCESS_FLOW) {
+        console.log('[StripeSuccess] Blocked startCamera() - post-payment flow active');
+        return;
+      }
+      
       // Se già in avvio, ritorna
       if(cameraStarting) {
         console.log('[CAM] Camera already starting, skipping');
@@ -3164,6 +3301,12 @@
     }
     
     function resetSelfieState() {
+      // Guardia: blocca se siamo in flusso post-pagamento
+      if (IS_STRIPE_SUCCESS_FLOW) {
+        console.log('[StripeSuccess] Blocked resetSelfieState() - post-payment flow active');
+        return;
+      }
+      
       // Reset variabili
       capturedBlob = null;
       selfieCompleted = false;
@@ -3182,6 +3325,12 @@
     
     // Funzioni matching
     async function matchPhotos() {
+      // Guardia: blocca se siamo in flusso post-pagamento
+      if (IS_STRIPE_SUCCESS_FLOW) {
+        console.log('[StripeSuccess] Blocked matchPhotos() - post-payment flow active');
+        return;
+      }
+      
       if(!capturedBlob) {
         console.error("capturedBlob è null!");
         alert("Error: selfie not found. Please take it again.");
@@ -3459,7 +3608,7 @@
             photosLoadedCount = 0;
             paidPhotos = [];
             showScreen('album');
-            await displayPhotos();
+          await displayPhotos();
             updateCart();
             if(allPhotos.length > 0) {
               showStickyOfferBar();
@@ -3658,7 +3807,7 @@
                   console.error('Thumb not ready after retries:', photoId);
                   img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23ddd" width="400" height="400"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999"%3ELoading...%3C/text%3E%3C/svg%3E';
                   img.classList.add('loaded');
-                  const skeleton = img.parentElement.querySelector('.photo-skeleton');
+                const skeleton = img.parentElement.querySelector('.photo-skeleton');
                   if(skeleton) skeleton.remove();
                 }
               };
@@ -3777,6 +3926,8 @@
     }
     
     async function displayPhotos() {
+      // Inizializza carrello dal localStorage all'inizio
+      syncCartFromLocalStorage();
       // Reset photosLoaded all'inizio
       photosLoaded = false;
       
@@ -3867,13 +4018,13 @@
           const tryLoadImage = () => {
             // Usa thumb_url se disponibile (precomputato, veloce), altrimenti fallback
             let photoUrl = photo.thumb_url || `/photo/${encodeURIComponent(photo.photo_id)}?variant=thumb`;
-            
-            // Per le prime 6 foto, usa fetchpriority per caricamento più veloce
-            if(index < 6) {
-              img.fetchPriority = 'high';
-            }
-            
-            imgElement.src = photoUrl;
+          
+          // Per le prime 6 foto, usa fetchpriority per caricamento più veloce
+          if(index < 6) {
+            img.fetchPriority = 'high';
+          }
+          
+          imgElement.src = photoUrl;
           };
           
           imgElement.onerror = () => {
@@ -4189,7 +4340,7 @@
         // Foto pagata: usa paid_url se disponibile, altrimenti costruisci URL
         photoUrl = photo.paid_url || `/photo/${encodeURIComponent(photo.photo_id)}?paid=true`;
         if(userEmail) {
-          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        photoUrl += `&email=${encodeURIComponent(userEmail)}`;
         }
       } else {
         // Foto non pagata: usa wm_url (precomputato, veloce)
@@ -4527,13 +4678,7 @@
       }
     }
 
-    async function toggleCart(photoId, buttonElement) {
-      // Previeni l'aggiunta di foto pagate al carrello
-      if(paidPhotos.includes(photoId)) {
-        console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
-        return;
-      }
-      try {
+    function toggleCart(photoId, buttonElement) {
         // Previeni l'aggiunta di foto pagate al carrello
         if(paidPhotos.includes(photoId)) {
           console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
@@ -4544,49 +4689,16 @@
         // Verifica se la foto è già nel carrello
         const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
         
-        let res;
         if(isInCart) {
-          // Rimuovi dal carrello
-          res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
-            method: "DELETE"
-          });
+        // Rimuovi dal carrello (istantaneo)
+        removeFromCart(photoId);
         } else {
-          // Aggiungi al carrello - passa sempre email per validazione backend
-          let url = `/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`;
-          if(userEmail) {
-            url += `&email=${encodeURIComponent(userEmail)}`;
-          }
-          res = await fetch(url, {
-            method: "POST"
-          });
-        }
-        
-        const data = await res.json();
-        
-        // Se il backend ha rifiutato perché la foto è pagata, aggiorna paidPhotos
-        if(!data.ok && data.error && (data.error.includes("già stata acquistata") || data.error.includes("already paid"))) {
-          if(!paidPhotos.includes(photoId)) {
-            paidPhotos.push(photoId);
-          }
-          // Aggiorna anche allPhotos
-          const photo = allPhotos.find(p => p.photo_id === photoId);
-          if(photo) {
-            photo.paid = true;
-          }
-          // Ricarica le foto per aggiornare i pulsanti
-          await displayPhotos();
-          alert(data.error || "This photo has already been purchased.");
-          return;
-        }
-        
-        if(data.ok) {
-          currentCart = data;
-          updateCart();
-          updateCartModal();
-          
-          // Aggiorna lo stato visivo del pulsante verde "Add to cart"
+        // Aggiungi al carrello (istantaneo)
+        addToCart(photoId);
+      }
+      
+      // Aggiorna lo stato visivo del pulsante
           const btn = buttonElement || document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
-          
           if(btn) {
             if(isInCart) {
               // Foto rimossa dal carrello
@@ -4596,8 +4708,8 @@
             } else {
               // Foto aggiunta al carrello
               btn.classList.add('is-added');
-              btn.disabled = true;
-              btn.setAttribute('aria-label', 'Added');
+          btn.disabled = false; // Non disabilitare, permettere rimozione
+          btn.setAttribute('aria-label', 'Rimuovi dal carrello');
             }
           }
           
@@ -4617,46 +4729,25 @@
                 addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
               }
             }
-          }
-        }
-      } catch(err) {
-        console.error("Error toggling cart:", err);
       }
     }
     
-    async function addToCart(photoId) {
+    function addToCart(photoId) {
       // Previeni l'aggiunta di foto pagate al carrello
       if(paidPhotos.includes(photoId)) {
         console.warn(`Photo ${photoId} is already paid, cannot add to cart`);
         return;
       }
       
-      try {
-        // Aggiungi al carrello - passa sempre email per validazione backend
-        let url = `/cart/add?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`;
-        if(userEmail) {
-          url += `&email=${encodeURIComponent(userEmail)}`;
-        }
-        const res = await fetch(url, {
-          method: "POST"
-        });
-        const data = await res.json();
-        
-        if(data.ok) {
-          currentCart = data;
-          updateCart();
-          updateCartModal();
-          
-          // Lo stato visivo è già stato aggiornato ottimisticamente nel click handler
-          // Verifica solo che sia coerente (non sovrascrivere se già corretto)
+      // Aggiungi localmente (istantaneo)
+      const updated = addToCartLocal(photoId);
+      syncCartFromLocalStorage();
+      
+      // Aggiorna UI immediatamente
           const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
           if(btn && !btn.classList.contains('is-added')) {
             btn.classList.add('is-added');
             btn.setAttribute('aria-label', 'Rimuovi dal carrello');
-          }
-        }
-      } catch(err) {
-        console.error("Error adding to cart:", err);
       }
     }
 
@@ -4706,27 +4797,16 @@
       }
     }
     
-    async function removeFromCart(photoId) {
-      try {
-        const res = await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(photoId)}`, {
-          method: "DELETE"
-        });
-        const data = await res.json();
-        if(data.ok) {
-          currentCart = data;
-          updateCart();
-          updateCartModal();
-          
-          // Lo stato visivo è già stato aggiornato ottimisticamente nel click handler
-          // Verifica solo che sia coerente (non sovrascrivere se già corretto)
+    function removeFromCart(photoId) {
+      // Rimuovi localmente (istantaneo)
+      const updated = removeFromCartLocal(photoId);
+      syncCartFromLocalStorage();
+      
+      // Aggiorna UI immediatamente
           const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
           if(btn && btn.classList.contains('is-added')) {
             btn.classList.remove('is-added');
             btn.setAttribute('aria-label', 'Aggiungi al carrello');
-          }
-        }
-      } catch(err) {
-        console.error("Error removing from cart:", err);
       }
     }
 
@@ -4745,47 +4825,31 @@
     }
 
     async function checkout() {
-      // Checkout normale: usa il carrello corrente
-      if(!currentCart.photo_ids || currentCart.photo_ids.length === 0) {
+      // Carica carrello dal localStorage
+      const photoIds = loadCart();
+      
+      if(!photoIds || photoIds.length === 0) {
         alert('Cart is empty');
         return;
       }
       
-      // NON richiedere email: Stripe la chiederà
-
-      // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout
+      // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout (localmente)
+      let unpaidPhotoIds = photoIds;
       if(paidPhotos.length > 0) {
         const paidPhotoIdsSet = new Set(paidPhotos);
-        const unpaidInCart = currentCart.photo_ids.filter(photoId => !paidPhotoIdsSet.has(photoId));
+        unpaidPhotoIds = photoIds.filter(photoId => !paidPhotoIdsSet.has(photoId));
         
-        if(unpaidInCart.length !== currentCart.photo_ids.length) {
-          console.log(`Rimosse ${currentCart.photo_ids.length - unpaidInCart.length} foto pagate dal carrello prima del checkout`);
+        if(unpaidPhotoIds.length !== photoIds.length) {
+          console.log(`Rimosse ${photoIds.length - unpaidPhotoIds.length} foto pagate dal carrello prima del checkout`);
           
-          // Rimuovi foto pagate dal carrello backend
-          for(const paidPhotoId of currentCart.photo_ids) {
-            if(paidPhotoIdsSet.has(paidPhotoId)) {
-              try {
-                await fetch(`/cart/remove?session_id=${encodeURIComponent(sessionId)}&photo_id=${encodeURIComponent(paidPhotoId)}`, {
-                  method: "DELETE"
-                });
-              } catch(e) {
-                console.error('Error removing paid photo from cart:', e);
-              }
-            }
-          }
-          
-          // Aggiorna carrello locale
-          const res = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
-          const cartData = await res.json();
-          if(cartData.ok) {
-            currentCart = cartData;
-            updateCart();
+          // Aggiorna localStorage rimuovendo foto pagate
+          saveCart(unpaidPhotoIds);
+          syncCartFromLocalStorage();
             
             // Se carrello vuoto dopo filtro, avvisa
-            if(currentCart.photo_ids.length === 0) {
+          if(unpaidPhotoIds.length === 0) {
               alert("All selected photos have already been purchased. You can download them from the 'My Photos' page.");
         return;
-            }
           }
         }
       }
@@ -4797,11 +4861,10 @@
       }
       
       try {
-        console.log("Inizio checkout (stateless):", { photoCount: currentCart.photo_ids.length });
+        console.log("Inizio checkout (stateless):", { photoCount: unpaidPhotoIds.length });
         
-        // Stateless: usa /create_checkout con photo_ids nel body
-        const photoIds = currentCart.photo_ids;
-        const priceCents = calculatePrice(photoIds.length);
+        // Stateless: usa /create_checkout con photo_ids dal localStorage
+        const priceCents = calculatePrice(unpaidPhotoIds.length);
         
         let res = await fetch(`/create_checkout`, {
           method: "POST",
@@ -4809,7 +4872,7 @@
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            photo_ids: photoIds,
+            photo_ids: unpaidPhotoIds,
             price_cents: priceCents,
             currency: "eur"
           })
@@ -4837,9 +4900,11 @@
         const data = await res.json();
         console.log("Checkout data:", data);
         
-        if(data.checkout_url) {
-          console.log("Redirecting to Stripe:", data.checkout_url);
-          window.location.href = data.checkout_url;
+        // Gestisci sia checkout_url che url (per test mode)
+        const redirectUrl = data.checkout_url || data.url;
+        if(redirectUrl) {
+          console.log("Redirecting to checkout:", redirectUrl);
+          window.location.href = redirectUrl;
         } else {
           throw new Error("URL di checkout non ricevuto dal server");
         }

@@ -23,6 +23,7 @@ import hashlib
 import secrets
 import math
 import asyncio
+import time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -40,6 +41,10 @@ from fastapi.staticfiles import StaticFiles
 from insightface.app import FaceAnalysis
 from PIL import Image, ImageDraw, ImageFont
 import io
+
+# Inizializza logger PRIMA di qualsiasi uso
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backend.main")
 
 # Stripe per pagamenti
 try:
@@ -158,6 +163,12 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 USE_STRIPE = STRIPE_AVAILABLE and bool(STRIPE_SECRET_KEY)
+STRIPE_TEST_MODE = os.getenv("STRIPE_TEST_MODE", "0") == "1"
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+
+# Storage per sessioni test (solo in test mode)
+# Chiave: session_id, Valore: {"photo_ids": [...], "customer_email": "..."}
+test_sessions: Dict[str, Dict[str, Any]] = {}
 
 # Admin token per endpoint protetti
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
@@ -4600,19 +4611,19 @@ async def _filter_photos_by_rules(
         photo_id = row.get("photo_id")
         if not photo_id:
             continue
-        
+
         # Normalizza photo_id (rimuove prefissi wm/, thumbs/)
         photo_id = _normalize_photo_key(str(photo_id))
         if not photo_id or "/" in photo_id:
             continue  # Filtra via photo_id invalidi dopo normalizzazione
-        
+
         # Filtra per tour_date se fornita
         if normalized_date:
             raw_td = row.get("tour_date")
             photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
             if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
                 continue
-        
+
         # Salva il miglior score per questa foto
         s = float(score)
         if photo_id not in photo_scores or s > photo_scores[photo_id]:
@@ -4625,6 +4636,7 @@ async def _filter_photos_by_rules(
     # Regola semplice: se photo_id è in photo_scores, la foto viene inclusa
     for photo_id, best_score in photo_scores.items():
         photo_tour_date = photo_tour_dates.get(photo_id, "unknown")
+
         
         filtered_results.append({
             "photo_id": str(photo_id),
@@ -4633,7 +4645,6 @@ async def _filter_photos_by_rules(
             "has_selfie": True,
             "tour_date": photo_tour_date,
         })
-    
     logger.info(f"[FILTER] Included {len(filtered_results)} photos (simple rule: any face matches selfie)")
     
     # Ordina per score decrescente
@@ -5144,29 +5155,22 @@ async def delete_family_member_disabled(
 async def _get_cart(session_id: str) -> List[str]:
     """Ottiene il carrello per una sessione dal database"""
     try:
-        logger.info(f"_get_cart: Reading cart for session_id={session_id}")
         row = await _db_execute_one(
             "SELECT photo_ids FROM carts WHERE session_id = $1",
             (session_id,)
         )
         
-        logger.info(f"_get_cart: Raw row from DB: {row}")
         if row and row.get('photo_ids'):
             photo_ids = json.loads(row['photo_ids'])
-            parsed = photo_ids if isinstance(photo_ids, list) else []
-            logger.info(f"_get_cart: Parsed photo_ids: {parsed}")
-            return parsed
-        logger.info(f"_get_cart: No cart found for session {session_id}, returning empty list")
+            return photo_ids if isinstance(photo_ids, list) else []
         return []
     except Exception as e:
         logger.error(f"Error getting cart for session {session_id}: {e}", exc_info=True)
         return []
 
-async def _set_cart(session_id: str, photo_ids: List[str]):
-    """Imposta il carrello completo per una sessione (upsert)"""
+async def _set_cart(session_id: str, photo_ids: List[str]) -> List[str]:
+    """Imposta il carrello completo per una sessione (upsert) e restituisce la lista aggiornata"""
     try:
-        logger.info(f"_set_cart: Setting cart for session_id={session_id}, photo_ids={photo_ids}")
-        
         # Dedup preservando ordine
         seen = set()
         unique_photo_ids = []
@@ -5177,58 +5181,52 @@ async def _set_cart(session_id: str, photo_ids: List[str]):
         
         photo_ids_json = json.dumps(unique_photo_ids, ensure_ascii=False)
         
+        # Usa RETURNING per ottenere direttamente il risultato senza query separata
         query = """
             INSERT INTO carts (session_id, photo_ids, created_at, updated_at)
-            VALUES ($1, $2, NOW(), NOW())
+            VALUES ($1, $2::jsonb, NOW(), NOW())
             ON CONFLICT (session_id) DO UPDATE
             SET photo_ids = EXCLUDED.photo_ids, updated_at = NOW()
+            RETURNING photo_ids
         """
-        logger.info(f"_set_cart: Executing PostgreSQL query: {query[:100]}...")
-        await _db_execute_write(query, (session_id, photo_ids_json))
         
-        # Verifica lettura dopo scrittura
-        logger.info(f"_set_cart: Verifying write by reading back from DB...")
-        verify_row = await _db_execute_one(
-            "SELECT photo_ids FROM carts WHERE session_id = $1",
-            (session_id,)
-        )
-        logger.info(f"_set_cart: Verification read result: {verify_row}")
-        if verify_row and verify_row.get('photo_ids'):
-            verify_parsed = json.loads(verify_row['photo_ids'])
-            logger.info(f"_set_cart: Verification parsed photo_ids: {verify_parsed}")
-        else:
-            logger.warning(f"_set_cart: WARNING - Cart not found after write! session_id={session_id}")
+        row = await _db_execute_one(query, (session_id, photo_ids_json))
+        
+        if row and row.get('photo_ids'):
+            # Parse JSON se è stringa, altrimenti usa direttamente
+            result = row['photo_ids']
+            if isinstance(result, str):
+                return json.loads(result)
+            return result if isinstance(result, list) else []
+        
+        # Fallback: restituisci quello che abbiamo passato
+        return unique_photo_ids
     except Exception as e:
         logger.error(f"Error setting cart for session {session_id}: {e}", exc_info=True)
+        # Fallback: restituisci lista vuota in caso di errore
+        return []
 
-async def _add_to_cart(session_id: str, photo_id: str):
-    """Aggiunge foto al carrello"""
-    logger.info(f"_add_to_cart: Starting for session_id={session_id}, photo_id={photo_id}")
+async def _add_to_cart(session_id: str, photo_id: str) -> List[str]:
+    """Aggiunge foto al carrello e restituisce la lista aggiornata"""
     current_photo_ids = await _get_cart(session_id)
-    logger.info(f"_add_to_cart: Cart before: {current_photo_ids}")
     if photo_id not in current_photo_ids:
         current_photo_ids.append(photo_id)
-        logger.info(f"_add_to_cart: Cart after append: {current_photo_ids}, calling await _set_cart...")
-        await _set_cart(session_id, current_photo_ids)
-        logger.info(f"_add_to_cart: await _set_cart completed")
-        # Verifica finale
-        final_cart = await _get_cart(session_id)
-        logger.info(f"_add_to_cart: Final cart verification: {final_cart}")
-    else:
-        logger.info(f"_add_to_cart: Photo {photo_id} already in cart, skipping")
+        updated = await _set_cart(session_id, current_photo_ids)
+        logger.info(f"[CART] add session={session_id} photo={photo_id} size={len(updated)}")
+        return updated
+    # Foto già presente, restituisci carrello corrente
+    return current_photo_ids
 
-async def _remove_from_cart(session_id: str, photo_id: str):
-    """Rimuove foto dal carrello"""
-    logger.info(f"_remove_from_cart: Starting for session_id={session_id}, photo_id={photo_id}")
+async def _remove_from_cart(session_id: str, photo_id: str) -> List[str]:
+    """Rimuove foto dal carrello e restituisce la lista aggiornata"""
     current_photo_ids = await _get_cart(session_id)
-    logger.info(f"_remove_from_cart: Cart before: {current_photo_ids}")
     if photo_id in current_photo_ids:
         current_photo_ids = [p for p in current_photo_ids if p != photo_id]
-        logger.info(f"_remove_from_cart: Cart after removal: {current_photo_ids}, calling await _set_cart...")
-        await _set_cart(session_id, current_photo_ids)
-        logger.info(f"_remove_from_cart: await _set_cart completed")
-    else:
-        logger.info(f"_remove_from_cart: Photo {photo_id} not in cart, skipping")
+        updated = await _set_cart(session_id, current_photo_ids)
+        logger.info(f"[CART] remove session={session_id} photo={photo_id} size={len(updated)}")
+        return updated
+    # Foto non presente, restituisci carrello corrente
+    return current_photo_ids
 
 async def _clear_cart(session_id: str):
     """Svuota il carrello"""
@@ -5280,8 +5278,8 @@ async def add_to_cart(
         except Exception as e:
             logger.error(f"Error checking paid photos in cart/add: {e}")
     
-    await _add_to_cart(session_id, photo_id)
-    photo_ids = await _get_cart(session_id)
+    # Usa il valore di ritorno di _add_to_cart invece di chiamare _get_cart dopo
+    photo_ids = await _add_to_cart(session_id, photo_id)
     price = calculate_price(len(photo_ids))
     
     return {
@@ -5298,8 +5296,8 @@ async def remove_from_cart(
     photo_id: str = Query(..., description="ID foto da rimuovere")
 ):
     """Rimuove una foto dal carrello"""
-    await _remove_from_cart(session_id, photo_id)
-    photo_ids = await _get_cart(session_id)
+    # Usa il valore di ritorno di _remove_from_cart invece di chiamare _get_cart dopo
+    photo_ids = await _remove_from_cart(session_id, photo_id)
     price = calculate_price(len(photo_ids)) if photo_ids else 0
     
     return {
@@ -5318,10 +5316,6 @@ async def create_checkout_new(
     """Crea una sessione di checkout Stripe basata su photo_ids (senza email)"""
     logger.info(f"=== CREATE_CHECKOUT REQUEST ===")
     
-    if not USE_STRIPE:
-        logger.error("Stripe not configured")
-        raise HTTPException(status_code=503, detail="Stripe not configured")
-    
     photo_ids = body.get("photo_ids", [])
     price_cents = body.get("price_cents")
     currency = body.get("currency", "eur")
@@ -5333,6 +5327,30 @@ async def create_checkout_new(
     # Calcola prezzo se non fornito
     if not price_cents:
         price_cents = calculate_price(len(photo_ids))
+    
+    # TEST MODE: simula Stripe senza chiamate reali
+    if STRIPE_TEST_MODE:
+        fake_session = f"test_{int(time.time())}"
+        # Salva photo_ids per questo fake session_id (per /stripe/verify)
+        test_sessions[fake_session] = {
+            "photo_ids": photo_ids,
+            "customer_email": None,  # In test mode non abbiamo email
+            "payment_status": "paid",
+            "amount_total": price_cents,
+            "currency": currency
+        }
+        redirect_url = f"{PUBLIC_BASE_URL}/?success=1&session_id={fake_session}"
+        logger.info(f"[TEST_MODE] create_checkout -> {redirect_url}, saved {len(photo_ids)} photo_ids")
+        return {
+            "url": redirect_url,
+            "mode": "test",
+            "session_id": fake_session
+        }
+    
+    # PRODUZIONE: Stripe reale
+    if not USE_STRIPE:
+        logger.error("Stripe not configured")
+        raise HTTPException(status_code=503, detail="Stripe not configured")
     
     logger.info(f"Creating checkout for {len(photo_ids)} photos, price: {price_cents} cents")
     
@@ -5383,6 +5401,26 @@ async def verify_stripe_session(
     session_id: str = Query(..., description="Stripe session ID")
 ):
     """Verifica sessione Stripe pagata e restituisce photo_ids (stateless)"""
+    
+    # TEST MODE: gestisci session_id di test
+    if STRIPE_TEST_MODE and session_id.startswith("test_"):
+        if session_id in test_sessions:
+            session_data = test_sessions[session_id]
+            logger.info(f"[TEST_MODE] verify_stripe_session -> {session_id}, returning {len(session_data['photo_ids'])} photo_ids")
+            return {
+                "ok": True,
+                "session_id": session_id,
+                "customer_email": session_data.get("customer_email"),
+                "photo_ids": session_data["photo_ids"],
+                "payment_status": session_data.get("payment_status", "paid"),
+                "amount_total": session_data.get("amount_total", 0),
+                "currency": session_data.get("currency", "eur")
+            }
+        else:
+            logger.warning(f"[TEST_MODE] Session not found: {session_id}")
+            raise HTTPException(status_code=404, detail=f"Test session not found: {session_id}")
+    
+    # PRODUZIONE: Stripe reale
     if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe not configured")
     
@@ -6155,13 +6193,12 @@ async def stripe_webhook(request: Request):
             
             # Stateless: non salvare ordine in file JSON
             # Gli ordini sono tracciati solo tramite Stripe session_id
-            
             logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
             
             # Stateless: non svuotare carrello (non più usato)
         else:
             logger.error(f"Order failed: missing photo_ids in webhook")
-    
+            
     return {"ok": True}
 
 @app.get("/test-email")

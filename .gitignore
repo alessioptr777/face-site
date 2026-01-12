@@ -7,7 +7,7 @@ data/
 
 # Environment variables (NON committare mai!)
 .env
-.env.local
+.env.*
 
 
 # local/runtime
