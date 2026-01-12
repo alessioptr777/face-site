@@ -3,9 +3,18 @@
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
 APP_BUILD_ID = "local-2026-01-07-02-50"
 
-# Carica variabili d'ambiente da .env (solo in locale, produzione usa env vars direttamente)
+# Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
+from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv()
+
+# Calcola PROJECT_ROOT come la cartella padre di /backend
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+dotenv_path = PROJECT_ROOT / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path=dotenv_path)
+    print(f"Loaded .env from {dotenv_path}")
+else:
+    print(f".env not found at {dotenv_path}, using system environment variables")
 
 import json
 import logging
@@ -23,7 +32,7 @@ import numpy as np
 import cv2
 import faiss
 
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Request, Form, Body, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -49,32 +58,24 @@ except ImportError:
     BOTO3_AVAILABLE = False
     ClientError = None
 
-# Email system disabled - SendGrid removed
 
-# Database: PostgreSQL (obbligatorio in produzione)
+# Database: PostgreSQL (opzionale - stateless mode)
 try:
     import asyncpg
     POSTGRES_AVAILABLE = True
 except ImportError:
     POSTGRES_AVAILABLE = False
 
-# Verifica configurazione PostgreSQL
+# Verifica configurazione PostgreSQL (opzionale)
 DATABASE_URL = os.getenv("DATABASE_URL")
 # Supporta anche DATABASE_URL che inizia con postgres:// (senza 'ql')
 USE_POSTGRES = POSTGRES_AVAILABLE and DATABASE_URL is not None and (
     DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")
 )
 
-# PostgreSQL è obbligatorio - verifica all'avvio
+# Stateless mode: se DATABASE_URL manca, l'app funziona comunque
 if not USE_POSTGRES:
-    error_msg = "DATABASE_URL non configurato o asyncpg mancante: PostgreSQL è obbligatorio"
-    if not POSTGRES_AVAILABLE:
-        error_msg += " (asyncpg non installato)"
-    elif not DATABASE_URL:
-        error_msg += " (DATABASE_URL non impostato)"
-    elif not (DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")):
-        error_msg += f" (DATABASE_URL non valido: deve iniziare con postgresql:// o postgres://)"
-    raise RuntimeError(error_msg)
+    logger.warning("DB disabled (stateless mode): DATABASE_URL not configured or asyncpg unavailable")
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR.parent  # Root del repository
@@ -95,13 +96,16 @@ BACK_PHOTOS_PATH = DATA_DIR / "back_photos.jsonl"  # Foto senza volti (di spalle
 DOWNLOADS_TRACK_PATH = DATA_DIR / "downloads_track.jsonl"  # Tracking download per cleanup
 INDEX_DIM = 512
 
+# Soglia per filtrare facce "deboli" durante il filtro foto
+# Facce con det_score < questa soglia vengono ignorate nel filtro issubset(valid_faces)
+MIN_FACE_DET_SCORE_FOR_FILTER = float(os.getenv("MIN_FACE_DET_SCORE_FOR_FILTER", "0.75"))
+
 # Configurazione cleanup download
 DOWNLOAD_EXPIRY_DAYS = int(os.getenv("DOWNLOAD_EXPIRY_DAYS", "7"))  # Giorni prima di cancellare
 MAX_DOWNLOADS_PER_PHOTO = int(os.getenv("MAX_DOWNLOADS_PER_PHOTO", "3"))  # Max download prima di cancellare
 
-# Configurazione espansione linked faces (identità)
-LINKED_EXPAND_TOP_K = int(os.getenv("LINKED_EXPAND_TOP_K", "80"))  # Top K per search su embedding linked
-LINKED_EXPAND_MIN_SCORE = float(os.getenv("LINKED_EXPAND_MIN_SCORE", "0.65"))  # Soglia minima per espansione identità
+# Configurazione family members
+MAX_FAMILY_MEMBERS = int(os.getenv("MAX_FAMILY_MEMBERS", "8"))  # Max membri famiglia per email
 
 APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
 APP_NAME = os.getenv("APP_NAME", "TenerifePictures API")
@@ -155,6 +159,9 @@ STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 USE_STRIPE = STRIPE_AVAILABLE and bool(STRIPE_SECRET_KEY)
 
+# Admin token per endpoint protetti
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
 # Log diagnostico Stripe
 logger.info(f"Stripe diagnostic: STRIPE_AVAILABLE={STRIPE_AVAILABLE}, STRIPE_SECRET_KEY present={bool(STRIPE_SECRET_KEY)}, STRIPE_SECRET_KEY length={len(STRIPE_SECRET_KEY) if STRIPE_SECRET_KEY else 0}")
 
@@ -170,7 +177,7 @@ else:
         logger.warning("Stripe not configured - payment features disabled")
 
 logger.info(
-    "R2 startup check: BOTO3_AVAILABLE=%s | env_endpoint_present=%s env_endpoint_len=%s | env_bucket_present=%s | env_access_key_present=%s env_access_key_len=%s | env_secret_present=%s env_secret_len=%s",
+    "R2 startup check: BOTO3_AVAILABLE=%s | env_endpoint_present=%s env_endpoint_len=%s | env_bucket_present=%s | env_access_key_present=%s env_access_key_len=%s | env_secret_present=%s",
     BOTO3_AVAILABLE,
     bool(os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL")),
     len((os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL") or "")),
@@ -178,21 +185,31 @@ logger.info(
     bool(os.getenv("R2_ACCESS_KEY_ID")),
     len((os.getenv("R2_ACCESS_KEY_ID") or "")),
     bool(os.getenv("R2_SECRET_ACCESS_KEY")),
-    len((os.getenv("R2_SECRET_ACCESS_KEY") or "")),
 )
 
 # Configurazione Cloudflare R2 (S3 compatible) - dopo logger
 # Variabili standardizzate: R2_ENDPOINT_URL, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
-R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "")
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
 # Supporto per variabili legacy (alias)
 if not R2_ENDPOINT_URL:
-    R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT", "")
+    R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT", "").strip()
 if not R2_ENDPOINT_URL:
-    R2_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "")
+    R2_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "").strip()
 
-R2_BUCKET = os.getenv("R2_BUCKET", "")
-R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
-R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET = os.getenv("R2_BUCKET", "").strip()
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+
+# Photo assets configuration (thumb and watermarked preview)
+THUMB_PREFIX = "thumbs/"
+WM_PREFIX = "wm/"
+THUMB_MAX_SIDE = 400  # Ridotto per performance
+THUMB_QUALITY = 65
+WM_MAX_SIDE = 1600
+WM_QUALITY = 75
+
+# Flag per abilitare generazione runtime (solo per debug/emergenze)
+ENABLE_RUNTIME_PREVIEW_GENERATION = os.getenv("ENABLE_RUNTIME_PREVIEW_GENERATION", "0") == "1"
 
 # Controllo e pulizia endpoint: rimuovi path se presente
 if R2_ENDPOINT_URL:
@@ -261,16 +278,23 @@ if USE_R2:
         USE_R2 = False
         r2_client = None
 else:
+    logger.warning("=" * 80)
+    logger.warning("⚠️  R2 NOT CONFIGURED - Indexing will not work!")
+    logger.warning("=" * 80)
     if not BOTO3_AVAILABLE:
-        logger.info("R2 not configured - boto3 package not available")
+        logger.warning("❌ R2 not configured - boto3 package not available")
     elif not R2_ENDPOINT_URL:
-        logger.info("R2 not configured - R2_ENDPOINT_URL not set")
+        logger.warning("❌ R2 not configured - R2_ENDPOINT_URL not set")
     elif not R2_BUCKET:
-        logger.info("R2 not configured - R2_BUCKET not set")
-    elif not R2_ACCESS_KEY_ID or not R2_SECRET_ACCESS_KEY:
-        logger.info("R2 not configured - R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY not set")
+        logger.warning("❌ R2 not configured - R2_BUCKET not set")
+    elif not R2_ACCESS_KEY_ID:
+        logger.warning("❌ R2 not configured - R2_ACCESS_KEY_ID not set")
+    elif not R2_SECRET_ACCESS_KEY:
+        logger.warning("❌ R2 not configured - R2_SECRET_ACCESS_KEY not set")
     else:
-        logger.info("R2 not configured - using local file storage")
+        logger.warning("❌ R2 not configured - using local file storage")
+    logger.warning(f"Current values: BOTO3_AVAILABLE={BOTO3_AVAILABLE}, R2_ENDPOINT_URL present={bool(R2_ENDPOINT_URL)}, R2_BUCKET present={bool(R2_BUCKET)}, R2_ACCESS_KEY_ID present={bool(R2_ACCESS_KEY_ID)}, R2_SECRET_ACCESS_KEY present={bool(R2_SECRET_ACCESS_KEY)}")
+    logger.warning("=" * 80)
     logger.info("R2 final status: USE_R2=%s | r2_client_is_none=%s", USE_R2, r2_client is None)
 
 logger.info(
@@ -279,14 +303,16 @@ logger.info(
 )
 
 # Log diagnostico R2 (dopo configurazione completa)
+# Log diagnostico R2 (dopo configurazione completa)
+# NOTA: R2_SECRET_ACCESS_KEY non viene mai loggato (né valore né lunghezza) per sicurezza
 logger.info(
-    "R2 diagnostic: BOTO3_AVAILABLE=%s, R2_ENDPOINT_URL present=%s len=%s, R2_BUCKET present=%s, R2_ACCESS_KEY_ID present=%s, R2_SECRET_ACCESS_KEY present=%s, USE_R2=%s, resolved_endpoint=%s, resolved_bucket=%s",
+    "R2 diagnostic: BOTO3_AVAILABLE=%s, R2_ENDPOINT_URL present=%s len=%s, R2_BUCKET present=%s, R2_ACCESS_KEY_ID present=%s, R2_SECRET_ACCESS_KEY present=%s (masked), USE_R2=%s, resolved_endpoint=%s, resolved_bucket=%s",
     BOTO3_AVAILABLE,
     bool(os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL")),
     len((os.getenv("R2_ENDPOINT_URL") or os.getenv("R2_ENDPOINT") or os.getenv("S3_ENDPOINT_URL") or "")),
     bool(os.getenv("R2_BUCKET")),
     bool(os.getenv("R2_ACCESS_KEY_ID")),
-    bool(os.getenv("R2_SECRET_ACCESS_KEY")),
+    bool(os.getenv("R2_SECRET_ACCESS_KEY")),  # Solo presenza, mai il valore o la lunghezza
     USE_R2,
     bool(R2_ENDPOINT_URL),
     bool(R2_BUCKET),
@@ -316,7 +342,111 @@ async def _r2_object_exists(key: str) -> bool:
 
     return await asyncio.to_thread(_head)
 
-# Email system disabled - no SendGrid configuration needed
+async def _filter_missing_r2_photos(email: str, photo_ids: List[str], use_cache: bool = True) -> Tuple[List[str], List[str]]:
+    """
+    Filtra foto che non esistono più in R2 usando cache (veloce) e le marca come 'deleted' nel DB.
+    Returns: (kept_photo_ids, missing_photo_ids)
+    """
+    if not USE_R2 or not r2_client or not R2_BUCKET or not photo_ids:
+        return (photo_ids, [])
+    
+    kept: List[str] = []
+    missing: List[str] = []
+    
+    # Usa cache per ottenere set delle chiavi esistenti
+    if use_cache:
+        r2_keys_set = await get_r2_keys_set_cached()
+        
+        # Filtra usando il set (velocissimo)
+        for photo_id in photo_ids:
+            if photo_id in r2_keys_set:
+                kept.append(photo_id)
+            else:
+                missing.append(photo_id)
+    else:
+        # Fallback: controlla una per una (più lento, solo se cache non disponibile)
+        semaphore = asyncio.Semaphore(10)
+        
+        async def check_photo(photo_id: str):
+            async with semaphore:
+                exists = await _r2_object_exists(photo_id)
+                return (photo_id, exists)
+        
+        results = await asyncio.gather(*[check_photo(pid) for pid in photo_ids])
+        
+        for photo_id, exists in results:
+            if exists:
+                kept.append(photo_id)
+            else:
+                missing.append(photo_id)
+    
+    # Marca le foto mancanti come 'deleted' nel DB (solo se non già deleted)
+    if missing:
+        logger.info(f"[R2_FILTER] filtered_out_missing={len(missing)} for email={email}")
+        for photo_id in missing:
+            try:
+                # Aggiorna status, r2_exists e r2_last_checked
+                await _db_execute_write(
+                    """UPDATE user_photos 
+                       SET status = 'deleted', r2_exists = FALSE, r2_last_checked = NOW()
+                       WHERE email = $1 AND photo_id = $2 AND (status != 'deleted' OR r2_exists = TRUE)""",
+                    (email, photo_id)
+                )
+            except Exception as e:
+                logger.error(f"Error marking photo {photo_id} as deleted: {e}")
+    
+    return (kept, missing)
+
+# Cache per chiavi R2 (TTL 60 secondi)
+_r2_keys_cache: Optional[dict] = None
+_r2_keys_cache_lock = asyncio.Lock()
+R2_KEYS_CACHE_TTL = 120  # secondi
+
+async def get_r2_keys_set_cached() -> set:
+    """
+    Ottiene il set delle chiavi esistenti in R2 con cache (TTL 120s).
+    Evita di listare il bucket ad ogni richiesta.
+    """
+    global _r2_keys_cache
+    
+    async with _r2_keys_cache_lock:
+        now = datetime.now(timezone.utc)
+        
+        # Se cache valida, ritorna
+        if _r2_keys_cache and (now - _r2_keys_cache['fetched_at']).total_seconds() < R2_KEYS_CACHE_TTL:
+            return _r2_keys_cache['keys_set']
+        
+        # Cache scaduta o non esiste: lista bucket
+        if not USE_R2 or not r2_client:
+            return set()
+        
+        try:
+            keys_set = set()
+            paginator = r2_client.get_paginator('list_objects_v2')
+            prefix = R2_PHOTOS_PREFIX if R2_PHOTOS_PREFIX else ""
+            
+            for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
+                for obj in page.get('Contents', []):
+                    key = obj['Key']
+                    # Ignora file di sistema
+                    if key not in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                        keys_set.add(key)
+            
+            # Aggiorna cache
+            _r2_keys_cache = {
+                'keys_set': keys_set,
+                'fetched_at': now
+            }
+            
+            logger.info(f"[R2_CACHE] Updated cache with {len(keys_set)} keys")
+            return keys_set
+        except Exception as e:
+            logger.error(f"Error listing R2 keys for cache: {e}")
+            # Se errore, ritorna cache vecchia se esiste, altrimenti set vuoto
+            if _r2_keys_cache:
+                return _r2_keys_cache['keys_set']
+            return set()
+
 
 # Crea cartelle necessarie all'avvio
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -428,8 +558,12 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 async def _init_database():
-    """Inizializza il database PostgreSQL con le tabelle necessarie"""
+    """Inizializza il database PostgreSQL con le tabelle necessarie (disabilitato in stateless mode)"""
     global db_pool
+    
+    if not USE_POSTGRES:
+        logger.info("Database initialization skipped (stateless mode)")
+        return
     
     try:
         logger.info(f"Initializing PostgreSQL database: {DATABASE_URL[:30]}...")
@@ -466,10 +600,12 @@ async def _init_database():
                     paid_at TIMESTAMP,
                     expires_at TIMESTAMP,
                     status VARCHAR(50) NOT NULL DEFAULT 'found',
+                    source_member_id INTEGER NULL,
                     FOREIGN KEY (email) REFERENCES users(email),
                     UNIQUE(email, photo_id)
                 )
             """)
+            
             
             # Tabella ordini
             await conn.execute("""
@@ -504,23 +640,81 @@ async def _init_database():
                 )
             """)
             
+            # Tabella membri famiglia
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS family_members (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    member_name VARCHAR(120),
+                    selfie_embedding BYTEA NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (email) REFERENCES users(email) ON DELETE CASCADE
+                )
+            """)
+            
+            # Tabella profili volto utente (per auto-match)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_face_profiles (
+                    email VARCHAR(255) PRIMARY KEY,
+                    face_embedding BYTEA NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_auto_match_at TIMESTAMP NULL,
+                    FOREIGN KEY (email) REFERENCES users(email) ON DELETE CASCADE
+                )
+            """)
+            
+            # Tabella photo_assets per tracciare thumb e wm precomputati
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS photo_assets (
+                    photo_id VARCHAR(255) PRIMARY KEY,
+                    thumb_key TEXT,
+                    wm_key TEXT,
+                    thumb_ready BOOLEAN DEFAULT FALSE,
+                    wm_ready BOOLEAN DEFAULT FALSE,
+                    assets_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (photo_id) REFERENCES indexed_photos(photo_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Migrazione: aggiungi colonna source_member_id se non esiste (per DB già esistenti)
+            try:
+                await conn.execute("ALTER TABLE user_photos ADD COLUMN IF NOT EXISTS source_member_id INTEGER")
+            except Exception as e:
+                logger.warning(f"Could not add source_member_id column (might already exist): {e}")
+            
+            # Migrazione: aggiungi colonne r2_exists e r2_last_checked (per R2 source of truth)
+            try:
+                await conn.execute("ALTER TABLE user_photos ADD COLUMN IF NOT EXISTS r2_exists BOOLEAN NOT NULL DEFAULT TRUE")
+            except Exception as e:
+                logger.warning(f"Could not add r2_exists column (might already exist): {e}")
+            
+            try:
+                await conn.execute("ALTER TABLE user_photos ADD COLUMN IF NOT EXISTS r2_last_checked TIMESTAMP NULL")
+            except Exception as e:
+                logger.warning(f"Could not add r2_last_checked column (might already exist): {e}")
+            
             # Indici per performance
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_email ON user_photos(email)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_status ON user_photos(status)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_expires ON user_photos(expires_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_source_member ON user_photos(source_member_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_r2_exists ON user_photos(r2_exists)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_photos_photo_id ON user_photos(photo_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_family_members_email ON family_members(email)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_token ON orders(download_token)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_face_profiles_email ON user_face_profiles(email)")
         
         logger.info("PostgreSQL database initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing PostgreSQL database: {e}", exc_info=True)
         raise
 
-# Helper functions per database PostgreSQL (con pool)
+# Helper functions per database PostgreSQL (con pool) - disabilitate in stateless mode
 async def _db_execute(query: str, params: tuple = ()):
     """Esegue una query e restituisce i risultati (usa pool PostgreSQL)"""
-    if db_pool is None:
-        raise RuntimeError("Database pool not initialized")
+    if not USE_POSTGRES or db_pool is None:
+        return []  # Stateless mode: ritorna lista vuota
     
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
@@ -528,17 +722,17 @@ async def _db_execute(query: str, params: tuple = ()):
 
 async def _db_execute_one(query: str, params: tuple = ()):
     """Esegue una query e restituisce un solo risultato"""
-    if db_pool is None:
-        raise RuntimeError("Database pool not initialized")
+    if not USE_POSTGRES or db_pool is None:
+        return None  # Stateless mode: ritorna None
     
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(query, *params)
         return dict(row) if row else None
 
 async def _db_execute_write(query: str, params: tuple = ()):
-    """Esegue una query di scrittura (INSERT, UPDATE, DELETE)"""
-    if db_pool is None:
-        raise RuntimeError("Database pool not initialized")
+    """Esegue una query di scrittura (INSERT, UPDATE, DELETE) - disabilitata in stateless mode"""
+    if not USE_POSTGRES or db_pool is None:
+        return  # Stateless mode: no-op
     
     async with db_pool.acquire() as conn:
         await conn.execute(query, *params)
@@ -601,17 +795,148 @@ async def _create_or_update_user(email: str, selfie_embedding: Optional[bytes] =
         logger.error(f"Error creating/updating user: {e}")
     return False
 
+async def _save_user_face_profile(email: str, face_embedding: np.ndarray) -> bool:
+    """Salva o aggiorna il profilo volto di un utente per auto-match"""
+    try:
+        email = _normalize_email(email)
+        embedding_bytes = face_embedding.tobytes()
+        
+        await _db_execute_write("""
+            INSERT INTO user_face_profiles (email, face_embedding, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (email) DO UPDATE
+            SET face_embedding = EXCLUDED.face_embedding,
+                updated_at = NOW()
+        """, (email, embedding_bytes))
+        
+        # Stateless: non salvare face profile
+        return True
+    except Exception as e:
+        logger.error(f"Error saving face profile: {e}")
+        return False
+
+async def auto_match_new_photos_for_email(email: str) -> int:
+    """
+    Auto-match nuove foto per un utente usando il profilo volto salvato.
+    Rate-limited: esegue solo se last_auto_match_at è NULL o più vecchio di 60 secondi.
+    Returns: numero di nuove foto aggiunte
+    """
+    try:
+        email = _normalize_email(email)
+        
+        # Recupera profilo completo (una sola query)
+        profile = await _db_execute_one(
+            "SELECT face_embedding, last_auto_match_at FROM user_face_profiles WHERE email = $1",
+            (email,)
+        )
+        
+        if not profile or not profile.get('face_embedding'):
+            # Log solo a livello debug per non intasare i log
+            logger.debug(f"No face profile found for {email}, skipping auto-match")
+            return 0
+        
+        # Verifica rate-limit: controlla last_auto_match_at
+        if profile.get('last_auto_match_at'):
+            last_match = profile['last_auto_match_at']
+            # PostgreSQL restituisce datetime object o None
+            if last_match:
+                # Se è già un datetime, usalo direttamente
+                if isinstance(last_match, datetime):
+                    # Se non ha timezone, assumi UTC
+                    if last_match.tzinfo is None:
+                        last_match = last_match.replace(tzinfo=timezone.utc)
+                elif isinstance(last_match, str):
+                    # Se è stringa, parsala
+                    try:
+                        last_match = datetime.fromisoformat(last_match.replace('Z', '+00:00'))
+                    except:
+                        # Fallback: ignora rate-limit se parsing fallisce
+                        last_match = None
+                
+                if last_match:
+                    now = datetime.now(timezone.utc)
+                    if last_match.tzinfo is None:
+                        last_match = last_match.replace(tzinfo=timezone.utc)
+                    time_diff = (now - last_match).total_seconds()
+                    if time_diff < 60:
+                        logger.info(f"Auto-match skipped for {email}: rate-limited (last match {time_diff:.1f}s ago)")
+                        return 0  # NON aggiornare last_auto_match_at se rate-limited
+        
+        embedding_bytes = profile['face_embedding']
+        face_embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+        
+        if len(face_embedding) != INDEX_DIM:
+            logger.warning(f"Face embedding for {email} has wrong dimension: {len(face_embedding)}")
+            return 0
+        
+        # Verifica che FAISS index sia disponibile
+        if faiss_index is None or faiss_index.ntotal == 0 or len(meta_rows) == 0:
+            logger.debug(f"FAISS index not available for auto-match ({email})")
+            return 0
+        
+        # Normalizza embedding e cerca match
+        face_emb = _normalize(face_embedding).reshape(1, -1)
+        top_k = min(200, faiss_index.ntotal)
+        min_score = 0.25  # Stesso default di /match_selfie
+        
+        D, I = faiss_index.search(face_emb, top_k)
+        
+        # Recupera foto già esistenti per questa email (per evitare duplicati)
+        existing_photos = await _db_execute(
+            "SELECT photo_id FROM user_photos WHERE email = $1",
+            (email,)
+        )
+        existing_photo_ids = {row['photo_id'] for row in existing_photos}
+        
+        # Processa risultati e aggiungi nuove foto
+        new_photos_count = 0
+        for score, idx in zip(D[0].tolist(), I[0].tolist()):
+            if idx < 0 or idx >= len(meta_rows):
+                continue
+            if float(score) < min_score:
+                continue
+            
+            row = meta_rows[idx]
+            photo_id = row.get("photo_id")
+            if not photo_id:
+                continue
+            
+            # Salva solo se non esiste già
+            if photo_id not in existing_photo_ids:
+                try:
+                    await _add_user_photo(email, photo_id, "found")
+                    existing_photo_ids.add(photo_id)  # Evita duplicati nello stesso batch
+                    new_photos_count += 1
+                except Exception as e:
+                    logger.warning(f"Error adding photo {photo_id} for {email}: {e}")
+        
+        # Aggiorna last_auto_match_at SOLO se abbiamo eseguito il match (non se rate-limited)
+        await _db_execute_write(
+            "UPDATE user_face_profiles SET last_auto_match_at = NOW() WHERE email = $1",
+            (email,)
+        )
+        
+        if new_photos_count > 0:
+            logger.info(f"Auto-matched {new_photos_count} new photos for {email}")
+        else:
+            logger.debug(f"Auto-match completed for {email}: no new photos found")
+        
+        return new_photos_count
+    except Exception as e:
+        logger.error(f"Error in auto_match_new_photos_for_email for {email}: {e}", exc_info=True)
+        return 0
+
 async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> bool:
     """Aggiunge una foto trovata per un utente"""
     try:
         email = _normalize_email(email)
-
+        
         # Verifica se esiste già (e qual è lo stato attuale)
         exists = await _db_execute_one(
             "SELECT id, status, expires_at FROM user_photos WHERE email = $1 AND photo_id = $2",
             (email, photo_id)
         )
-
+        
         # PostgreSQL: usa NOW() e INTERVAL per evitare problemi con timezone
         days = 30 if status == "paid" else 90
 
@@ -636,7 +961,7 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
 
             # Aggiorna normalmente (può anche promuovere a 'paid')
             await _db_execute_write(f"""
-                UPDATE user_photos
+                UPDATE user_photos 
                 SET found_at = NOW(), status = $1, expires_at = NOW() + INTERVAL '{days} days'
                 WHERE email = $2 AND photo_id = $3
             """, (status, email, photo_id))
@@ -646,7 +971,7 @@ async def _add_user_photo(email: str, photo_id: str, status: str = "found") -> b
                 INSERT INTO user_photos (email, photo_id, found_at, status, expires_at)
                 VALUES ($1, $2, NOW(), $3, NOW() + INTERVAL '{days} days')
             """, (email, photo_id, status))
-
+        
         return True
     except Exception as e:
         logger.error(f"Error adding user photo: {e}")
@@ -700,32 +1025,21 @@ async def _get_user_paid_photos(email: str) -> List[str]:
             logger.info(f"  - {row['photo_id']}: status={row['status']}, expires_at={row['expires_at']}")
         
         # Poi recupera solo quelle pagate e non scadute
+        # NON includere mai status='deleted' e assicurati che r2_exists=TRUE
         # PostgreSQL: usa NOW() per evitare problemi con timezone
         rows = await _db_execute("""
             SELECT photo_id FROM user_photos 
-            WHERE email = $1 AND status = 'paid' AND expires_at > NOW() AND status != 'deleted'
+            WHERE email = $1 
+              AND status = 'paid' 
+              AND status != 'deleted'
+              AND expires_at > NOW() 
+              AND r2_exists = TRUE
         """, (email,))
         photo_ids = [row['photo_id'] for row in rows]
-        # R2 is the source of truth: if the object was deleted from R2, do not return it.
-        # In R2_ONLY_MODE, R2 è sempre la fonte di verità
-        r2_source_of_truth = R2_ONLY_MODE or os.getenv("R2_SOURCE_OF_TRUTH", "1") == "1"
-        if USE_R2 and r2_source_of_truth:
-            kept: List[str] = []
-            missing: List[str] = []
-            for pid in photo_ids:
-                if await _r2_object_exists(pid):
-                    kept.append(pid)
-                else:
-                    missing.append(pid)
-
-            if missing and os.getenv("AUTO_MARK_MISSING_AS_DELETED", "1") == "1":
-                for pid in missing:
-                    await _db_execute_write(
-                        "UPDATE user_photos SET status = 'deleted' WHERE email = $1 AND photo_id = $2",
-                        (email, pid),
-                    )
-
-            photo_ids = kept
+        
+        # NOTA: R2_FILTER viene applicato in /user/photos usando cache (più veloce)
+        # Non applicarlo qui per evitare doppio filtro
+        
         logger.info(f"Paid photos (not expired) for {email}: {len(photo_ids)} photos - {photo_ids}")
         return photo_ids
     except Exception as e:
@@ -743,32 +1057,20 @@ async def _get_user_found_photos(email: str, limit: Optional[int] = None) -> Lis
         rows = await _db_execute(f"""
             SELECT photo_id, found_at, paid_at, expires_at, status 
             FROM user_photos 
-            WHERE email = $1 AND status != 'deleted'
+            WHERE email = $1 AND status IN ('found', 'paid') AND r2_exists = TRUE
             ORDER BY found_at DESC
             {limit_clause}
         """, (email,))
-        # R2 is the source of truth: if the object was deleted from R2, do not return it.
-        # In R2_ONLY_MODE, R2 è sempre la fonte di verità
-        r2_source_of_truth = R2_ONLY_MODE or os.getenv("R2_SOURCE_OF_TRUTH", "1") == "1"
-        if USE_R2 and r2_source_of_truth:
-            kept_rows: List[Dict[str, Any]] = []
-            missing: List[str] = []
-            for row in rows:
-                pid = row.get("photo_id")
-                if pid and await _r2_object_exists(pid):
-                    kept_rows.append(row)
-                else:
-                    if pid:
-                        missing.append(pid)
-
-            if missing and os.getenv("AUTO_MARK_MISSING_AS_DELETED", "1") == "1":
-                for pid in missing:
-                    await _db_execute_write(
-                        "UPDATE user_photos SET status = 'deleted' WHERE email = $1 AND photo_id = $2",
-                        (email, pid),
-                    )
-
-            rows = kept_rows
+        
+        # R2 is the source of truth: filtra sempre le foto che non esistono più in R2
+        if rows:
+            photo_ids = [row.get("photo_id") for row in rows if row.get("photo_id")]
+            if photo_ids:
+                # NOTA: R2_FILTER viene applicato in /user/photos usando cache (più veloce)
+                # Non applicarlo qui per evitare doppio filtro
+                kept_ids_set = set(photo_ids)
+                rows = [row for row in rows if row.get("photo_id") in kept_ids_set]
+        
         return rows
     except Exception as e:
         logger.error(f"Error getting found photos: {e}")
@@ -856,7 +1158,6 @@ async def _get_order_by_token(token: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Error getting order: {e}")
     return None
 
-# Email system disabled - follow-up functions removed
 
 async def _cleanup_expired_photos():
     """Elimina foto scadute dal database e dal filesystem"""
@@ -1245,8 +1546,173 @@ def _add_watermark_from_bytes(image_bytes: bytes) -> bytes:
         # Fallback: ritorna immagine originale
         return image_bytes
 
-async def _r2_get_object_bytes(key: str) -> bytes:
-    """Legge un oggetto da R2 e restituisce i bytes"""
+def _generate_thumb(image_bytes: bytes) -> bytes:
+    """Genera thumbnail JPEG da bytes (max 600px lato lungo, qualità 55-65)"""
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Calcola dimensioni mantenendo aspect ratio
+        w, h = img.size
+        max_side = THUMB_MAX_SIDE
+        if w > h:
+            new_w = max_side
+            new_h = int(h * (max_side / w))
+        else:
+            new_h = max_side
+            new_w = int(w * (max_side / h))
+        
+        # Resize
+        img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        # Salva in bytes
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=THUMB_QUALITY, optimize=True)
+        output.seek(0)
+        return output.getvalue()
+    except Exception as e:
+        logger.error(f"Error generating thumb: {e}", exc_info=True)
+        raise
+
+def _generate_wm_preview(image_bytes: bytes) -> bytes:
+    """Genera versione watermarked precomputata (max 2000px, qualità 75-85)"""
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Ridimensiona se troppo grande (max 2000px lato lungo)
+        w, h = img.size
+        max_side = WM_MAX_SIDE
+        if w > max_side or h > max_side:
+            if w > h:
+                new_w = max_side
+                new_h = int(h * (max_side / w))
+            else:
+                new_h = max_side
+                new_w = int(w * (max_side / h))
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        # Converti in RGBA per watermark
+        img_rgba = img.convert('RGBA')
+        
+        # Crea overlay watermark
+        watermark_overlay = _create_watermark_overlay(img_rgba.width, img_rgba.height)
+        
+        # Combina watermark con immagine
+        img_with_watermark = Image.alpha_composite(img_rgba, watermark_overlay).convert('RGB')
+        
+        # Salva in bytes
+        output = io.BytesIO()
+        img_with_watermark.save(output, format='JPEG', quality=WM_QUALITY, optimize=True)
+        output.seek(0)
+        return output.getvalue()
+    except Exception as e:
+        logger.error(f"Error generating wm preview: {e}", exc_info=True)
+        raise
+
+async def ensure_previews_for_photo(photo_key: str) -> tuple[bool, bool]:
+    """
+    Assicura che thumb e wm preview esistano per una foto.
+    
+    Args:
+        photo_key: Chiave della foto in R2 (es. "_MIT0161.jpg")
+    
+    Returns:
+        (thumb_created, wm_created): True se creato in questa chiamata, False se già esisteva
+    """
+    # Ignora se è già un thumb o wm
+    if photo_key.startswith(THUMB_PREFIX) or photo_key.startswith(WM_PREFIX):
+        return False, False
+    
+    if not USE_R2 or r2_client is None:
+        return False, False
+    
+    thumb_key = f"{THUMB_PREFIX}{photo_key}"
+    wm_key = f"{WM_PREFIX}{photo_key}"
+    thumb_created = False
+    wm_created = False
+    original_bytes = None
+    
+    # Verifica thumb
+    try:
+        r2_client.head_object(Bucket=R2_BUCKET, Key=thumb_key)
+        # Esiste già
+    except:
+        # Non esiste, genera
+        try:
+            # Scarica originale
+            original_bytes = await _r2_get_object_bytes(photo_key, mark_missing=True)
+            # Genera thumb
+            thumb_bytes = _generate_thumb(original_bytes)
+            # Upload su R2
+            r2_client.put_object(Bucket=R2_BUCKET, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
+            thumb_created = True
+            logger.info(f"[PREVIEW] Generated thumb: {thumb_key}")
+        except Exception as e:
+            logger.error(f"[PREVIEW] Error generating thumb for {photo_key}: {e}")
+    
+    # Verifica wm
+    try:
+        r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
+        # Esiste già
+    except:
+        # Non esiste, genera
+        try:
+            # Scarica originale se non già scaricato
+            if original_bytes is None:
+                original_bytes = await _r2_get_object_bytes(photo_key, mark_missing=True)
+            # Genera wm
+            wm_bytes = _generate_wm_preview(original_bytes)
+            # Upload su R2
+            r2_client.put_object(Bucket=R2_BUCKET, Key=wm_key, Body=wm_bytes, ContentType='image/jpeg')
+            wm_created = True
+            logger.info(f"[PREVIEW] Generated wm preview: {wm_key}")
+        except Exception as e:
+            logger.error(f"[PREVIEW] Error generating wm preview for {photo_key}: {e}")
+    
+    return thumb_created, wm_created
+
+def _normalize_photo_key(name: str) -> str:
+    """
+    Normalizza una chiave foto rimuovendo tutti i prefissi (wm/, thumbs/) in modo robusto.
+    
+    Args:
+        name: Nome della foto che può contenere prefissi (es. "wm/Alessione.JPG", "thumbs/thumbs/_MIT0161.jpg")
+    
+    Returns:
+        Nome base della foto senza prefissi (es. "Alessione.JPG", "_MIT0161.jpg")
+    """
+    if not name:
+        return ""
+    s = name.strip().lstrip("/")
+    # Rimuovi prefissi ripetuti finché ce ne sono
+    while True:
+        if s.startswith("wm/"):
+            s = s[3:]
+            continue
+        if s.startswith("thumbs/"):
+            s = s[7:]
+            continue
+        break
+    return s
+
+async def _mark_photo_missing_in_r2(photo_id: str):
+    """Marca una foto come mancante in R2 (404) - aggiorna DB"""
+    try:
+        await _db_execute_write(
+            """UPDATE user_photos 
+               SET status = 'deleted', r2_exists = FALSE, r2_last_checked = NOW()
+               WHERE photo_id = $1 AND (status != 'deleted' OR r2_exists = TRUE)""",
+            (photo_id,)
+        )
+        logger.info(f"[R2_404] Marked photo as deleted (missing in R2): {photo_id}")
+    except Exception as e:
+        logger.error(f"Error marking photo {photo_id} as missing in R2: {e}")
+
+async def _r2_get_object_bytes(key: str, mark_missing: bool = True) -> bytes:
+    """Legge un oggetto da R2 e restituisce i bytes. Se 404, marca come deleted nel DB (solo se mark_missing=True)."""
     if not USE_R2 or r2_client is None:
         raise ValueError("R2 not configured")
     
@@ -1259,6 +1725,9 @@ async def _r2_get_object_bytes(key: str) -> bytes:
         
         if error_code == 'NoSuchKey':
             logger.warning(f"Photo not found in R2: key={key}")
+            # Marca come deleted nel DB solo se mark_missing=True (non per thumb/wm)
+            if mark_missing and not key.startswith(THUMB_PREFIX) and not key.startswith(WM_PREFIX):
+                await _mark_photo_missing_in_r2(key)
             raise HTTPException(status_code=404, detail=f"Photo not found: {key}")
         else:
             logger.error(f"R2 error reading photo: code={error_code}, message={error_message}, key={key}")
@@ -1295,14 +1764,16 @@ async def startup():
     logger.info("=" * 80)
     
     # Log R2_ONLY_MODE
+    # Leggi R2_ONLY_MODE come variabile locale per evitare UnboundLocalError
+    r2_only_mode = str(os.getenv("R2_ONLY_MODE", "0")).strip().lower() in {"1","true","yes","on"}
     logger.info("=" * 80)
     logger.info("📦 R2_ONLY_MODE CONFIGURATION")
     logger.info("=" * 80)
-    logger.info(f"R2_ONLY_MODE enabled: {R2_ONLY_MODE}")
-    if R2_ONLY_MODE:
+    logger.info(f"R2_ONLY_MODE enabled: {r2_only_mode}")
+    if r2_only_mode:
         logger.info("✅ R2_ONLY_MODE: Filesystem disabled for photos and index files")
         logger.info("   - Photos served ONLY from R2")
-        logger.info("   - Index files (faces.index, faces.meta.jsonl, downloads_track.jsonl, back_photos.jsonl) disabled")
+        logger.info("   - Index files (faces.index, faces.meta.jsonl, downloads_track.jsonl, back_photos.jsonl) stored on R2")
     else:
         logger.info("⚠️  R2_ONLY_MODE disabled: Filesystem fallback enabled")
     logger.info("=" * 80)
@@ -1318,7 +1789,7 @@ async def startup():
         return
     
     # In R2_ONLY_MODE: carica indice e metadata da R2
-    if R2_ONLY_MODE:
+    if r2_only_mode:
         logger.info("R2_ONLY_MODE: Loading index files from R2...")
         if USE_R2 and r2_client:
             try:
@@ -1342,8 +1813,8 @@ async def startup():
                         pass
             except HTTPException as e:
                 if e.status_code == 404:
-                    logger.info("FAISS index not found in R2 - creating empty index")
-                    # Crea indice vuoto
+                    logger.info("FAISS index not found in R2 - starting with empty index")
+                    # Crea indice vuoto (non disabilita il match, solo parte vuoto)
                     faiss_index = faiss.IndexFlatIP(INDEX_DIM)
                     meta_rows = []
                     # Salva indice vuoto su R2
@@ -1359,7 +1830,7 @@ async def startup():
                         import os as os_module
                         os_module.unlink(tmp_path)
                     except Exception as save_err:
-                        logger.error(f"Error saving empty index to R2: {save_err}")
+                        logger.warning(f"Could not save empty index to R2 (will be created on first indexing): {save_err}")
                 else:
                     logger.error(f"Error loading FAISS index from R2: {e}")
                     faiss_index = None
@@ -1382,14 +1853,14 @@ async def startup():
                 logger.info(f"Metadata loaded from R2: {len(meta_rows)} records")
             except HTTPException as e:
                 if e.status_code == 404:
-                    logger.info("Metadata not found in R2 - creating empty metadata file")
+                    logger.info("Metadata not found in R2 - starting with empty metadata")
                     meta_rows = []
                     # Salva metadata vuoto su R2
                     try:
                         r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=b"")
                         logger.info("Empty metadata file created and uploaded to R2")
                     except Exception as save_err:
-                        logger.error(f"Error saving empty metadata to R2: {save_err}")
+                        logger.warning(f"Could not save empty metadata to R2 (will be created on first indexing): {save_err}")
                 else:
                     logger.error(f"Error loading metadata from R2: {e}")
                     meta_rows = []
@@ -1412,10 +1883,13 @@ async def startup():
                 logger.info(f"Back photos not found in R2 (optional): {e}")
                 back_photos = []
         else:
-            logger.warning("R2_ONLY_MODE enabled but R2 not configured - face matching disabled")
-            faiss_index = None
-            meta_rows = []
-            back_photos = []
+            # OPZIONE 1: Fallback automatico a filesystem mode
+            logger.warning("=" * 80)
+            logger.warning("⚠️  R2_ONLY_MODE=True ma R2 non configurato!")
+            logger.warning("⚠️  Fallback automatico a filesystem mode (R2_ONLY_MODE=False)")
+            logger.warning("=" * 80)
+            r2_only_mode = False
+            # Continua con il caricamento da filesystem (vedi else sotto)
     else:
         # Carica indice FAISS e metadata (solo se R2_ONLY_MODE è disabilitato)
         if not INDEX_PATH.exists() or not META_PATH.exists():
@@ -1482,48 +1956,276 @@ async def startup():
         """Indicizza automaticamente nuove foto da R2"""
         global faiss_index, meta_rows, back_photos
         
+        logger.info(f"[INDEXING] Checking conditions: USE_R2={USE_R2}, r2_client={r2_client is not None}, R2_ONLY_MODE={R2_ONLY_MODE}")
         if not USE_R2 or not r2_client or not R2_ONLY_MODE:
+            logger.warning(f"[INDEXING] Skipping - conditions not met: USE_R2={USE_R2}, r2_client={r2_client is not None}, R2_ONLY_MODE={R2_ONLY_MODE}")
             return
         
         # Evita run simultanei
         if indexing_lock.locked():
+            logger.info("[INDEXING] Already running, skipping")
             return
         
         async with indexing_lock:
             try:
                 start_time = datetime.now(timezone.utc)
-                logger.info("Starting automatic photo indexing from R2...")
+                logger.info("[INDEXING] Starting automatic photo indexing from R2...")
+                logger.info(f"[INDEXING] R2_BUCKET={R2_BUCKET}, R2_PHOTOS_PREFIX='{R2_PHOTOS_PREFIX}'")
                 
-                # Lista foto già indicizzate dal DB
+                # Stateless mode: usa meta_rows per vedere foto già indicizzate (non DB)
                 indexed_photo_ids = set()
-                if db_pool:
-                    async with db_pool.acquire() as conn:
-                        rows = await conn.fetch("SELECT photo_id FROM indexed_photos")
-                        indexed_photo_ids = {row['photo_id'] for row in rows}
+                if meta_rows:
+                    indexed_photo_ids = {row.get('photo_id') or row.get('filename') or row.get('id') for row in meta_rows if row.get('photo_id') or row.get('filename') or row.get('id')}
+                    logger.info(f"[INDEXING] Found {len(indexed_photo_ids)} already indexed photos (from faces.meta.jsonl on R2)")
                 
                 # Lista oggetti R2 con paginator
                 new_photos = []
+                all_objects = []
                 paginator = r2_client.get_paginator('list_objects_v2')
                 prefix = R2_PHOTOS_PREFIX if R2_PHOTOS_PREFIX else ""
                 
+                logger.info(f"[INDEXING] Listing objects in bucket '{R2_BUCKET}' with prefix '{prefix}'...")
                 for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
                     for obj in page.get('Contents', []):
                         key = obj['Key']
+                        all_objects.append(key)
                         # Ignora file di sistema
                         if key in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                            continue
+                        # IGNORA oggetti che iniziano con wm/ o thumbs/ (sono preview, non foto originali)
+                        if key.startswith("wm/") or key.startswith("thumbs/"):
                             continue
                         # Filtra solo immagini
                         if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
                             continue
-                        # Se non indicizzata, aggiungi
-                        if key not in indexed_photo_ids:
-                            new_photos.append(key)
+                        # Normalizza la chiave (rimuove eventuali prefissi residui)
+                        normalized_key = _normalize_photo_key(key)
+                        # Filtra chiavi che dopo normalizzazione risultano vuote o contengono "/" (sottocartelle)
+                        if not normalized_key or "/" in normalized_key:
+                            continue
+                        # Se non indicizzata, aggiungi (usa la chiave normalizzata)
+                        if normalized_key not in indexed_photo_ids:
+                            new_photos.append(normalized_key)
+                
+                logger.info(f"[INDEXING] Total objects in R2: {len(all_objects)}, new photos to index: {len(new_photos)}")
+                if all_objects:
+                    logger.info(f"[INDEXING] Sample objects (first 5): {all_objects[:5]}")
+                
+                # Costruisci set delle chiavi R2 (solo foto, escludi file di sistema)
+                r2_keys_set = set()
+                for key in all_objects:
+                    if key not in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                        if any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
+                            r2_keys_set.add(key)
+                
+                # PURGE LOGIC: rimuovi dal FAISS index e metadata le foto che non esistono più in R2
+                total_meta_before = len(meta_rows)
+                purged_count = 0
+                purged_photo_ids = []
+                
+                if faiss_index is not None and faiss_index.ntotal > 0 and len(meta_rows) > 0:
+                    try:
+                        # Filtra meta_rows mantenendo SOLO quelle con photo_id presente in r2_keys_set
+                        filtered_meta_rows = []
+                        old_idx_to_new_idx = {}  # Mappa: vecchio indice -> nuovo indice
+                        new_idx = 0
+                        
+                        for old_idx, meta_row in enumerate(meta_rows):
+                            photo_id = meta_row.get('photo_id')
+                            if photo_id and photo_id in r2_keys_set:
+                                filtered_meta_rows.append(meta_row)
+                                old_idx_to_new_idx[old_idx] = new_idx
+                                new_idx += 1
+                            else:
+                                purged_count += 1
+                                if photo_id:
+                                    purged_photo_ids.append(photo_id)
+                        
+                        # Se ci sono foto da purgare, ricostruisci il FAISS index
+                        if purged_count > 0:
+                            logger.info(f"[INDEXING] Purging {purged_count} photos from FAISS index and metadata (total before: {total_meta_before})")
+                            
+                            # Ricostruisci FAISS index da zero usando solo gli embedding delle righe rimaste
+                            new_faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+                            new_embeddings_list = []
+                            final_meta_rows = []
+                            
+                            # Ricostruisci nell'ordine corretto (stesso ordine di filtered_meta_rows)
+                            for old_idx, meta_row in enumerate(meta_rows):
+                                photo_id = meta_row.get('photo_id')
+                                if photo_id and photo_id in r2_keys_set:
+                                    try:
+                                        # Ricostruisci embedding dal vecchio index usando l'indice originale
+                                        embedding = faiss_index.reconstruct(int(old_idx))
+                                        embedding = np.array(embedding, dtype=np.float32)
+                                        
+                                        # Aggiungi embedding al nuovo index
+                                        new_embeddings_list.append(embedding)
+                                        # Mantieni meta_row (gli indici nel nuovo index saranno 0, 1, 2, ...)
+                                        final_meta_rows.append(meta_row)
+                                    except Exception as e:
+                                        logger.warning(f"[INDEXING] Could not reconstruct embedding for old_idx={old_idx}, photo_id={photo_id}: {e}")
+                                        # Salta questa riga (non aggiungere né embedding né meta_row)
+                            
+                            # Aggiungi tutti gli embedding al nuovo index in batch
+                            if new_embeddings_list:
+                                embeddings_array = np.array(new_embeddings_list, dtype=np.float32)
+                                new_faiss_index.add(embeddings_array)
+                            
+                            # Aggiorna variabili globali
+                            faiss_index = new_faiss_index
+                            meta_rows = final_meta_rows
+                            
+                            total_meta_after = len(meta_rows)
+                            logger.info(f"[INDEXING] Purge completed: {total_meta_before} -> {total_meta_after} metadata rows, {purged_count} purged")
+                            
+                            if purged_photo_ids:
+                                # Logga i primi 10 photo_id purgati
+                                sample_purged = purged_photo_ids[:10]
+                                logger.info(f"[INDEXING] Sample purged photo_ids (first 10): {sample_purged}")
+                            
+                            # Salva su R2 i file ripuliti
+                            try:
+                                import tempfile
+                                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                                    tmp_path = tmp_file.name
+                                faiss.write_index(faiss_index, tmp_path)
+                                with open(tmp_path, 'rb') as f:
+                                    index_bytes = f.read()
+                                r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
+                                
+                                # Salva metadata ripuliti
+                                meta_lines = [json.dumps(m, ensure_ascii=False) for m in meta_rows]
+                                meta_bytes = '\n'.join(meta_lines).encode('utf-8')
+                                r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=meta_bytes)
+                                
+                                import os as os_module
+                                os_module.unlink(tmp_path)
+                                
+                                logger.info(f"[INDEXING] Purged index and metadata saved to R2")
+                            except Exception as e:
+                                logger.error(f"[INDEXING] Error saving purged index to R2: {e}")
+                    except Exception as e:
+                        logger.error(f"[INDEXING] Error purging FAISS index: {e}", exc_info=True)
+                
+                # SINCRONIZZAZIONE DB: marca come deleted le foto che sono found/paid ma non esistono più in R2
+                if db_pool:
+                    try:
+                        # Trova foto che sono found/paid ma non sono in r2_keys_set
+                        async with db_pool.acquire() as conn:
+                            # Query per trovare foto che devono essere marcate come deleted
+                            if r2_keys_set:
+                                # Usa NOT IN con array
+                                missing_rows = await conn.fetch("""
+                                    SELECT DISTINCT photo_id 
+                                    FROM user_photos 
+                                    WHERE status IN ('found', 'paid') 
+                                      AND r2_exists = TRUE
+                                      AND photo_id NOT IN (SELECT unnest($1::text[]))
+                                """, (list(r2_keys_set),))
+                            else:
+                                # Se r2_keys_set è vuoto, tutte le foto found/paid devono essere marcate come deleted
+                                missing_rows = await conn.fetch("""
+                                    SELECT DISTINCT photo_id 
+                                    FROM user_photos 
+                                    WHERE status IN ('found', 'paid') 
+                                      AND r2_exists = TRUE
+                                """)
+                            
+                            # Trova anche foto in indexed_photos che non esistono più in R2
+                            if r2_keys_set:
+                                missing_indexed_rows = await conn.fetch("""
+                                    SELECT photo_id 
+                                    FROM indexed_photos 
+                                    WHERE photo_id NOT IN (SELECT unnest($1::text[]))
+                                """, (list(r2_keys_set),))
+                            else:
+                                # Se r2_keys_set è vuoto, tutte le foto devono essere eliminate
+                                missing_indexed_rows = await conn.fetch("SELECT photo_id FROM indexed_photos")
+                            
+                            # Combina le liste di foto mancanti
+                            all_missing_photo_ids = set()
+                            if missing_rows:
+                                all_missing_photo_ids.update([row['photo_id'] for row in missing_rows])
+                            if missing_indexed_rows:
+                                all_missing_photo_ids.update([row['photo_id'] for row in missing_indexed_rows])
+                            
+                            if all_missing_photo_ids:
+                                missing_photo_ids = list(all_missing_photo_ids)
+                                logger.info(f"[INDEXING] Found {len(missing_photo_ids)} photos in DB that no longer exist in R2 (user_photos: {len(missing_rows) if missing_rows else 0}, indexed_photos: {len(missing_indexed_rows) if missing_indexed_rows else 0})")
+                                
+                                # HARD DELETE: elimina completamente i record (R2 è source of truth)
+                                if missing_photo_ids:
+                                    # 1. Elimina da user_photos
+                                    deleted_user_photos = await conn.execute("""
+                                        DELETE FROM user_photos 
+                                        WHERE photo_id = ANY($1::text[])
+                                    """, (missing_photo_ids,))
+                                    
+                                    # 2. Elimina da photo_assets (prima di indexed_photos per evitare constraint)
+                                    deleted_assets = await conn.execute("""
+                                        DELETE FROM photo_assets 
+                                        WHERE photo_id = ANY($1::text[])
+                                    """, (missing_photo_ids,))
+                                    
+                                    # 3. Elimina da indexed_photos
+                                    deleted_indexed = await conn.execute("""
+                                        DELETE FROM indexed_photos 
+                                        WHERE photo_id = ANY($1::text[])
+                                    """, (missing_photo_ids,))
+                                    
+                                    logger.info(f"[INDEXING] Hard deleted {len(missing_photo_ids)} photos from DB (missing in R2): user_photos={deleted_user_photos}, indexed_photos={deleted_indexed}, photo_assets={deleted_assets}")
+                                    
+                                    # 4. Pulisci ordini: rimuovi photo_ids non esistenti da orders.photo_ids (JSON)
+                                    orders_rows = await conn.fetch("""
+                                        SELECT order_id, photo_ids FROM orders WHERE photo_ids IS NOT NULL
+                                    """)
+                                    
+                                    cleaned_orders = 0
+                                    for order_row in orders_rows:
+                                        order_id = order_row['order_id']
+                                        photo_ids_json = order_row['photo_ids']
+                                        if not photo_ids_json:
+                                            continue
+                                        
+                                        try:
+                                            photo_ids_list = json.loads(photo_ids_json) if isinstance(photo_ids_json, str) else photo_ids_json
+                                            original_count = len(photo_ids_list)
+                                            missing_set = set(missing_photo_ids)
+                                            # Filtra photo_ids che non sono in missing_set (mantieni solo quelli esistenti)
+                                            cleaned_list = [pid for pid in photo_ids_list if pid not in missing_set]
+                                            
+                                            if len(cleaned_list) < original_count:
+                                                # Aggiorna ordine con lista pulita
+                                                await conn.execute("""
+                                                    UPDATE orders 
+                                                    SET photo_ids = $1::jsonb
+                                                    WHERE order_id = $2
+                                                """, (json.dumps(cleaned_list), order_id))
+                                                cleaned_orders += 1
+                                                logger.info(f"[INDEXING] Cleaned order {order_id}: removed {original_count - len(cleaned_list)} missing photo_ids")
+                                        except Exception as e:
+                                            logger.warning(f"[INDEXING] Error cleaning order {order_id}: {e}")
+                                    
+                                    if cleaned_orders > 0:
+                                        logger.info(f"[INDEXING] Cleaned {cleaned_orders} orders by removing missing photo_ids")
+                    except Exception as e:
+                        logger.error(f"[INDEXING] Error syncing R2 missing photos in DB: {e}", exc_info=True)
+                
+                # NOTA: Il purge viene eseguito sempre (anche se non ci sono nuove foto da indicizzare)
+                # perché le foto possono essere state cancellate da R2 in qualsiasi momento
                 
                 if not new_photos:
-                    logger.info("No new photos to index")
-                    return
+                    # Non loggare "No new photos" ad ogni ciclo (troppo rumore)
+                    # Verrà loggato solo nel heartbeat ogni 30 minuti
+                    # Ma ritorna solo se non c'è stato purge (altrimenti abbiamo già salvato l'index)
+                    if purged_count == 0:
+                        return 0
+                    else:
+                        # C'è stato purge, ritorna 0 ma l'index è già stato salvato sopra
+                        return 0
                 
-                logger.info(f"Found {len(new_photos)} new photos to index")
+                logger.info(f"[INDEXING] Found {len(new_photos)} new photos to index")
                 
                 # Indicizza batch (max 50 per ciclo)
                 batch_size = 50
@@ -1531,11 +2233,18 @@ async def startup():
                 new_embeddings = []
                 new_meta = []
                 new_back_photos = []
+                previews_generated_count = 0  # Conta preview generate in questo ciclo
                 
                 for i, photo_key in enumerate(new_photos[:batch_size]):
                     try:
-                        # Scarica foto da R2
-                        photo_bytes = await _r2_get_object_bytes(photo_key)
+                        # Normalizza photo_key (dovrebbe già essere normalizzato, ma per sicurezza)
+                        photo_key_normalized = _normalize_photo_key(photo_key)
+                        if not photo_key_normalized or "/" in photo_key_normalized:
+                            logger.warning(f"[INDEXING] Skipping invalid photo_key: {photo_key}")
+                            continue
+                        
+                        # Scarica foto da R2 (usa la chiave normalizzata)
+                        photo_bytes = await _r2_get_object_bytes(photo_key_normalized)
                         
                         # Decodifica immagine
                         nparr = np.frombuffer(photo_bytes, np.uint8)
@@ -1547,8 +2256,8 @@ async def startup():
                         faces = face_app.get(img)
                         
                         if not faces:
-                            # Foto senza volti -> back_photos
-                            new_back_photos.append({"photo_id": photo_key})
+                            # Foto senza volti -> back_photos (usa photo_key normalizzato)
+                            new_back_photos.append({"photo_id": photo_key_normalized})
                             # Segna comunque come indicizzata
                             if db_pool:
                                 async with db_pool.acquire() as conn:
@@ -1564,21 +2273,22 @@ async def startup():
                             embedding = _normalize(embedding)
                             new_embeddings.append(embedding)
                             
-                            # Metadata
+                            # Metadata (usa photo_key normalizzato)
                             bbox = face.bbox
                             new_meta.append({
-                                "photo_id": photo_key,
+                                "photo_id": photo_key_normalized,
                                 "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
                                 "det_score": float(face.det_score)
                             })
                         
-                        # Segna come indicizzata
-                        if db_pool:
-                            async with db_pool.acquire() as conn:
-                                await conn.execute(
-                                    "INSERT INTO indexed_photos (photo_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                                    photo_key
-                                )
+                        # Genera thumb e wm precomputati usando funzione helper (rate limited)
+                        # Rate limit: max 3 foto per ciclo per non saturare CPU
+                        if indexed_count < 3:
+                            thumb_created, wm_created = await ensure_previews_for_photo(photo_key_normalized)
+                            if thumb_created:
+                                previews_generated_count += 1
+                            if wm_created:
+                                previews_generated_count += 1
                         
                         indexed_count += 1
                         
@@ -1620,12 +2330,62 @@ async def startup():
                         os_module.unlink(tmp_path)
                         
                         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                        logger.info(f"Indexing completed: {indexed_count} photos, {len(new_embeddings)} faces, {elapsed:.2f}s")
+                        logger.info(f"Indexing completed: {indexed_count} photos, {len(new_embeddings)} faces, {previews_generated_count} previews generated, {elapsed:.2f}s")
                     except Exception as e:
                         logger.error(f"Error saving index to R2: {e}")
                 
+                # BACKFILL MODE: genera preview per foto già indicizzate ma senza thumb/wm
+                # Rate limit: max 2 foto per ciclo per non saturare CPU
+                if meta_rows and len(meta_rows) > 0:
+                    backfill_count = 0
+                    backfill_thumbs = 0
+                    backfill_wms = 0
+                    
+                    # Estrai photo_id unici da meta_rows
+                    existing_photo_ids = set()
+                    for row in meta_rows:
+                        photo_id = row.get('photo_id')
+                        if photo_id and not photo_id.startswith(THUMB_PREFIX) and not photo_id.startswith(WM_PREFIX):
+                            existing_photo_ids.add(photo_id)
+                    
+                    # Controlla quali foto non hanno thumb/wm
+                    for photo_id in list(existing_photo_ids)[:10]:  # Max 10 foto per ciclo
+                        if backfill_count >= 2:  # Rate limit: max 2 foto per ciclo
+                            break
+                        
+                        thumb_key = f"{THUMB_PREFIX}{photo_id}"
+                        wm_key = f"{WM_PREFIX}{photo_id}"
+                        needs_thumb = False
+                        needs_wm = False
+                        
+                        try:
+                            r2_client.head_object(Bucket=R2_BUCKET, Key=thumb_key)
+                        except:
+                            needs_thumb = True
+                        
+                        try:
+                            r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
+                        except:
+                            needs_wm = True
+                        
+                        if needs_thumb or needs_wm:
+                            try:
+                                thumb_created, wm_created = await ensure_previews_for_photo(photo_id)
+                                if thumb_created:
+                                    backfill_thumbs += 1
+                                if wm_created:
+                                    backfill_wms += 1
+                                backfill_count += 1
+                            except Exception as e:
+                                logger.warning(f"[BACKFILL] Error generating previews for {photo_id}: {e}")
+                    
+                    if backfill_count > 0:
+                        logger.info(f"[BACKFILL] Generated {backfill_thumbs} thumbs, {backfill_wms} wm previews for existing photos")
+                
             except Exception as e:
                 logger.error(f"Error in automatic indexing: {e}", exc_info=True)
+            
+            return indexed_count
     
     # Avvia task periodico per cleanup (ogni 6 ore) e indicizzazione (ogni 60 secondi)
     async def periodic_tasks():
@@ -1634,18 +2394,26 @@ async def startup():
                 await asyncio.sleep(6 * 60 * 60)  # 6 ore
                 logger.info("Running periodic cleanup...")
                 await _cleanup_expired_photos()
-                # Email system disabled - no follow-up emails
             except Exception as e:
                 logger.error(f"Error in periodic tasks: {e}")
     
     async def indexing_task():
         """Task periodico per indicizzazione automatica"""
+        logger.info("[INDEXING] Indexing task started, will run every 300 seconds (5 minutes)")
+        last_heartbeat = datetime.now(timezone.utc)
         while True:
             try:
-                await asyncio.sleep(60)  # 60 secondi
-                await index_new_r2_photos()
+                await asyncio.sleep(300)  # 300 secondi (5 minuti)
+                logger.info("[INDEXING] Running periodic indexing check...")
+                indexed_count = await index_new_r2_photos()
+                
+                # Log heartbeat solo ogni 30 minuti (6 cicli)
+                now = datetime.now(timezone.utc)
+                if (now - last_heartbeat).total_seconds() >= 1800:  # 30 minuti
+                    logger.info("[INDEXING] Heartbeat: indexing task running normally")
+                    last_heartbeat = now
             except Exception as e:
-                logger.error(f"Error in indexing task: {e}")
+                logger.error(f"[INDEXING] Error in indexing task: {e}", exc_info=True)
     
     # Avvia task in background
     asyncio.create_task(periodic_tasks())
@@ -1796,11 +2564,25 @@ def apple_touch_icon_precomposed():
 
 @app.get("/health")
 def health():
+    """Endpoint di health check con informazioni R2 e index"""
+    index_size = 0
+    if faiss_index is not None:
+        try:
+            index_size = faiss_index.ntotal
+        except Exception:
+            pass
+    
+    r2_client_ready = r2_client is not None and USE_R2
+    
     return {
         "status": "ok",
         "service": APP_NAME,
         "version": APP_VERSION,
-        "time_utc": datetime.now(timezone.utc).isoformat()
+        "time_utc": datetime.now(timezone.utc).isoformat(),
+        "r2_only_mode": R2_ONLY_MODE,
+        "use_r2": USE_R2,
+        "r2_client_ready": r2_client_ready,
+        "index_size": index_size
     }
 
 @app.post("/admin/cleanup")
@@ -2088,32 +2870,169 @@ async def fix_paid_photos(email: str = Query(..., description="Email utente")):
         logger.error(f"Error fixing paid photos: {e}", exc_info=True)
         return {"error": str(e)}
 
+@app.get("/thumb/{photo_id:path}")
+async def serve_thumb(photo_id: str):
+    """Endpoint per servire thumbnail precomputati (solo bytes da R2, no processing)"""
+    if not USE_R2 or not r2_client:
+        raise HTTPException(status_code=503, detail="R2 storage not available")
+    
+    thumb_key = f"{THUMB_PREFIX}{photo_id}"
+    
+    try:
+        photo_bytes = await _r2_get_object_bytes(thumb_key)
+        return Response(
+            content=photo_bytes,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error serving thumb {photo_id}: {e}")
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+@app.get("/wm/{photo_id:path}")
+async def serve_wm(photo_id: str):
+    """Endpoint per servire preview watermarked precomputati (solo bytes da R2, no processing)"""
+    if not USE_R2 or not r2_client:
+        raise HTTPException(status_code=503, detail="R2 storage not available")
+    
+    wm_key = f"{WM_PREFIX}{photo_id}"
+    
+    try:
+        photo_bytes = await _r2_get_object_bytes(wm_key)
+        return Response(
+            content=photo_bytes,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error serving wm {photo_id}: {e}")
+        raise HTTPException(status_code=404, detail="Watermarked preview not found")
+
 @app.get("/photo/{filename:path}")
 async def serve_photo(
     filename: str, 
     request: Request,
+    variant: Optional[str] = Query(None, description="variant=thumb per thumbnail, variant=wm per watermarked preview"),
     paid: bool = Query(False, description="Se true, serve foto senza watermark (solo se pagata)"),
     token: Optional[str] = Query(None, description="Download token per verificare pagamento"),
     email: Optional[str] = Query(None, description="Email utente per verificare pagamento"),
     download: bool = Query(False, description="Se true, forza il download con header Content-Disposition")
 ):
-    """Endpoint per servire le foto - con watermark se non pagata"""
+    """Endpoint per servire le foto: variant=thumb per thumbnail, variant=wm per watermarked, paid=true per originale"""
     logger.info(f"=== PHOTO REQUEST ===")
     logger.info(f"Request path: {request.url.path}")
-    logger.info(f"Filename parameter: {filename}")
+    logger.info(f"Filename parameter: {filename}, variant: {variant}")
     logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {email is not None}")
     
     # Decodifica il filename (potrebbe essere URL encoded)
     try:
         from urllib.parse import unquote
-        filename = unquote(filename)
-        logger.info(f"Decoded filename: {filename}")
+        decoded_filename = unquote(filename)
+        logger.info(f"Decoded filename: {decoded_filename}")
     except Exception as e:
         logger.warning(f"Error decoding filename: {e}")
+        decoded_filename = filename
     
-    # Normalizza il filename per i check pagamento (usa solo basename)
+    # NORMALIZZA: rimuovi tutti i prefissi (wm/, thumbs/) per ottenere il nome base
+    base = decoded_filename.strip().lstrip("/")
+    while True:
+        if base.startswith("wm/"):
+            base = base[3:]
+            continue
+        if base.startswith("thumbs/"):
+            base = base[7:]
+            continue
+        break
+    
+    # Validazione: se dopo normalizzazione contiene ancora "/" o è vuoto -> errore
+    if not base or "/" in base:
+        logger.error(f"Invalid photo key after normalization: original={decoded_filename}, normalized={base}")
+        raise HTTPException(status_code=400, detail="Invalid photo filename")
+    
+    logger.info(f"[PHOTO] normalized base={base} variant={variant}")
+    
+    # Gestisci variant=thumb e variant=wm (priorità su tutto)
+    # Usa SEMPRE base normalizzato per costruire le chiavi R2
+    # NO runtime generation durante richieste utente (solo fallback con flag DEBUG)
+    if variant == "thumb":
+        thumb_key = f"{THUMB_PREFIX}{base}"  # Usa base normalizzato, NON filename
+        try:
+            # Non marcare come deleted se thumb non esiste (mark_missing=False)
+            photo_bytes = await _r2_get_object_bytes(thumb_key, mark_missing=False)
+            logger.info(f"Serving thumb: R2 key={thumb_key} (base={base})")
+            return Response(
+                content=photo_bytes,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"}
+            )
+        except HTTPException as e:
+            if e.status_code == 404:
+                # Fallback runtime SOLO se flag DEBUG attivo
+                if ENABLE_RUNTIME_PREVIEW_GENERATION:
+                    logger.warning(f"[RUNTIME] Thumb not found: {thumb_key}, generating runtime (DEBUG mode)")
+                    try:
+                        original_bytes = await _r2_get_object_bytes(base)  # Usa base per originale
+                        thumb_bytes = _generate_thumb(original_bytes)
+                        try:
+                            r2_client.put_object(Bucket=R2_BUCKET, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
+                            logger.info(f"[RUNTIME] Generated and saved thumb: {thumb_key}")
+                        except Exception as save_err:
+                            logger.warning(f"Could not save thumb to R2: {save_err}")
+                        return Response(
+                            content=thumb_bytes,
+                            media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=3600"}
+                        )
+                    except Exception as gen_err:
+                        logger.error(f"Error generating thumb runtime: {gen_err}")
+                # Normale: restituisci 404 (frontend ritenterà)
+                raise HTTPException(status_code=404, detail="Thumbnail not ready yet")
+            else:
+                raise
+    
+    if variant == "wm":
+        wm_key = f"{WM_PREFIX}{base}"  # Usa base normalizzato, NON filename
+        try:
+            # Non marcare come deleted se wm non esiste (mark_missing=False)
+            photo_bytes = await _r2_get_object_bytes(wm_key, mark_missing=False)
+            logger.info(f"Serving wm preview: R2 key={wm_key} (base={base})")
+            return Response(
+                content=photo_bytes,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"}
+            )
+        except HTTPException as e:
+            if e.status_code == 404:
+                # Fallback runtime SOLO se flag DEBUG attivo
+                if ENABLE_RUNTIME_PREVIEW_GENERATION:
+                    logger.warning(f"[RUNTIME] WM preview not found: {wm_key}, generating runtime (DEBUG mode)")
+                    try:
+                        original_bytes = await _r2_get_object_bytes(base)  # Usa base per originale
+                        wm_bytes = _generate_wm_preview(original_bytes)
+                        try:
+                            r2_client.put_object(Bucket=R2_BUCKET, Key=wm_key, Body=wm_bytes, ContentType='image/jpeg')
+                            logger.info(f"[RUNTIME] Generated and saved wm preview: {wm_key}")
+                        except Exception as save_err:
+                            logger.warning(f"Could not save wm preview to R2: {save_err}")
+                        return Response(
+                            content=wm_bytes,
+                            media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=3600"}
+                        )
+                    except Exception as gen_err:
+                        logger.error(f"Error generating wm preview runtime: {gen_err}")
+                # Normale: restituisci 404 (frontend ritenterà)
+                raise HTTPException(status_code=404, detail="Watermarked preview not ready yet")
+            else:
+                raise
+    
+    # Usa base normalizzato per i check pagamento
     from pathlib import Path
-    filename_check = Path(filename).name
+    filename_check = base  # Usa base normalizzato
     
     # Verifica se la foto è pagata usando token o email
     # IMPORTANTE: NON fidarsi mai del query param `paid=true` da solo.
@@ -2135,18 +3054,18 @@ async def serve_photo(
                     expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
                     now = datetime.now(timezone.utc)
                     if now > expires_date:
-                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, filename={filename}")
+                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, base={base}")
                         is_paid = False
                     else:
                         is_paid = True
-                        logger.info(f"Photo verified as paid via token: {filename}")
+                        logger.info(f"Photo verified as paid via token: base={base}")
                 except Exception as e:
                     logger.error(f"Error parsing expires_at for token validation: {e}")
                     is_paid = False
             else:
                 # Nessuna scadenza, valido
                 is_paid = True
-                logger.info(f"Photo verified as paid via token (no expiry): {filename}")
+                logger.info(f"Photo verified as paid via token (no expiry): base={base}")
 
     # Fallback: verifica per email (solo se non già pagata via token)
     if (not is_paid) and email:
@@ -2154,7 +3073,7 @@ async def serve_photo(
             paid_photos = await _get_user_paid_photos(email)
             if filename_check in paid_photos:
                 is_paid = True
-                logger.info(f"Photo verified as paid via email: {filename}")
+                logger.info(f"Photo verified as paid via email: base={base}")
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
@@ -2166,28 +3085,32 @@ async def serve_photo(
     
     # Leggi da R2
     try:
-        photo_bytes = await _r2_get_object_bytes(filename)
-        logger.info(f"Serving photo from R2: key={filename}, bucket={R2_BUCKET}")
+        photo_bytes = await _r2_get_object_bytes(base)  # Usa base, NON filename
+        logger.info(f"Serving photo from R2: key={base}, bucket={R2_BUCKET}")
         
         # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
         if not is_paid:
-            # SERVI SEMPRE WATERMARK/SMALL (anche se paid=true e anche se download=true)
-            logger.warning(f"WATERMARK FORCE: Serving photo with SERVER-SIDE watermark (not paid): {filename}")
-            logger.warning(f"WATERMARK FORCE: Calling _add_watermark_from_bytes() which uses text='MetaProos'")
-            
-            logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
-            
+            # Serve wm precomputato invece di generare runtime
+            wm_key = f"{WM_PREFIX}{base}"  # Usa base normalizzato
+            try:
+                wm_bytes = await _r2_get_object_bytes(wm_key)
+                logger.info(f"Serving precomputed wm for {filename}")
+                return Response(
+                    content=wm_bytes,
+                    media_type="image/jpeg",
+                    headers={
+                        "Cache-Control": "public, max-age=31536000, immutable"
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Precomputed wm not found for {filename}, falling back to runtime watermark: {e}")
+                # Fallback: genera runtime (solo se wm precomputato non esiste)
             watermarked_bytes = _add_watermark_from_bytes(photo_bytes)
-            logger.warning(f"WATERMARK FORCE: Watermark generated, size={len(watermarked_bytes)} bytes")
             return Response(
                 content=watermarked_bytes, 
                 media_type="image/jpeg",
                 headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0",
-                    "X-Watermark-Text": "MetaProos",  # Header per debug
-                    "X-Watermark-Source": "server-side"  # Header per debug
+                        "Cache-Control": "public, max-age=3600"
                 }
             )
         
@@ -2195,18 +3118,23 @@ async def serve_photo(
         logger.info(f"Returning original file (paid) from R2: {filename}")
         _track_download(filename)
         
-        logger.info(f"PHOTO SERVE: source=R2, filename={filename}")
-        
         # Se download=true, forza il download con header Content-Disposition
         if download:
             headers = {
                 "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Type": "image/jpeg"
+                "Content-Type": "image/jpeg",
+                "Cache-Control": "public, max-age=31536000, immutable"
             }
             return Response(content=photo_bytes, headers=headers, media_type="image/jpeg")
         
         # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
-        return Response(content=photo_bytes, media_type="image/jpeg")
+        return Response(
+            content=photo_bytes,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable"
+            }
+        )
         
     except HTTPException:
         # Rilancia HTTPException (404, 500, ecc.)
@@ -2398,7 +3326,7 @@ async def check_user(
 async def register_user_by_email(
     email: str = Query(..., description="Email utente")
 ):
-    """Registra un utente solo con email (senza selfie)"""
+    """Registra un utente (NO-OP in stateless mode)"""
     try:
         # Normalizza email
         email = _normalize_email(email)
@@ -2408,13 +3336,8 @@ async def register_user_by_email(
         if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
             raise HTTPException(status_code=400, detail="Invalid email format")
         
-        # Salva/aggiorna utente (solo con email)
-        success = await _create_or_update_user(email, None)
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Error saving user")
-        
-        logger.info(f"User registered/updated: {email}")
+        # Stateless mode: non salva nulla, solo valida
+        logger.info(f"User register request (stateless): {email}")
         
         return {
             "ok": True,
@@ -2431,75 +3354,25 @@ async def register_user_by_email(
 async def get_user_photos(
     email: str = Query(..., description="Email utente")
 ):
-    """Recupera tutte le foto di un utente (trovate e pagate)"""
+    """Recupera tutte le foto di un utente (stateless: sempre vuoto)"""
     try:
-        original_email = email
         email = _normalize_email(email)
-        logger.info(f"User photos request - original: '{original_email}', normalized: '{email}'")
+        logger.info(f"User photos request (stateless): {email}")
         
-        found_photos = await _get_user_found_photos(email)
-        paid_photos = await _get_user_paid_photos(email)
+        # Stateless mode: sempre vuoto
+        found_photos = []
+        paid_photos = []
         
-        logger.info(f"User photos request for {email}: found={len(found_photos)}, paid={len(paid_photos)}")
-        
-        # FALLBACK: Se non ci sono foto pagate ma ci sono ordini, estrai i photo_ids dagli ordini
-        if not paid_photos or len(paid_photos) == 0:
-            logger.warning(f"No paid photos found for {email} - checking orders as fallback...")
-            try:
-                # Recupera tutti gli ordini per questa email
-                orders_rows = await _db_execute(
-                    "SELECT photo_ids FROM orders WHERE email = $1 ORDER BY paid_at DESC",
-                    (email,)
-                )
-                
-                if orders_rows:
-                    logger.info(f"Found {len(orders_rows)} orders for {email} - extracting photo_ids")
-                    # Raccogli tutti i photo_ids dagli ordini
-                    all_paid_photo_ids = set()
-                    for row in orders_rows:
-                        photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                        all_paid_photo_ids.update(photo_ids)
-                    
-                    if all_paid_photo_ids:
-                        logger.info(f"Extracted {len(all_paid_photo_ids)} paid photo_ids from orders: {list(all_paid_photo_ids)}")
-                        # Usa i photo_ids dagli ordini come paid_photos
-                        paid_photos = list(all_paid_photo_ids)
-                        
-                        # AUTO-FIX: Marca automaticamente le foto come pagate (solo quelle non già pagate)
-                        # Questo assicura che la prossima volta funzioni direttamente senza fallback
-                        # Verifica quali foto non sono ancora marcate come pagate
-                        existing_paid = set()
-                        if found_photos:
-                            existing_paid = {p['photo_id'] for p in found_photos if p.get('status') == 'paid'}
-                        
-                        photos_to_fix = all_paid_photo_ids - existing_paid
-                        if photos_to_fix:
-                            logger.info(f"Auto-fixing {len(photos_to_fix)} photos that are not yet marked as paid")
-                            fixed_count = 0
-                            for photo_id in photos_to_fix:
-                                try:
-                                    success = await _mark_photo_paid(email, photo_id)
-                                    if success:
-                                        fixed_count += 1
-                                except Exception as e:
-                                    logger.error(f"Error auto-fixing photo {photo_id}: {e}")
-                            
-                            if fixed_count > 0:
-                                logger.info(f"Auto-fixed {fixed_count} photos for {email} based on orders")
-                        else:
-                            logger.info(f"All photos from orders are already marked as paid - no fix needed")
-            except Exception as e:
-                logger.error(f"Error checking orders as fallback: {e}", exc_info=True)
-        
-        if paid_photos:
-            logger.info(f"Paid photos for {email}: {paid_photos}")
-        
-        return {
+        # Response con Cache-Control: no-store
+        from fastapi.responses import JSONResponse
+        response = JSONResponse({
             "ok": True,
             "email": email,
             "found_photos": found_photos,
             "paid_photos": paid_photos
-        }
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except Exception as e:
         logger.error(f"Error getting user photos: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -3041,6 +3914,40 @@ async def my_photos_by_email(
         </body>
         </html>
         """)
+
+@app.get("/download")
+async def download_json(
+    token: str = Query(..., description="Token di download"),
+    request: Request = None
+):
+    """Endpoint JSON per recuperare foto pagate via token"""
+    try:
+        order = await _get_order_by_token(token)
+        if not order:
+            raise HTTPException(status_code=404, detail="Token not found or expired")
+        
+        # Verifica scadenza
+        expires_at = order.get('expires_at')
+        if expires_at:
+            try:
+                expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                now = datetime.now(timezone.utc)
+                if now > expires_date:
+                    raise HTTPException(status_code=410, detail="Token expired")
+            except Exception as e:
+                logger.error(f"Error parsing expires_at: {e}")
+        
+        return {
+            "ok": True,
+            "photo_ids": order.get('photo_ids', []),
+            "email": order.get('email', ''),
+            "expires_at": expires_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving order by token: {e}")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 @app.get("/my-photos/{token}")
 async def my_photos_page(
@@ -3619,106 +4526,55 @@ def _normalize_tour_date(tour_date: Optional[str]) -> Optional[str]:
         return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
     return td
 
-async def _find_connected_faces(
-    selfie_embedding: np.ndarray,
-    min_score: float = 0.25,
-    tour_date: Optional[str] = None
-) -> Dict[str, Set[int]]:
+def _is_tiny_or_weak_face(meta: dict) -> bool:
     """
-    Identifica volti collegati al selfie.
-    
-    Un volto è "collegato" se appare insieme al volto del selfie in almeno una foto
-    dello stesso set fotografico (tour_date).
+    Verifica se una faccia è troppo piccola o debole (probabilmente falsa/background).
     
     Returns:
-        Dict[tour_date, Set[face_idx]]: Mappa tour_date -> set di indici FAISS dei volti collegati
+        True se la faccia deve essere ignorata (tiny/weak), False altrimenti.
     """
-    connected_faces_by_date: Dict[str, Set[int]] = {}
-    
-    if faiss_index is None or len(meta_rows) == 0:
-        return connected_faces_by_date
-    
-    # Normalizza embedding selfie
-    selfie_emb = _normalize(selfie_embedding).reshape(1, -1)
-    
-    # Cerca tutte le foto che contengono il volto del selfie
-    D, I = faiss_index.search(selfie_emb, len(meta_rows))
-    
-    # Foto che contengono il selfie, raggruppate per photo_id e tour_date
-    selfie_photos: Dict[tuple, List[int]] = {}  # (photo_id, tour_date) -> [face_idx]
-    
-    for score, idx in zip(D[0].tolist(), I[0].tolist()):
-        if idx < 0 or idx >= len(meta_rows):
-            continue
-        if score < float(min_score):
-            continue
+    try:
+        score = meta.get("det_score", meta.get("score", None))
+        if score is not None and float(score) < 0.60:
+            return True
 
-        row = meta_rows[idx]
-        photo_id = row.get("photo_id")
-        if not photo_id:
-            continue
+        bbox = meta.get("bbox")
+        if bbox and len(bbox) == 4:
+            x1, y1, x2, y2 = bbox
+            area = max(0.0, float(x2 - x1)) * max(0.0, float(y2 - y1))
+            if area < 6000:
+                return True
 
-        # Filtra per tour_date se fornita
-        raw_photo_tour_date = row.get("tour_date")
-        photo_tour_date = _normalize_tour_date(str(raw_photo_tour_date)) if raw_photo_tour_date else "unknown"
-        normalized_date = _normalize_tour_date(tour_date)
-        if normalized_date:
-            if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
-                continue
-
-        key = (photo_id, photo_tour_date)
-        if key not in selfie_photos:
-            selfie_photos[key] = []
-        selfie_photos[key].append(idx)
-    
-    # Per ogni foto che contiene il selfie, trova tutti gli altri volti in quella foto
-    for (photo_id, photo_tour_date), selfie_face_indices in selfie_photos.items():
-        # Trova tutti i volti in questa foto (tutti i face_idx che puntano a questo photo_id e stesso tour_date normalizzato)
-        all_faces_in_photo: Set[int] = set()
-        for i, row in enumerate(meta_rows):
-            if row.get("photo_id") != photo_id:
-                continue
-            raw_td = row.get("tour_date")
-            td = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
-            if td != photo_tour_date:
-                continue
-            all_faces_in_photo.add(i)
-
-        # I volti collegati sono tutti i volti nella foto tranne il selfie
-        connected_faces = all_faces_in_photo - set(selfie_face_indices)
-
-        # Aggiungi ai volti collegati per questo tour_date
-        if photo_tour_date not in connected_faces_by_date:
-            connected_faces_by_date[photo_tour_date] = set()
-        connected_faces_by_date[photo_tour_date].update(connected_faces)
-    
-    total_connected = sum(len(faces) for faces in connected_faces_by_date.values())
-    logger.info(f"[DEBUG] Connected faces: {total_connected} total across {len(connected_faces_by_date)} tour dates")
-    for date, faces_set in connected_faces_by_date.items():
-        logger.info(f"[DEBUG]   tour_date={date}: {len(faces_set)} connected faces")
-    return connected_faces_by_date
-
+            iw = meta.get("image_w", meta.get("w", None))
+            ih = meta.get("image_h", meta.get("h", None))
+            if iw and ih:
+                denom = float(iw) * float(ih)
+                if denom > 0:
+                    area_ratio = area / denom
+                    if area_ratio < 0.015:
+                        return True
+    except Exception:
+        return False
+    return False
 
 async def _filter_photos_by_rules(
     selfie_embedding: np.ndarray,
-    connected_faces_by_date: Dict[str, Set[int]],
+    email: Optional[str] = None,
     min_score: float = 0.25,
     tour_date: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Filtra le foto in base alle regole di riconoscimento facciale avanzato.
+    Filtra le foto: include TUTTE le foto che contengono almeno UNA faccia che matcha il selfie.
     
-    Regole:
-    1. Mostra foto con solo il volto del selfie
-    2. Mostra foto con volto del selfie + volti collegati
-    3. Mostra foto con solo volti collegati (se esistono foto condivise)
-    4. NON mostrare foto con volti non collegati
+    Regola semplice:
+    - Se una foto contiene almeno UNA faccia con score >= min_score che matcha il selfie, la foto viene inclusa.
+    - Non importa quante altre facce siano presenti nella foto.
+    - Nessun filtro su facce esterne o family members.
     
     Returns:
         List[Dict]: Lista di foto filtrate con metadata
     """
     filtered_results: List[Dict[str, Any]] = []
-    seen_photos = set()
     
     if faiss_index is None or len(meta_rows) == 0:
         return filtered_results
@@ -3726,158 +4582,66 @@ async def _filter_photos_by_rules(
     # Normalizza embedding selfie
     selfie_emb = _normalize(selfie_embedding).reshape(1, -1)
     
-    # Cerca tutte le foto che contengono il volto del selfie
+    # Cerca tutte le facce che matchano il selfie
     D, I = faiss_index.search(selfie_emb, len(meta_rows))
     
-    # 1) Identifica primary_face_indices: indici FAISS che hanno matchato il selfie
-    primary_face_indices: Set[int] = set()
-    normalized_date = _normalize_tour_date(tour_date)
-    selfie_score_by_idx: Dict[int, float] = {}
+    # Raggruppa per photo_id: photo_id -> miglior score
+    photo_scores: Dict[str, float] = {}  # photo_id -> miglior score
+    photo_tour_dates: Dict[str, str] = {}  # photo_id -> tour_date
+    normalized_date = _normalize_tour_date(tour_date) if tour_date else None
     
     for score, idx in zip(D[0].tolist(), I[0].tolist()):
         if idx < 0 or idx >= len(meta_rows):
             continue
         if score < float(min_score):
             continue
+        
         row = meta_rows[idx]
-        raw_td = row.get("tour_date")
-        photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
-        # Filtra per tour_date se fornita
-        if normalized_date:
-            if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
-                continue
-        primary_face_indices.add(idx)
-        # Salva score (se ci sono duplicati, tieni il migliore)
-        s = float(score)
-        if (idx not in selfie_score_by_idx) or (s > selfie_score_by_idx[idx]):
-            selfie_score_by_idx[idx] = s
-    
-    # 2) Costruisci photo_faces: photo_id -> set di face_idx in quella foto
-    photo_faces: Dict[str, Set[int]] = {}  # photo_id -> set di face_idx in quella foto
-    photo_scores: Dict[tuple, float] = {}  # (photo_id, face_idx) -> score
-    
-    for i, row in enumerate(meta_rows):
         photo_id = row.get("photo_id")
         if not photo_id:
             continue
-
-        raw_td = row.get("tour_date")
-        photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
-
+        
+        # Normalizza photo_id (rimuove prefissi wm/, thumbs/)
+        photo_id = _normalize_photo_key(str(photo_id))
+        if not photo_id or "/" in photo_id:
+            continue  # Filtra via photo_id invalidi dopo normalizzazione
+        
         # Filtra per tour_date se fornita
         if normalized_date:
+            raw_td = row.get("tour_date")
+            photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
             if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
                 continue
-
-        if photo_id not in photo_faces:
-            photo_faces[photo_id] = set()
-        photo_faces[photo_id].add(i)
-
-        # Salva score se questo volto è il selfie
-        if i in selfie_score_by_idx:
-            photo_scores[(photo_id, i)] = selfie_score_by_idx[i]
+        
+        # Salva il miglior score per questa foto
+        s = float(score)
+        if photo_id not in photo_scores or s > photo_scores[photo_id]:
+            photo_scores[photo_id] = s
+            # Salva anche il tour_date
+            raw_td = row.get("tour_date")
+            photo_tour_dates[photo_id] = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
     
-    # 3) Costruisci linked_face_indices: volti che compaiono insieme al selfie in almeno una foto
-    linked_face_indices: Set[int] = set()
-    for photo_id, face_indices in photo_faces.items():
-        # Se questa foto contiene almeno un volto del selfie (primary)
-        if face_indices.intersection(primary_face_indices):
-            # Aggiungi tutti i volti di questa foto a linked (inclusi quelli di primary, va bene)
-            linked_face_indices.update(face_indices)
+    # 2) Costruisci i risultati: includi TUTTE le foto che hanno almeno UNA faccia matchata
+    # Regola semplice: se photo_id è in photo_scores, la foto viene inclusa
+    for photo_id, best_score in photo_scores.items():
+        photo_tour_date = photo_tour_dates.get(photo_id, "unknown")
+        
+        filtered_results.append({
+            "photo_id": str(photo_id),
+            "score": best_score,
+            "has_face": True,
+            "has_selfie": True,
+            "tour_date": photo_tour_date,
+        })
     
-    # 3b) Identity expansion: espandi i linked_face_indices verso altri embedding simili (stessa persona)
-    if linked_face_indices and faiss_index is not None and getattr(faiss_index, "ntotal", 0) > 0:
-        expanded: Set[int] = set()
-        for seed_idx in list(linked_face_indices):
-            try:
-                # reconstruct embedding vector from FAISS
-                v = faiss_index.reconstruct(int(seed_idx))
-                v = np.array(v, dtype=np.float32).reshape(1, -1)
-
-                D, I = faiss_index.search(v, LINKED_EXPAND_TOP_K)
-                for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                    if idx is None or idx < 0:
-                        continue
-                    if float(score) >= LINKED_EXPAND_MIN_SCORE:
-                        expanded.add(int(idx))
-            except Exception as e:
-                logger.warning(f"[DEBUG] linked identity expansion failed for seed_idx={seed_idx}: {e}")
-
-        before = len(linked_face_indices)
-        linked_face_indices.update(expanded)
-        logger.info(f"[DEBUG] Linked identity expansion: before={before}, after={len(linked_face_indices)}, added={len(linked_face_indices)-before}")
-    
-    # 4) Definisci valid_faces = primary ∪ linked (dopo espansione)
-    valid_faces = primary_face_indices.union(linked_face_indices)
-    
-    # Log DEBUG
-    logger.info(f"[DEBUG] Linked faces logic: primary={len(primary_face_indices)}, linked={len(linked_face_indices)}, valid={len(valid_faces)}")
-    
-    # 5) Filtra le foto: includi solo se face_indices.issubset(valid_faces)
-    included_photos = []
-    excluded_photos = []
-    
-    for photo_id, face_indices in photo_faces.items():
-        if photo_id in seen_photos:
-            continue
-
-        # Trova il tour_date di questa foto (prendi il primo volto)
-        photo_tour_date = "unknown"
-        for face_idx in face_indices:
-            if face_idx < len(meta_rows):
-                raw_td = meta_rows[face_idx].get("tour_date")
-                photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
-                break
-
-        # Verifica se la foto contiene solo volti validi (selfie o collegati)
-        if face_indices.issubset(valid_faces):
-            # La foto contiene solo volti validi -> deve essere mostrata
-            # Includi foto "linked-only" (senza primary) SOLO se linked_face_indices non è vuoto
-            has_primary = bool(face_indices.intersection(primary_face_indices))
-            is_linked_only = not has_primary and bool(face_indices.intersection(linked_face_indices))
-            
-            if has_primary or (is_linked_only and linked_face_indices):
-                seen_photos.add(photo_id)
-
-                # Trova il miglior score per questa foto (score del selfie se presente)
-                best_score = 0.0
-                has_selfie = False
-
-                for face_idx in face_indices:
-                    key = (photo_id, face_idx)
-                    if key in photo_scores:
-                        score = photo_scores[key]
-                        if score > best_score:
-                            best_score = score
-                            has_selfie = True
-
-                filtered_results.append({
-                    "photo_id": str(photo_id),
-                    "score": best_score if has_selfie else 0.0,
-                    "has_face": True,
-                    "has_selfie": has_selfie,
-                    "tour_date": photo_tour_date,
-                })
-                included_photos.append(photo_id)
-        else:
-            # Foto esclusa: contiene volti fuori dal set valid_faces
-            excluded_photos.append(photo_id)
-    
-    # Log DEBUG con esempi
-    logger.info(f"[DEBUG] Photo filtering: {len(included_photos)} included, {len(excluded_photos)} excluded")
-    if included_photos:
-        logger.info(f"[DEBUG] Example included photos (first 5): {included_photos[:5]}")
-    if excluded_photos:
-        logger.info(f"[DEBUG] Example excluded photos (first 5): {excluded_photos[:5]} (reason: contains faces outside valid set)")
+    logger.info(f"[FILTER] Included {len(filtered_results)} photos (simple rule: any face matches selfie)")
     
     # Ordina per score decrescente
     filtered_results.sort(key=lambda x: x["score"], reverse=True)
     
-    # Log di debug
-    photos_with_selfie = sum(1 for r in filtered_results if r.get("has_selfie", False))
-    logger.info(f"[DEBUG] Filtered photos: {len(filtered_results)} total (with selfie: {photos_with_selfie}, without selfie: {len(filtered_results) - photos_with_selfie})")
     if tour_date:
         logger.info(f"[DEBUG] tour_date filter: {tour_date}")
+    
     return filtered_results
 
 # ========== ENDPOINT ESISTENTI ==========
@@ -3891,11 +4655,10 @@ async def match_selfie(
     tour_date: Optional[str] = Query(None, description="Data del tour (YYYY-MM-DD) per filtrare foto di spalle")
 ):
     """
-    Endpoint per il face matching con logica avanzata:
-    - Mostra foto con il volto del selfie
-    - Mostra foto con volti collegati (persone che appaiono insieme al selfie)
-    - Esclude foto con volti non collegati
-    - I collegamenti sono validi solo all'interno dello stesso set fotografico (tour_date)
+    Endpoint per il face matching:
+    - Mostra TUTTE le foto che contengono almeno UNA faccia che matcha il selfie (score >= min_score)
+    - Nessun filtro su facce esterne o altre persone nella foto
+    - Regola semplice: se una foto contiene il selfie, viene inclusa
     """
     global meta_rows, back_photos
     _ensure_ready()
@@ -3974,33 +4737,25 @@ async def match_selfie(
             # Estrai embedding del selfie
             selfie_embedding = faces_sorted[0].embedding.astype("float32")
             
-            # Log iniziale
+            # Stateless mode: non salvare embedding nel DB
             logger.info(f"[DEBUG] Starting face matching: tour_date={tour_date}, min_score={min_score}")
             
             # AGGIORNA TEMPORANEAMENTE LE VARIABILI GLOBALI CON I METADATA FRESCHI
-            # Così _find_connected_faces e _filter_photos_by_rules useranno i dati aggiornati
             old_meta_rows = meta_rows
             old_back_photos = back_photos
             meta_rows = current_meta_rows
             back_photos = current_back_photos
             
             try:
-                # Identifica volti collegati (persone che appaiono insieme al selfie)
-                connected_faces_by_date = await _find_connected_faces(
-                    selfie_embedding,
-                    min_score=min_score,
-                    tour_date=tour_date
-                )
-                
-                # Filtra le foto in base alle regole avanzate
+                # Filtra le foto in base alle regole (solo selfie + family members)
                 matched_results = await _filter_photos_by_rules(
                     selfie_embedding,
-                    connected_faces_by_date,
+                    email=email,  # Passa email per recuperare family members
                     min_score=min_score,
                     tour_date=tour_date
                 )
             finally:
-                # Ripristina le variabili globali originali (per sicurezza, anche se non necessario)
+                # Ripristina le variabili globali originali
                 meta_rows = old_meta_rows
                 back_photos = old_back_photos
             
@@ -4030,6 +4785,11 @@ async def match_selfie(
                 if not photo_id:
                     continue
                 
+                # Normalizza photo_id
+                photo_id = _normalize_photo_key(str(photo_id))
+                if not photo_id or "/" in photo_id:
+                    continue  # Filtra via photo_id invalidi
+                
                 if photo_id in seen_back_photos:
                     continue
                 seen_back_photos.add(photo_id)
@@ -4056,6 +4816,11 @@ async def match_selfie(
                 if not photo_id:
                     continue
                 
+                # Normalizza photo_id
+                photo_id = _normalize_photo_key(str(photo_id))
+                if not photo_id or "/" in photo_id:
+                    continue  # Filtra via photo_id invalidi
+                
                 if photo_id in seen_back_photos:
                     continue
                 seen_back_photos.add(photo_id)
@@ -4072,13 +4837,7 @@ async def match_selfie(
                     "is_back_photo": True,
                 })
         
-        # Se email fornita, salva foto trovate nel database
-        if email:
-            for result in matched_results:
-                await _add_user_photo(email, result["photo_id"], "found")
-            for result in back_results:
-                await _add_user_photo(email, result["photo_id"], "found")
-            logger.info(f"Saved {len(matched_results) + len(back_results)} photos for user {email}")
+        # Stateless mode: non salvare foto nel database
         
         # Combina risultati: prima foto matchate, poi foto di spalle
         all_results = matched_results + back_results
@@ -4095,14 +4854,23 @@ async def match_selfie(
             }
         
         # VERIFICA OBBLIGATORIA: ogni foto deve esistere su R2
+        # Normalizza anche qui per sicurezza
         filtered_results = []
         for result in all_results:
             photo_id = result.get("photo_id")
             if not photo_id:
                 continue
             
+            # Normalizza photo_id prima di verificare su R2
+            photo_id = _normalize_photo_key(str(photo_id))
+            if not photo_id or "/" in photo_id:
+                continue  # Filtra via photo_id invalidi
+            
+            # Aggiorna il photo_id nel risultato
+            result["photo_id"] = photo_id
+            
             try:
-                # Verifica rapida se la foto esiste su R2
+                # Verifica rapida se la foto esiste su R2 (usa photo_id normalizzato)
                 r2_client.head_object(Bucket=R2_BUCKET, Key=photo_id)
                 filtered_results.append(result)
             except ClientError as e:
@@ -4139,6 +4907,32 @@ async def match_selfie(
         if all_results:
             logger.info(f"First 3 photo_ids: {[r['photo_id'] for r in all_results[:3]]}")
         
+        # Aggiungi thumb_url e wm_url a ogni risultato (URL relativi)
+        # IMPORTANTE: normalizza photo_id rimuovendo eventuali prefissi (thumbs/, wm/)
+        for result in all_results:
+            photo_id = result.get("photo_id")
+            if photo_id:
+                # Normalizza usando la funzione helper
+                normalized_id = _normalize_photo_key(photo_id)
+                
+                # Filtra via elementi che dopo normalizzazione risultano vuoti o contengono "/"
+                if not normalized_id or "/" in normalized_id:
+                    logger.warning(f"[MATCH_SELFIE] Filtering out invalid photo_id: original={photo_id}, normalized={normalized_id}")
+                    # Rimuovi questo risultato (non possiamo modificare la lista durante l'iterazione, quindi lo segniamo)
+                    result["_filtered"] = True
+                    continue
+                
+                # Usa il photo_id normalizzato per costruire URL
+                result["photo_id"] = normalized_id  # Aggiorna anche il photo_id nel risultato
+                result["thumb_url"] = f"/photo/{normalized_id}?variant=thumb"
+                result["wm_url"] = f"/photo/{normalized_id}?variant=wm"
+                # Mantieni paid_url se già presente, altrimenti crealo
+                if "paid_url" not in result:
+                    result["paid_url"] = f"/photo/{normalized_id}?paid=true"
+        
+        # Rimuovi risultati filtrati
+        all_results = [r for r in all_results if not r.get("_filtered", False)]
+        
         return {
             "ok": True,
             "count": len(all_results),
@@ -4153,6 +4947,194 @@ async def match_selfie(
     except Exception as e:
         logger.exception(f"Error in match_selfie: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+# ========== FAMILY MEMBERS (DETERMINISTIC) ==========
+
+async def _match_member_photos(selfie_embedding: np.ndarray, email: str, member_id: int, min_score: float = 0.25) -> List[str]:
+    """
+    Match foto per un membro famiglia usando SOLO primary_face_indices (nessun linked).
+    Salva le foto trovate in user_photos con source_member_id.
+    """
+    global meta_rows, back_photos, faiss_index
+    _ensure_ready()
+    
+    if faiss_index is None or faiss_index.ntotal == 0 or len(meta_rows) == 0:
+        logger.info("Index is empty - returning empty result for member")
+        return []
+    
+    # Normalizza embedding
+    selfie_embedding = _normalize(selfie_embedding).reshape(1, -1)
+    
+    # Cerca volti simili (stesso motore di /match_selfie)
+    top_k_faces = 120
+    D, I = faiss_index.search(selfie_embedding, min(top_k_faces, faiss_index.ntotal))
+    
+    # Identifica primary_face_indices (volti che matchano il selfie)
+    primary_face_indices: Set[int] = set()
+    photo_faces: Dict[str, Set[int]] = defaultdict(set)
+    
+    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+        if idx < 0 or idx >= len(meta_rows):
+            continue
+        if float(score) < min_score:
+            continue
+        
+        primary_face_indices.add(idx)
+        row = meta_rows[idx]
+        photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
+        if photo_id:
+            photo_faces[photo_id].add(idx)
+    
+    # Filtra foto: SOLO quelle che contengono almeno un volto primary
+    # E NON contengono facce esterne (regola "no estranei")
+    matched_photo_ids: List[str] = []
+    
+    for photo_id, face_indices in photo_faces.items():
+        has_primary = bool(face_indices.intersection(primary_face_indices))
+        if not has_primary:
+            continue
+        
+        # Verifica che non ci siano facce "estranee"
+        external_faces = face_indices - primary_face_indices
+        if external_faces:
+            # Contiene facce estranee -> escludi
+            continue
+        
+        # Foto valida: contiene almeno primary e nessuna faccia esterna
+        matched_photo_ids.append(photo_id)
+    
+    # Salva foto trovate in user_photos con source_member_id
+    if matched_photo_ids:
+        email = _normalize_email(email)
+        for photo_id in matched_photo_ids:
+            try:
+                await _db_execute_write("""
+                    INSERT INTO user_photos (email, photo_id, found_at, status, source_member_id, expires_at)
+                    VALUES ($1, $2, NOW(), 'found', $3, NOW() + INTERVAL '90 days')
+                    ON CONFLICT (email, photo_id) DO UPDATE
+                    SET source_member_id = COALESCE(EXCLUDED.source_member_id, user_photos.source_member_id)
+                """, (email, photo_id, member_id))
+            except Exception as e:
+                logger.error(f"Error saving member photo {photo_id} for member {member_id}: {e}")
+    
+    logger.info(f"Member {member_id} matched {len(matched_photo_ids)} photos")
+    return matched_photo_ids
+
+@app.post("/family/add_member")
+async def add_family_member_disabled(
+    email: str = Query(..., description="Email utente"),
+    member_name: Optional[str] = Query(None, description="Nome membro (opzionale)"),
+    selfie: UploadFile = File(..., description="Selfie del membro")
+):
+    """Aggiunge un membro famiglia (disabilitato in stateless mode)"""
+    raise HTTPException(status_code=501, detail="Family members disabled in stateless mode")
+    try:
+        email = _normalize_email(email)
+        
+        # Verifica/crea utente
+        try:
+            await _db_execute_write("""
+                INSERT INTO users (email, created_at)
+                VALUES ($1, NOW())
+                ON CONFLICT (email) DO NOTHING
+            """, (email,))
+        except Exception as e:
+            logger.warning(f"Could not create user {email}: {e}")
+        
+        # Conta membri esistenti
+        count_row = await _db_execute_one(
+            "SELECT COUNT(*) as count FROM family_members WHERE email = $1",
+            (email,)
+        )
+        member_count = count_row['count'] if count_row else 0
+        
+        if member_count >= MAX_FAMILY_MEMBERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum {MAX_FAMILY_MEMBERS} family members allowed per email. You have {member_count} members."
+            )
+        
+        # Leggi e processa selfie
+        file_bytes = await selfie.read()
+        img = _read_image_from_bytes(file_bytes)
+        
+        # Rileva faccia e estrai embedding
+        assert face_app is not None
+        faces = face_app.get(img)
+        
+        if not faces:
+            raise HTTPException(status_code=400, detail="No face detected in selfie")
+        
+        # Prendi il volto più grande
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        member_embedding = faces_sorted[0].embedding.astype("float32")
+        
+        # Converti embedding in bytes per salvare nel database
+        embedding_bytes = member_embedding.tobytes()
+        
+        # Salva membro nel database
+        member_row = await _db_execute_one("""
+            INSERT INTO family_members (email, member_name, selfie_embedding, created_at)
+            VALUES ($1, $2, $3, NOW())
+            RETURNING id
+        """, (email, member_name, embedding_bytes))
+        
+        member_id = member_row['id']
+        logger.info(f"Created family member {member_id} for {email}")
+        
+        # Match foto usando SOLO primary_face_indices (nessun linked)
+        matched_photo_ids = await _match_member_photos(member_embedding, email, member_id)
+        
+        return {
+            "ok": True,
+            "member_id": member_id,
+            "matched_count": len(matched_photo_ids),
+            "photo_ids": matched_photo_ids
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding family member: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.get("/family/members")
+async def get_family_members_disabled(
+    email: str = Query(..., description="Email utente")
+):
+    """Recupera lista membri famiglia (stateless: sempre vuoto)"""
+    try:
+        email = _normalize_email(email)
+        
+        # Stateless mode: sempre lista vuota
+        return {
+            "ok": True,
+            "email": email,
+            "members": [],
+            "count": 0
+        }
+    except Exception as e:
+        logger.error(f"Error getting family members: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.delete("/family/members/{member_id}")
+async def delete_family_member_disabled(
+    member_id: int,
+    email: str = Query(..., description="Email utente")
+):
+    """Elimina un membro famiglia (disabilitato in stateless mode)"""
+    raise HTTPException(status_code=501, detail="Family members disabled in stateless mode")
+    try:
+        email = _normalize_email(email)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting family member: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 # ========== CARRELLO E PAGAMENTI ==========
 
@@ -4328,14 +5310,133 @@ async def remove_from_cart(
         "price_euros": price / 100.0
     }
 
+@app.post("/create_checkout")
+async def create_checkout_new(
+    request: Request,
+    body: dict = Body(...)
+):
+    """Crea una sessione di checkout Stripe basata su photo_ids (senza email)"""
+    logger.info(f"=== CREATE_CHECKOUT REQUEST ===")
+    
+    if not USE_STRIPE:
+        logger.error("Stripe not configured")
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    
+    photo_ids = body.get("photo_ids", [])
+    price_cents = body.get("price_cents")
+    currency = body.get("currency", "eur")
+    
+    if not photo_ids:
+        logger.error("photo_ids is empty")
+        raise HTTPException(status_code=400, detail="photo_ids is required and cannot be empty")
+    
+    # Calcola prezzo se non fornito
+    if not price_cents:
+        price_cents = calculate_price(len(photo_ids))
+    
+    logger.info(f"Creating checkout for {len(photo_ids)} photos, price: {price_cents} cents")
+    
+    try:
+        # Costruisci URL base
+        base_url = str(request.base_url).rstrip('/')
+        logger.info(f"Base URL: {base_url}")
+        
+        logger.info("Creating Stripe checkout session...")
+        # Crea checkout session Stripe
+        # Stripe chiederà l'email al cliente
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': currency,
+                    'product_data': {
+                        'name': f'{len(photo_ids)} foto da TenerifePictures',
+                        'description': f'Download di {len(photo_ids)} foto in alta qualità',
+                    },
+                    'unit_amount': price_cents,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=f'{base_url}/?success=1&session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=f'{base_url}/',
+            metadata={
+                'photo_ids': ','.join(photo_ids),
+                'photo_count': str(len(photo_ids)),
+            }
+        )
+        
+        logger.info(f"Stripe checkout session created: {checkout_session.id}")
+        logger.info(f"Checkout URL: {checkout_session.url}")
+        
+        return {
+            "ok": True,
+            "checkout_url": checkout_session.url,
+            "session_id": checkout_session.id
+        }
+    except Exception as e:
+        logger.error(f"Error creating Stripe checkout: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Checkout error: {str(e)}")
+
+@app.get("/stripe/verify")
+async def verify_stripe_session(
+    session_id: str = Query(..., description="Stripe session ID")
+):
+    """Verifica sessione Stripe pagata e restituisce photo_ids (stateless)"""
+    if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+        
+        # Recupera sessione da Stripe
+        session = stripe.checkout.Session.retrieve(session_id)
+        
+        # Verifica che il pagamento sia completato
+        if session.payment_status != 'paid':
+            raise HTTPException(status_code=400, detail=f"Payment not completed. Status: {session.payment_status}")
+        
+        # Estrai photo_ids da metadata
+        photo_ids_str = session.metadata.get('photo_ids', '') if session.metadata else ''
+        photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()] if photo_ids_str else []
+        
+        if not photo_ids:
+            raise HTTPException(status_code=400, detail="No photo_ids found in session metadata")
+        
+        # Estrai email da customer_details o metadata
+        customer_email = None
+        if session.customer_details and session.customer_details.email:
+            customer_email = session.customer_details.email
+        elif session.metadata and session.metadata.get('email'):
+            customer_email = session.metadata.get('email')
+        
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "customer_email": customer_email,
+            "photo_ids": photo_ids,
+            "payment_status": session.payment_status,
+            "amount_total": session.amount_total,
+            "currency": session.currency
+        }
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error retrieving session: {e}")
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error retrieving Stripe session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
 @app.post("/checkout")
 async def create_checkout(
     request: Request,
     session_id: str = Query(..., description="ID sessione"),
     email: Optional[str] = Query(None, description="Email utente (obbligatoria per salvare ordine)")
 ):
-    """Crea una sessione di checkout Stripe"""
-    logger.info(f"=== CHECKOUT REQUEST ===")
+    """Crea una sessione di checkout Stripe (legacy, usa /create_checkout)"""
+    logger.info(f"=== CHECKOUT REQUEST (LEGACY) ===")
     logger.info(f"Session ID: {session_id}")
     logger.info(f"Email: {email}")
     logger.info(f"USE_STRIPE: {USE_STRIPE}")
@@ -4351,9 +5452,7 @@ async def create_checkout(
         logger.error("Cart is empty")
         raise HTTPException(status_code=400, detail="Cart is empty")
     
-    if not email:
-        logger.error("Email is required")
-        raise HTTPException(status_code=400, detail="Email is required")
+    # Email non più obbligatoria: Stripe la chiederà
     price_cents = calculate_price(len(photo_ids))
     logger.info(f"Price calculated: {price_cents} cents ({price_cents/100} EUR) for {len(photo_ids)} photos")
     
@@ -5026,78 +6125,42 @@ async def stripe_webhook(request: Request):
         logger.info(f"Session payment_status: {session.get('payment_status')}")
         logger.info(f"Session status: {session.get('status')}")
         
-        if session_id and photo_ids_str:
-            # Se manca email, prova a recuperarla
+        if photo_ids_str:
+            # Email è obbligatoria per creare l'ordine
             if not email:
-                email = session.get('customer_email') or session.get('customer_details', {}).get('email')
-                logger.warning(f"Email not in metadata, recovered from session: {email}")
+                logger.error("Email not found in Stripe session. Cannot create order.")
+                logger.error(f"Session data: customer_email={session.get('customer_email')}, customer_details={session.get('customer_details')}, metadata={metadata}")
+                # Non creare ordine senza email
+                return {"status": "error", "message": "Email not found in payment session"}
             
-            if email:
-                # Normalizza email
-                original_email = email
-                email = _normalize_email(email)
-                logger.info(f"Email normalized: '{original_email}' -> '{email}'")
-                photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
-                logger.info(f"Photo IDs parsed: {photo_ids} (count: {len(photo_ids)})")
-                order_id = session.get('id')
-                amount_cents = session.get('amount_total', 0)
-                logger.info(f"Creating order: order_id={order_id}, email={email}, amount={amount_cents}, photos={len(photo_ids)}")
-                
-                # Crea ordine nel database con download token
-                base_url = str(request.base_url).rstrip('/')
-                download_token = await _create_order(email, order_id, order_id, photo_ids, amount_cents)
-                
-                if download_token:
-                    logger.info(f"✅ Order created successfully: {order_id}, download_token generated")
-                else:
-                    logger.error(f"❌ Order creation failed: {order_id}")
-                
-                if download_token:
-                    # Email system disabled - no payment confirmation email sent
-                    logger.info(f"Payment confirmed for {email} - {len(photo_ids)} photos (email disabled)")
-                
-                # Salva anche in file JSON per compatibilità
-                order_data = {
-                    'order_id': order_id,
-                    'stripe_session_id': order_id,
-                    'session_id': session_id,
-                    'email': email,
-                    'photo_ids': photo_ids,
-                    'amount_cents': amount_cents,
-                    'paid_at': datetime.now(timezone.utc).isoformat(),
-                    'status': 'paid',
-                    'download_token': download_token
-                }
-                
-                order_file = ORDERS_DIR / f"{order_id}.json"
-                with open(order_file, 'w', encoding='utf-8') as f:
-                    json.dump(order_data, f, ensure_ascii=False, indent=2)
-                
-                logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
-                
-                # SVUOTA CARRELLO: rimuovi le foto acquistate dal carrello dopo il pagamento
-                # Questo previene che l'utente possa riacquistare le stesse foto
-                if session_id:
-                    try:
-                        # Rimuovi solo le foto acquistate dal carrello (non svuotare tutto)
-                        # in caso l'utente abbia aggiunto altre foto dopo il checkout
-                        cart_photo_ids = await _get_cart(session_id)
-                        if cart_photo_ids:
-                            photo_ids_set = set(photo_ids)
-                            remaining_photos = [p for p in cart_photo_ids if p not in photo_ids_set]
-                            
-                            if len(remaining_photos) != len(cart_photo_ids):
-                                # Ci sono foto acquistate nel carrello, rimuovile
-                                await _set_cart(session_id, remaining_photos)
-                                logger.info(f"Removed {len(cart_photo_ids) - len(remaining_photos)} purchased photos from cart {session_id}")
-                            else:
-                                logger.info(f"No purchased photos found in cart {session_id} (already removed or not present)")
-                    except Exception as e:
-                        logger.error(f"Error clearing purchased photos from cart: {e}")
-            else:
-                logger.error(f"Order failed: missing email. session_id={session_id}, photo_ids={photo_ids_str}")
+            # session_id può essere nel metadata (legacy) o None (nuovo flusso)
+            session_id = metadata.get('session_id')
+            
+            # Normalizza email
+            original_email = email
+            email = _normalize_email(email)
+            logger.info(f"Email normalized: '{original_email}' -> '{email}'")
+            photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
+            logger.info(f"Photo IDs parsed: {photo_ids} (count: {len(photo_ids)})")
+            order_id = session.get('id')
+            amount_cents = session.get('amount_total', 0)
+            logger.info(f"Creating order: order_id={order_id}, email={email}, amount={amount_cents}, photos={len(photo_ids)}")
+            
+            # Stateless: non creare ordine nel database
+            base_url = str(request.base_url).rstrip('/')
+            # download_token non più necessario in stateless mode
+            download_token = None
+            
+            logger.info(f"Payment confirmed for {email} - {len(photo_ids)} photos (stateless mode)")
+            
+            # Stateless: non salvare ordine in file JSON
+            # Gli ordini sono tracciati solo tramite Stripe session_id
+            
+            logger.info(f"Order completed: {order_id} - {len(photo_ids)} photos for {email}")
+            
+            # Stateless: non svuotare carrello (non più usato)
         else:
-            logger.error(f"Order failed: missing required data. session_id={session_id}, email={email}, photo_ids={photo_ids_str}")
+            logger.error(f"Order failed: missing photo_ids in webhook")
     
     return {"ok": True}
 
@@ -5914,6 +6977,126 @@ async def admin_upload(
     except Exception as e:
         logger.error(f"Error uploading photo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/purge")
+async def admin_purge(request: Request):
+    """Endpoint admin per pulizia completa del DB (hard delete di foto non esistenti in R2)"""
+    # Verifica token admin
+    admin_token = request.headers.get("X-Admin-Token", "")
+    if not ADMIN_TOKEN or admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Unauthorized: invalid or missing admin token")
+    
+    if not USE_R2 or not r2_client:
+        raise HTTPException(status_code=503, detail="R2 not configured - cannot perform purge")
+    
+    logger.info("[ADMIN PURGE] Starting manual purge...")
+    purge_stats = {
+        "user_photos_deleted": 0,
+        "indexed_photos_deleted": 0,
+        "photo_assets_deleted": 0,
+        "orders_cleaned": 0,
+        "status_deleted_removed": 0
+    }
+    
+    try:
+        # 1. Recupera tutte le chiavi R2 (foto)
+        logger.info("[ADMIN PURGE] Fetching R2 keys...")
+        r2_keys_set = set()
+        paginator = r2_client.get_paginator('list_objects_v2')
+        prefix = R2_PHOTOS_PREFIX if R2_PHOTOS_PREFIX else ""
+        
+        for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key not in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                    if any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
+                        r2_keys_set.add(key)
+        
+        logger.info(f"[ADMIN PURGE] Found {len(r2_keys_set)} photos in R2")
+        
+        if not db_pool:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        async with db_pool.acquire() as conn:
+            # 2. Elimina tutti i record con status='deleted' da user_photos
+            deleted_status_count = await conn.execute("""
+                DELETE FROM user_photos WHERE status = 'deleted'
+            """)
+            purge_stats["status_deleted_removed"] = int(str(deleted_status_count).split()[-1]) if deleted_status_count else 0
+            logger.info(f"[ADMIN PURGE] Removed {purge_stats['status_deleted_removed']} records with status='deleted' from user_photos")
+            
+            # 3. Trova photo_ids nel DB che non esistono in R2
+            if r2_keys_set:
+                # Recupera tutti i photo_id dal DB
+                db_photo_ids = await conn.fetch("SELECT DISTINCT photo_id FROM indexed_photos")
+                db_photo_ids_set = {row['photo_id'] for row in db_photo_ids}
+                
+                missing_in_r2 = db_photo_ids_set - r2_keys_set
+                logger.info(f"[ADMIN PURGE] Found {len(missing_in_r2)} photo_ids in DB that don't exist in R2")
+                
+                if missing_in_r2:
+                    missing_list = list(missing_in_r2)
+                    
+                    # 4. Hard delete in cascata
+                    # a) user_photos
+                    deleted_user = await conn.execute("""
+                        DELETE FROM user_photos WHERE photo_id = ANY($1::text[])
+                    """, (missing_list,))
+                    purge_stats["user_photos_deleted"] = int(str(deleted_user).split()[-1]) if deleted_user else 0
+                    
+                    # b) photo_assets (prima di indexed_photos per evitare constraint)
+                    deleted_assets = await conn.execute("""
+                        DELETE FROM photo_assets WHERE photo_id = ANY($1::text[])
+                    """, (missing_list,))
+                    purge_stats["photo_assets_deleted"] = int(str(deleted_assets).split()[-1]) if deleted_assets else 0
+                    
+                    # c) indexed_photos
+                    deleted_indexed = await conn.execute("""
+                        DELETE FROM indexed_photos WHERE photo_id = ANY($1::text[])
+                    """, (missing_list,))
+                    purge_stats["indexed_photos_deleted"] = int(str(deleted_indexed).split()[-1]) if deleted_indexed else 0
+                    
+                    logger.info(f"[ADMIN PURGE] Hard deleted {len(missing_list)} photos: user_photos={purge_stats['user_photos_deleted']}, indexed_photos={purge_stats['indexed_photos_deleted']}, photo_assets={purge_stats['photo_assets_deleted']}")
+                    
+                    # 5. Pulisci ordini: rimuovi photo_ids non esistenti
+                    orders_rows = await conn.fetch("""
+                        SELECT order_id, photo_ids FROM orders WHERE photo_ids IS NOT NULL
+                    """)
+                    
+                    for order_row in orders_rows:
+                        order_id = order_row['order_id']
+                        photo_ids_json = order_row['photo_ids']
+                        if not photo_ids_json:
+                            continue
+                        
+                        try:
+                            photo_ids_list = json.loads(photo_ids_json) if isinstance(photo_ids_json, str) else photo_ids_json
+                            original_count = len(photo_ids_list)
+                            # Filtra solo photo_ids che esistono in R2
+                            cleaned_list = [pid for pid in photo_ids_list if pid in r2_keys_set]
+                            
+                            if len(cleaned_list) < original_count:
+                                await conn.execute("""
+                                    UPDATE orders 
+                                    SET photo_ids = $1::jsonb
+                                    WHERE order_id = $2
+                                """, (json.dumps(cleaned_list), order_id))
+                                purge_stats["orders_cleaned"] += 1
+                                logger.info(f"[ADMIN PURGE] Cleaned order {order_id}: removed {original_count - len(cleaned_list)} missing photo_ids")
+                        except Exception as e:
+                            logger.warning(f"[ADMIN PURGE] Error cleaning order {order_id}: {e}")
+            else:
+                logger.warning("[ADMIN PURGE] R2 keys set is empty - skipping photo_id cleanup")
+        
+        logger.info(f"[ADMIN PURGE] Purge completed: {purge_stats}")
+        return {
+            "ok": True,
+            "message": "Purge completed successfully",
+            "stats": purge_stats
+        }
+    except Exception as e:
+        logger.error(f"[ADMIN PURGE] Error during purge: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Purge error: {str(e)}")
 
 @app.get("/admin/photos-by-date")
 async def admin_photos_by_date(password: str = Query(..., description="Password admin")):
