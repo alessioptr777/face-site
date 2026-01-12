@@ -1785,17 +1785,31 @@
         if(data.ok && data.photo_ids && data.photo_ids.length > 0) {
           console.log('[StripeSuccess] Found', data.photo_ids.length, 'paid photos');
           
-          // Prepara foto pagate da mostrare
-          const photosToShow = data.photo_ids.map(photoId => ({
-                photo_id: photoId,
-                score: 0,
-                has_face: true,
-                paid: true
-              }));
-            
-          allPhotos = photosToShow;
+          allPhotos = [];
           paidPhotos = data.photo_ids;
           userEmail = data.customer_email || null;
+          
+          // Prepara foto pagate da mostrare con URL corretti per download senza watermark
+          const photosToShow = data.photo_ids.map(photoId => {
+            // Costruisci URL per foto pagate (senza watermark) - VELOCITÀ MASSIMA: usa originale R2
+            const paidUrl = userEmail 
+              ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(userEmail)}`
+              : `/photo/${encodeURIComponent(photoId)}?paid=true`;
+            const thumbUrl = `/photo/${encodeURIComponent(photoId)}?variant=thumb`;
+            const wmUrl = `/photo/${encodeURIComponent(photoId)}?variant=wm`;
+            
+            return {
+              photo_id: photoId,
+              score: 0,
+              has_face: true,
+              paid: true,
+              paid_url: paidUrl,  // URL per foto originale senza watermark (VELOCITÀ MASSIMA)
+              thumb_url: thumbUrl, // URL per thumbnail (pre-generato, veloce)
+              wm_url: wmUrl        // URL per preview con watermark (pre-generato, veloce)
+            };
+          });
+            
+          allPhotos = photosToShow;
           
           console.log('[StripeSuccess] Showing album with', allPhotos.length, 'paid photos');
           showScreen('album');
@@ -4456,14 +4470,18 @@
       if(currentPhotoIndex < allPhotos.length - 1) {
         currentPhotoIndex++;
         const photo = allPhotos[currentPhotoIndex];
-        // Usa preview_url se disponibile
+        // Usa paid_url per foto pagate (senza watermark), wm_url per non pagate
         const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
-        let photoUrl = photo.preview_url;
-        if(!photoUrl) {
-          photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
-        if(userEmail && isPaid) {
-          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        let photoUrl;
+        if(isPaid) {
+          // Foto pagata: usa paid_url se disponibile (VELOCITÀ MASSIMA: originale R2)
+          photoUrl = photo.paid_url || `/photo/${encodeURIComponent(photo.photo_id)}?paid=true`;
+          if(userEmail && !photo.paid_url) {
+            photoUrl += `&email=${encodeURIComponent(userEmail)}`;
           }
+        } else {
+          // Foto non pagata: usa wm_url (pre-generato, veloce)
+          photoUrl = photo.wm_url || `/photo/${encodeURIComponent(photo.photo_id)}?variant=wm`;
         }
         lightboxImage.src = photoUrl;
         updateLightboxCounter();
@@ -4476,14 +4494,18 @@
       if(currentPhotoIndex > 0) {
         currentPhotoIndex--;
         const photo = allPhotos[currentPhotoIndex];
-        // Usa preview_url se disponibile
+        // Usa paid_url per foto pagate (senza watermark), wm_url per non pagate
         const isPaid = paidPhotos.includes(photo.photo_id) || photo.paid === true;
-        let photoUrl = photo.preview_url;
-        if(!photoUrl) {
-          photoUrl = `/photo/${encodeURIComponent(photo.photo_id)}?paid=${isPaid}`;
-        if(userEmail && isPaid) {
-          photoUrl += `&email=${encodeURIComponent(userEmail)}`;
+        let photoUrl;
+        if(isPaid) {
+          // Foto pagata: usa paid_url se disponibile (VELOCITÀ MASSIMA: originale R2)
+          photoUrl = photo.paid_url || `/photo/${encodeURIComponent(photo.photo_id)}?paid=true`;
+          if(userEmail && !photo.paid_url) {
+            photoUrl += `&email=${encodeURIComponent(userEmail)}`;
           }
+        } else {
+          // Foto non pagata: usa wm_url (pre-generato, veloce)
+          photoUrl = photo.wm_url || `/photo/${encodeURIComponent(photo.photo_id)}?variant=wm`;
         }
         lightboxImage.src = photoUrl;
         updateLightboxCounter();

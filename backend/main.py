@@ -3094,51 +3094,33 @@ async def serve_photo(
         logger.error("R2 storage not configured. Cannot serve photos.")
         raise HTTPException(status_code=503, detail="Photo storage not available")
     
-    # Leggi da R2
+    # Determina quale key usare su R2 in base a is_paid
+    if is_paid:
+        # Foto pagata: serve originale (key = base, senza prefix)
+        r2_key = base
+        logger.info(f"[PHOTO] Serving ORIGINAL from R2: key={r2_key} (paid=true)")
+    else:
+        # Foto non pagata: serve watermarked (key = wm/<base>)
+        r2_key = f"{WM_PREFIX}{base}"
+        logger.info(f"[PHOTO] Serving WM from R2: key={r2_key} (paid=false)")
+    
+    # Leggi da R2 usando la key corretta
     try:
-        photo_bytes = await _r2_get_object_bytes(base)  # Usa base, NON filename
-        logger.info(f"Serving photo from R2: key={base}, bucket={R2_BUCKET}")
-        
-        # Blindatura finale: l'originale viene servito SOLO se is_paid == True dopo verifica reale
-        if not is_paid:
-            # Serve wm precomputato invece di generare runtime
-            wm_key = f"{WM_PREFIX}{base}"  # Usa base normalizzato
-            try:
-                wm_bytes = await _r2_get_object_bytes(wm_key)
-                logger.info(f"Serving precomputed wm for {filename}")
-                return Response(
-                    content=wm_bytes,
-                    media_type="image/jpeg",
-                    headers={
-                        "Cache-Control": "public, max-age=31536000, immutable"
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Precomputed wm not found for {filename}, falling back to runtime watermark: {e}")
-                # Fallback: genera runtime (solo se wm precomputato non esiste)
-            watermarked_bytes = _add_watermark_from_bytes(photo_bytes)
-            return Response(
-                content=watermarked_bytes, 
-                media_type="image/jpeg",
-                headers={
-                        "Cache-Control": "public, max-age=3600"
-                }
-            )
-        
-        # SOLO se is_paid == True: serve originale senza watermark
-        logger.info(f"Returning original file (paid) from R2: {filename}")
-        _track_download(filename)
+        photo_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
         
         # Se download=true, forza il download con header Content-Disposition
         if download:
             headers = {
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": f'attachment; filename="{base}"',
                 "Content-Type": "image/jpeg",
                 "Cache-Control": "public, max-age=31536000, immutable"
             }
             return Response(content=photo_bytes, headers=headers, media_type="image/jpeg")
         
         # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
+        if is_paid:
+            _track_download(base)
+        
         return Response(
             content=photo_bytes,
             media_type="image/jpeg",
@@ -3147,11 +3129,13 @@ async def serve_photo(
             }
         )
         
-    except HTTPException:
-        # Rilancia HTTPException (404, 500, ecc.)
+    except HTTPException as e:
+        # Se 404, ritorna 404 (frontend filtrerà quel photo_id)
+        if e.status_code == 404:
+            logger.warning(f"[PHOTO] Key not found in R2: {r2_key}, returning 404")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error serving photo from R2: {type(e).__name__}: {e}, filename={filename}")
+        logger.error(f"Unexpected error serving photo from R2: {type(e).__name__}: {e}, key={r2_key}")
         raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
 
 # ========== ENDPOINT UTENTI ==========
@@ -5406,12 +5390,25 @@ async def verify_stripe_session(
     if STRIPE_TEST_MODE and session_id.startswith("test_"):
         if session_id in test_sessions:
             session_data = test_sessions[session_id]
-            logger.info(f"[TEST_MODE] verify_stripe_session -> {session_id}, returning {len(session_data['photo_ids'])} photo_ids")
+            photo_ids = session_data["photo_ids"]
+            customer_email = session_data.get("customer_email")
+            
+            # IMPORTANTE: Salva le foto come pagate nel database (per velocità: verifica immediata in /photo)
+            if customer_email and photo_ids:
+                logger.info(f"[TEST_MODE] Marking {len(photo_ids)} photos as paid for {customer_email}")
+                for photo_id in photo_ids:
+                    try:
+                        await _mark_photo_paid(customer_email, photo_id)
+                    except Exception as e:
+                        logger.error(f"[TEST_MODE] Error marking photo as paid: {photo_id} - {e}")
+                        # Continua anche se una foto fallisce
+            
+            logger.info(f"[TEST_MODE] verify_stripe_session -> {session_id}, returning {len(photo_ids)} photo_ids")
             return {
                 "ok": True,
                 "session_id": session_id,
-                "customer_email": session_data.get("customer_email"),
-                "photo_ids": session_data["photo_ids"],
+                "customer_email": customer_email,
+                "photo_ids": photo_ids,
                 "payment_status": session_data.get("payment_status", "paid"),
                 "amount_total": session_data.get("amount_total", 0),
                 "currency": session_data.get("currency", "eur")
@@ -5448,6 +5445,16 @@ async def verify_stripe_session(
             customer_email = session.customer_details.email
         elif session.metadata and session.metadata.get('email'):
             customer_email = session.metadata.get('email')
+        
+        # IMPORTANTE: Salva le foto come pagate nel database (per velocità: verifica immediata in /photo)
+        if customer_email and photo_ids:
+            logger.info(f"[STRIPE_VERIFY] Marking {len(photo_ids)} photos as paid for {customer_email}")
+            for photo_id in photo_ids:
+                try:
+                    await _mark_photo_paid(customer_email, photo_id)
+                except Exception as e:
+                    logger.error(f"[STRIPE_VERIFY] Error marking photo as paid: {photo_id} - {e}")
+                    # Continua anche se una foto fallisce
         
         return {
             "ok": True,
