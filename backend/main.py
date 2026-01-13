@@ -39,7 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from insightface.app import FaceAnalysis
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 import io
 
 # Inizializza logger PRIMA di qualsiasi uso
@@ -97,7 +97,6 @@ R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
 # Path per file index/tracking (disabilitati in R2_ONLY_MODE)
 INDEX_PATH = DATA_DIR / "faces.index"
 META_PATH = DATA_DIR / "faces.meta.jsonl"
-BACK_PHOTOS_PATH = DATA_DIR / "back_photos.jsonl"  # Foto senza volti (di spalle)
 DOWNLOADS_TRACK_PATH = DATA_DIR / "downloads_track.jsonl"  # Tracking download per cleanup
 INDEX_DIM = 512
 
@@ -440,7 +439,7 @@ async def get_r2_keys_set_cached() -> set:
                 for obj in page.get('Contents', []):
                     key = obj['Key']
                     # Ignora file di sistema
-                    if key not in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                    if key not in ['faces.index', 'faces.meta.jsonl']:
                         keys_set.add(key)
             
             # Aggiorna cache
@@ -556,7 +555,6 @@ logger.info(f"Will serve photos from: {PHOTOS_DIR.resolve()}")
 face_app: Optional[FaceAnalysis] = None
 faiss_index: Optional[faiss.Index] = None
 meta_rows: List[Dict[str, Any]] = []
-back_photos: List[Dict[str, Any]] = []  # Foto senza volti (di spalle)
 indexing_lock: Optional[asyncio.Lock] = None  # Lock globale per indicizzazione automatica
 
 # Funzioni helper
@@ -1361,6 +1359,393 @@ def _read_image_from_bytes(file_bytes: bytes):
             detail=f"Formato immagine non supportato. Formati supportati: JPEG, PNG, HEIC (richiede pillow-heif). Errore: {str(e)}"
         )
 
+def _generate_robust_selfie_embedding(img: np.ndarray) -> np.ndarray:
+    """
+    Genera embedding robusto del selfie creando 7 varianti e facendo media degli embedding.
+    
+    Varianti:
+    1. Originale
+    2. Crop leggero (5% da ogni lato)
+    3. Brightness +10%
+    4. Brightness -10%
+    5. Contrast +10%
+    6. Sharpening leggero
+    7. Flip orizzontale
+    
+    Returns:
+        np.ndarray: Embedding normalizzato (media degli embedding delle varianti)
+    """
+    assert face_app is not None
+    
+    # Converti OpenCV (BGR) a PIL (RGB) per le trasformazioni
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(img_rgb)
+    
+    embeddings = []
+    
+    # 1. Originale
+    faces = face_app.get(img)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # 2. Crop leggero (5% da ogni lato)
+    w, h = pil_img.size
+    crop_box = (int(w * 0.05), int(h * 0.05), int(w * 0.95), int(h * 0.95))
+    img_crop = pil_img.crop(crop_box)
+    img_crop_cv = cv2.cvtColor(np.array(img_crop), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_crop_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # 3. Brightness +10%
+    enhancer = ImageEnhance.Brightness(pil_img)
+    img_bright_plus = enhancer.enhance(1.1)
+    img_bright_plus_cv = cv2.cvtColor(np.array(img_bright_plus), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_bright_plus_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # 4. Brightness -10%
+    enhancer = ImageEnhance.Brightness(pil_img)
+    img_bright_minus = enhancer.enhance(0.9)
+    img_bright_minus_cv = cv2.cvtColor(np.array(img_bright_minus), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_bright_minus_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # 5. Contrast +10%
+    enhancer = ImageEnhance.Contrast(pil_img)
+    img_contrast = enhancer.enhance(1.1)
+    img_contrast_cv = cv2.cvtColor(np.array(img_contrast), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_contrast_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # 6. Sharpening leggero
+    img_sharp = pil_img.filter(ImageFilter.SHARPEN)
+    img_sharp_cv = cv2.cvtColor(np.array(img_sharp), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_sharp_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # 7. Flip orizzontale
+    img_flip = pil_img.transpose(Image.FLIP_LEFT_RIGHT)
+    img_flip_cv = cv2.cvtColor(np.array(img_flip), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_flip_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(faces_sorted[0].embedding.astype("float32"))
+    
+    # Se non abbiamo embedding, ritorna None (gestito dal chiamante)
+    if not embeddings:
+        return None
+    
+    # Media degli embedding e normalizza
+    embeddings_array = np.array(embeddings)
+    mean_embedding = np.mean(embeddings_array, axis=0)
+    normalized = _normalize(mean_embedding)
+    
+    logger.info(f"[ROBUST_EMB] Generated {len(embeddings)} variant embeddings, averaged and normalized")
+    
+    return normalized
+
+def _generate_selfie_embeddings_variants(img: np.ndarray) -> List[np.ndarray]:
+    """
+    Genera i 7 embeddings normalizzati delle varianti del selfie (non la media).
+    
+    Varianti:
+    1. Originale
+    2. Crop leggero (5% da ogni lato)
+    3. Brightness +10%
+    4. Brightness -10%
+    5. Contrast +10%
+    6. Sharpening leggero
+    7. Flip orizzontale
+    
+    Returns:
+        List[np.ndarray]: Lista di 7 embeddings normalizzati (può essere < 7 se alcune varianti non hanno facce)
+    """
+    assert face_app is not None
+    
+    # Converti OpenCV (BGR) a PIL (RGB) per le trasformazioni
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(img_rgb)
+    
+    embeddings = []
+    
+    # 1. Originale
+    faces = face_app.get(img)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 2. Crop leggero (5% da ogni lato)
+    w, h = pil_img.size
+    crop_box = (int(w * 0.05), int(h * 0.05), int(w * 0.95), int(h * 0.95))
+    img_crop = pil_img.crop(crop_box)
+    img_crop_cv = cv2.cvtColor(np.array(img_crop), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_crop_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 3. Brightness +10%
+    enhancer = ImageEnhance.Brightness(pil_img)
+    img_bright_plus = enhancer.enhance(1.1)
+    img_bright_plus_cv = cv2.cvtColor(np.array(img_bright_plus), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_bright_plus_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 4. Brightness -10%
+    enhancer = ImageEnhance.Brightness(pil_img)
+    img_bright_minus = enhancer.enhance(0.9)
+    img_bright_minus_cv = cv2.cvtColor(np.array(img_bright_minus), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_bright_minus_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 5. Contrast +10%
+    enhancer = ImageEnhance.Contrast(pil_img)
+    img_contrast = enhancer.enhance(1.1)
+    img_contrast_cv = cv2.cvtColor(np.array(img_contrast), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_contrast_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 6. Sharpening leggero
+    img_sharp = pil_img.filter(ImageFilter.SHARPEN)
+    img_sharp_cv = cv2.cvtColor(np.array(img_sharp), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_sharp_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 7. Flip orizzontale
+    img_flip = pil_img.transpose(Image.FLIP_LEFT_RIGHT)
+    img_flip_cv = cv2.cvtColor(np.array(img_flip), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_flip_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    logger.info(f"[VARIANTS_EMB] Generated {len(embeddings)} variant embeddings (normalized)")
+    
+    return embeddings
+
+def _generate_occlusion_variants(img: np.ndarray) -> List[np.ndarray]:
+    """
+    Genera 5 embeddings normalizzati per varianti con occlusioni (cappelli/occhiali/ombra).
+    
+    Varianti:
+    1. Random Erasing 1: maschera rettangolare su 20-30% del volto
+    2. Random Erasing 2: maschera rettangolare su 25-35% del volto
+    3. Simula occhiali: banda orizzontale scura su zona occhi
+    4. Simula cappello: banda scura su fronte
+    5. Low light gamma + shadow
+    
+    Returns:
+        List[np.ndarray]: Lista di 5 embeddings normalizzati (può essere < 5 se alcune varianti non hanno facce)
+    """
+    assert face_app is not None
+    import random
+    
+    # Converti OpenCV (BGR) a PIL (RGB) per le trasformazioni
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(img_rgb)
+    w, h = pil_img.size
+    
+    embeddings = []
+    
+    # 1. Random Erasing 1: maschera rettangolare su 20-30% del volto
+    img_erased1 = pil_img.copy()
+    erase_w = int(w * random.uniform(0.20, 0.30))
+    erase_h = int(h * random.uniform(0.20, 0.30))
+    erase_x = random.randint(0, w - erase_w)
+    erase_y = random.randint(0, h - erase_h)
+    # Riempi con colore casuale (simula occlusione)
+    fill_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))
+    for x in range(erase_x, min(erase_x + erase_w, w)):
+        for y in range(erase_y, min(erase_y + erase_h, h)):
+            img_erased1.putpixel((x, y), fill_color)
+    img_erased1_cv = cv2.cvtColor(np.array(img_erased1), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_erased1_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 2. Random Erasing 2: maschera rettangolare su 25-35% del volto
+    img_erased2 = pil_img.copy()
+    erase_w = int(w * random.uniform(0.25, 0.35))
+    erase_h = int(h * random.uniform(0.25, 0.35))
+    erase_x = random.randint(0, w - erase_w)
+    erase_y = random.randint(0, h - erase_h)
+    fill_color = (random.randint(0, 50), random.randint(0, 50), random.randint(0, 50))
+    for x in range(erase_x, min(erase_x + erase_w, w)):
+        for y in range(erase_y, min(erase_y + erase_h, h)):
+            img_erased2.putpixel((x, y), fill_color)
+    img_erased2_cv = cv2.cvtColor(np.array(img_erased2), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_erased2_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 3. Simula occhiali: banda orizzontale scura su zona occhi (circa 20% altezza, centro verticale)
+    img_glasses = pil_img.copy()
+    glasses_y_start = int(h * 0.35)
+    glasses_y_end = int(h * 0.55)
+    glasses_color = (20, 20, 20)  # Scuro
+    for x in range(w):
+        for y in range(glasses_y_start, glasses_y_end):
+            img_glasses.putpixel((x, y), glasses_color)
+    img_glasses_cv = cv2.cvtColor(np.array(img_glasses), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_glasses_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 4. Simula cappello: banda scura su fronte (circa 15% altezza, in alto)
+    img_hat = pil_img.copy()
+    hat_y_end = int(h * 0.15)
+    hat_color = (15, 15, 15)  # Molto scuro
+    for x in range(w):
+        for y in range(hat_y_end):
+            img_hat.putpixel((x, y), hat_color)
+    img_hat_cv = cv2.cvtColor(np.array(img_hat), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_hat_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    # 5. Low light gamma + shadow
+    # Applica gamma correction per simulare low light
+    img_array = np.array(pil_img).astype(np.float32) / 255.0
+    gamma = 1.8  # Più scuro
+    img_array = np.power(img_array, gamma)
+    img_array = (img_array * 255.0).astype(np.uint8)
+    img_lowlight = Image.fromarray(img_array)
+    # Aggiungi shadow (angolo in alto a sinistra)
+    shadow_y_end = int(h * 0.4)
+    shadow_x_end = int(w * 0.4)
+    for x in range(shadow_x_end):
+        for y in range(shadow_y_end):
+            pixel = img_lowlight.getpixel((x, y))
+            shadow_pixel = tuple(max(0, c - 40) for c in pixel)
+            img_lowlight.putpixel((x, y), shadow_pixel)
+    img_lowlight_cv = cv2.cvtColor(np.array(img_lowlight), cv2.COLOR_RGB2BGR)
+    faces = face_app.get(img_lowlight_cv)
+    if faces:
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if faces_sorted:
+            embeddings.append(_normalize(faces_sorted[0].embedding.astype("float32")))
+    
+    logger.info(f"[OCCLUSION_EMB] Generated {len(embeddings)} occlusion variant embeddings (normalized)")
+    
+    return embeddings
+
 # Cache per overlay watermark (chiave: (width, height) -> overlay Image)
 # NOTA: Cache svuotata per forzare rigenerazione con nuovo watermark "MetaProos"
 _watermark_overlay_cache: Dict[Tuple[int, int], Image.Image] = {}
@@ -1623,25 +2008,32 @@ def _generate_wm_preview(image_bytes: bytes) -> bytes:
         logger.error(f"Error generating wm preview: {e}", exc_info=True)
         raise
 
-async def ensure_previews_for_photo(photo_key: str) -> tuple[bool, bool]:
+async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
     """
     Assicura che thumb e wm preview esistano per una foto.
     
     Args:
-        photo_key: Chiave della foto in R2 (es. "_MIT0161.jpg")
+        r2_key: Chiave R2 completa della foto (es. "photos/2024-01-12/tour123/MIT00071.jpg")
     
     Returns:
         (thumb_created, wm_created): True se creato in questa chiamata, False se già esisteva
     """
     # Ignora se è già un thumb o wm
-    if photo_key.startswith(THUMB_PREFIX) or photo_key.startswith(WM_PREFIX):
+    if r2_key.startswith(THUMB_PREFIX) or r2_key.startswith(WM_PREFIX):
         return False, False
     
     if not USE_R2 or r2_client is None:
         return False, False
     
-    thumb_key = f"{THUMB_PREFIX}{photo_key}"
-    wm_key = f"{WM_PREFIX}{photo_key}"
+    # Costruisci chiavi thumb/wm mantenendo la struttura del path
+    # Esempio: photos/2024-01-12/tour123/file.jpg -> thumbs/2024-01-12/tour123/file.jpg
+    if r2_key.startswith("photos/"):
+        thumb_key = r2_key.replace("photos/", f"{THUMB_PREFIX}", 1)
+        wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+    else:
+        # Fallback per chiavi senza prefisso photos/ (retrocompatibilità)
+        thumb_key = f"{THUMB_PREFIX}{r2_key}"
+        wm_key = f"{WM_PREFIX}{r2_key}"
     thumb_created = False
     wm_created = False
     original_bytes = None
@@ -1654,7 +2046,7 @@ async def ensure_previews_for_photo(photo_key: str) -> tuple[bool, bool]:
         # Non esiste, genera
         try:
             # Scarica originale
-            original_bytes = await _r2_get_object_bytes(photo_key, mark_missing=True)
+            original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
             # Genera thumb
             thumb_bytes = _generate_thumb(original_bytes)
             # Upload su R2
@@ -1662,7 +2054,7 @@ async def ensure_previews_for_photo(photo_key: str) -> tuple[bool, bool]:
             thumb_created = True
             logger.info(f"[PREVIEW] Generated thumb: {thumb_key}")
         except Exception as e:
-            logger.error(f"[PREVIEW] Error generating thumb for {photo_key}: {e}")
+            logger.error(f"[PREVIEW] Error generating thumb for {r2_key}: {e}")
     
     # Verifica wm
     try:
@@ -1673,7 +2065,7 @@ async def ensure_previews_for_photo(photo_key: str) -> tuple[bool, bool]:
         try:
             # Scarica originale se non già scaricato
             if original_bytes is None:
-                original_bytes = await _r2_get_object_bytes(photo_key, mark_missing=True)
+                original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
             # Genera wm
             wm_bytes = _generate_wm_preview(original_bytes)
             # Upload su R2
@@ -1681,7 +2073,7 @@ async def ensure_previews_for_photo(photo_key: str) -> tuple[bool, bool]:
             wm_created = True
             logger.info(f"[PREVIEW] Generated wm preview: {wm_key}")
         except Exception as e:
-            logger.error(f"[PREVIEW] Error generating wm preview for {photo_key}: {e}")
+            logger.error(f"[PREVIEW] Error generating wm preview for {r2_key}: {e}")
     
     return thumb_created, wm_created
 
@@ -1756,7 +2148,7 @@ def _ensure_ready():
 @app.on_event("startup")
 async def startup():
     """Carica il modello e l'indice all'avvio"""
-    global face_app, faiss_index, meta_rows, back_photos, db_pool
+    global face_app, faiss_index, meta_rows, db_pool
     
     # Inizializza database PostgreSQL all'avvio
     logger.info("=" * 80)
@@ -1784,7 +2176,7 @@ async def startup():
     if r2_only_mode:
         logger.info("✅ R2_ONLY_MODE: Filesystem disabled for photos and index files")
         logger.info("   - Photos served ONLY from R2")
-        logger.info("   - Index files (faces.index, faces.meta.jsonl, downloads_track.jsonl, back_photos.jsonl) stored on R2")
+        logger.info("   - Index files (faces.index, faces.meta.jsonl, downloads_track.jsonl) stored on R2")
     else:
         logger.info("⚠️  R2_ONLY_MODE disabled: Filesystem fallback enabled")
     logger.info("=" * 80)
@@ -1792,7 +2184,8 @@ async def startup():
     logger.info("Loading face recognition model...")
     try:
         face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-        face_app.prepare(ctx_id=0, det_size=(640, 640))
+        # Aumentato det_size per migliorare detection su profilo/ombra
+        face_app.prepare(ctx_id=0, det_size=(1024, 1024))
         logger.info("Face recognition model loaded")
     except Exception as e:
         logger.error(f"Error loading face model: {e}")
@@ -1879,20 +2272,7 @@ async def startup():
                 logger.error(f"Error loading metadata from R2: {e}")
                 meta_rows = []
             
-            try:
-                # Carica foto di spalle da R2 (opzionale)
-                logger.info("Loading back photos from R2...")
-                back_bytes = await _r2_get_object_bytes("back_photos.jsonl")
-                back_text = back_bytes.decode('utf-8')
-                back_photos = []
-                for line in back_text.strip().split('\n'):
-                    if line.strip():
-                        back_photos.append(json.loads(line))
-                logger.info(f"Back photos loaded from R2: {len(back_photos)} records")
-            except Exception as e:
-                # Non è un errore critico se back_photos non esiste
-                logger.info(f"Back photos not found in R2 (optional): {e}")
-                back_photos = []
+            
         else:
             # OPZIONE 1: Fallback automatico a filesystem mode
             logger.warning("=" * 80)
@@ -1908,7 +2288,6 @@ async def startup():
             # Crea indice vuoto
             faiss_index = faiss.IndexFlatIP(INDEX_DIM)
             meta_rows = []
-            back_photos = []
             # Salva indice vuoto su filesystem
             try:
                 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1934,19 +2313,6 @@ async def startup():
                 logger.error(f"Error loading metadata: {e}")
                 meta_rows = []
             
-            # Carica foto di spalle (senza volti)
-            try:
-                if BACK_PHOTOS_PATH.exists():
-                    logger.info(f"Loading back photos from {BACK_PHOTOS_PATH}")
-                    back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
-                    logger.info(f"Back photos loaded: {len(back_photos)} records")
-                else:
-                    logger.info("Back photos file not found - skipping")
-                    back_photos = []
-            except Exception as e:
-                logger.error(f"Error loading back photos: {e}")
-                back_photos = []
-    
     # Inizializza indice vuoto se non esiste
     if faiss_index is None:
         logger.info("Initializing empty FAISS index")
@@ -1964,8 +2330,8 @@ async def startup():
     
     # Funzione per indicizzare nuove foto da R2
     async def index_new_r2_photos():
-        """Indicizza automaticamente nuove foto da R2"""
-        global faiss_index, meta_rows, back_photos
+        """FULL REBUILD: Ricostruisce completamente l'indice FAISS e metadata da R2 (solo per uso admin manuale)"""
+        global faiss_index, meta_rows, _r2_keys_cache
         
         logger.info(f"[INDEXING] Checking conditions: USE_R2={USE_R2}, r2_client={r2_client is not None}, R2_ONLY_MODE={R2_ONLY_MODE}")
         if not USE_R2 or not r2_client or not R2_ONLY_MODE:
@@ -1980,282 +2346,80 @@ async def startup():
         async with indexing_lock:
             try:
                 start_time = datetime.now(timezone.utc)
-                logger.info("[INDEXING] Starting automatic photo indexing from R2...")
-                logger.info(f"[INDEXING] R2_BUCKET={R2_BUCKET}, R2_PHOTOS_PREFIX='{R2_PHOTOS_PREFIX}'")
+                logger.info("[INDEXING] FULL REBUILD start")
                 
-                # Stateless mode: usa meta_rows per vedere foto già indicizzate (non DB)
-                indexed_photo_ids = set()
-                if meta_rows:
-                    indexed_photo_ids = {row.get('photo_id') or row.get('filename') or row.get('id') for row in meta_rows if row.get('photo_id') or row.get('filename') or row.get('id')}
-                    logger.info(f"[INDEXING] Found {len(indexed_photo_ids)} already indexed photos (from faces.meta.jsonl on R2)")
-                
-                # Lista oggetti R2 con paginator
-                new_photos = []
-                all_objects = []
+                # ========== STEP 1: Lista tutte le foto originali in R2 ==========
                 paginator = r2_client.get_paginator('list_objects_v2')
                 prefix = R2_PHOTOS_PREFIX if R2_PHOTOS_PREFIX else ""
                 
-                logger.info(f"[INDEXING] Listing objects in bucket '{R2_BUCKET}' with prefix '{prefix}'...")
+                original_photos = []
                 for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
                     for obj in page.get('Contents', []):
                         key = obj['Key']
-                        all_objects.append(key)
-                        # Ignora file di sistema
-                        if key in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                        
+                        # Escludi file di sistema
+                        if key.startswith("faces.") or key.startswith("downloads_track"):
                             continue
-                        # IGNORA oggetti che iniziano con wm/ o thumbs/ (sono preview, non foto originali)
+                        # Escludi preview (wm/ e thumbs/)
                         if key.startswith("wm/") or key.startswith("thumbs/"):
                             continue
-                        # Filtra solo immagini
+                        # Include solo immagini originali
                         if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
                             continue
-                        # Normalizza la chiave (rimuove eventuali prefissi residui)
-                        normalized_key = _normalize_photo_key(key)
-                        # Filtra chiavi che dopo normalizzazione risultano vuote o contengono "/" (sottocartelle)
-                        if not normalized_key or "/" in normalized_key:
-                            continue
-                        # Se non indicizzata, aggiungi (usa la chiave normalizzata)
-                        if normalized_key not in indexed_photo_ids:
-                            new_photos.append(normalized_key)
-                
-                logger.info(f"[INDEXING] Total objects in R2: {len(all_objects)}, new photos to index: {len(new_photos)}")
-                if all_objects:
-                    logger.info(f"[INDEXING] Sample objects (first 5): {all_objects[:5]}")
-                
-                # Costruisci set delle chiavi R2 (solo foto, escludi file di sistema)
-                r2_keys_set = set()
-                for key in all_objects:
-                    if key not in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
-                        if any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
-                            r2_keys_set.add(key)
-                
-                # PURGE LOGIC: rimuovi dal FAISS index e metadata le foto che non esistono più in R2
-                total_meta_before = len(meta_rows)
-                purged_count = 0
-                purged_photo_ids = []
-                
-                if faiss_index is not None and faiss_index.ntotal > 0 and len(meta_rows) > 0:
-                    try:
-                        # Filtra meta_rows mantenendo SOLO quelle con photo_id presente in r2_keys_set
-                        filtered_meta_rows = []
-                        old_idx_to_new_idx = {}  # Mappa: vecchio indice -> nuovo indice
-                        new_idx = 0
                         
-                        for old_idx, meta_row in enumerate(meta_rows):
-                            photo_id = meta_row.get('photo_id')
-                            if photo_id and photo_id in r2_keys_set:
-                                filtered_meta_rows.append(meta_row)
-                                old_idx_to_new_idx[old_idx] = new_idx
-                                new_idx += 1
-                            else:
-                                purged_count += 1
-                                if photo_id:
-                                    purged_photo_ids.append(photo_id)
-                        
-                        # Se ci sono foto da purgare, ricostruisci il FAISS index
-                        if purged_count > 0:
-                            logger.info(f"[INDEXING] Purging {purged_count} photos from FAISS index and metadata (total before: {total_meta_before})")
-                            
-                            # Ricostruisci FAISS index da zero usando solo gli embedding delle righe rimaste
-                            new_faiss_index = faiss.IndexFlatIP(INDEX_DIM)
-                            new_embeddings_list = []
-                            final_meta_rows = []
-                            
-                            # Ricostruisci nell'ordine corretto (stesso ordine di filtered_meta_rows)
-                            for old_idx, meta_row in enumerate(meta_rows):
-                                photo_id = meta_row.get('photo_id')
-                                if photo_id and photo_id in r2_keys_set:
-                                    try:
-                                        # Ricostruisci embedding dal vecchio index usando l'indice originale
-                                        embedding = faiss_index.reconstruct(int(old_idx))
-                                        embedding = np.array(embedding, dtype=np.float32)
-                                        
-                                        # Aggiungi embedding al nuovo index
-                                        new_embeddings_list.append(embedding)
-                                        # Mantieni meta_row (gli indici nel nuovo index saranno 0, 1, 2, ...)
-                                        final_meta_rows.append(meta_row)
-                                    except Exception as e:
-                                        logger.warning(f"[INDEXING] Could not reconstruct embedding for old_idx={old_idx}, photo_id={photo_id}: {e}")
-                                        # Salta questa riga (non aggiungere né embedding né meta_row)
-                            
-                            # Aggiungi tutti gli embedding al nuovo index in batch
-                            if new_embeddings_list:
-                                embeddings_array = np.array(new_embeddings_list, dtype=np.float32)
-                                new_faiss_index.add(embeddings_array)
-                            
-                            # Aggiorna variabili globali
-                            faiss_index = new_faiss_index
-                            meta_rows = final_meta_rows
-                            
-                            total_meta_after = len(meta_rows)
-                            logger.info(f"[INDEXING] Purge completed: {total_meta_before} -> {total_meta_after} metadata rows, {purged_count} purged")
-                            
-                            if purged_photo_ids:
-                                # Logga i primi 10 photo_id purgati
-                                sample_purged = purged_photo_ids[:10]
-                                logger.info(f"[INDEXING] Sample purged photo_ids (first 10): {sample_purged}")
-                            
-                            # Salva su R2 i file ripuliti
-                            try:
-                                import tempfile
-                                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                                    tmp_path = tmp_file.name
-                                faiss.write_index(faiss_index, tmp_path)
-                                with open(tmp_path, 'rb') as f:
-                                    index_bytes = f.read()
-                                r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
-                                
-                                # Salva metadata ripuliti
-                                meta_lines = [json.dumps(m, ensure_ascii=False) for m in meta_rows]
-                                meta_bytes = '\n'.join(meta_lines).encode('utf-8')
-                                r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=meta_bytes)
-                                
-                                import os as os_module
-                                os_module.unlink(tmp_path)
-                                
-                                logger.info(f"[INDEXING] Purged index and metadata saved to R2")
-                            except Exception as e:
-                                logger.error(f"[INDEXING] Error saving purged index to R2: {e}")
-                    except Exception as e:
-                        logger.error(f"[INDEXING] Error purging FAISS index: {e}", exc_info=True)
+                        # NON normalizzare: usa la chiave R2 completa come r2_key
+                        original_photos.append(key)
                 
-                # SINCRONIZZAZIONE DB: marca come deleted le foto che sono found/paid ma non esistono più in R2
-                if db_pool:
+                logger.info(f"[INDEXING] originals_in_r2={len(original_photos)}")
+                
+                # ========== STEP 2: Se lista vuota, reset index ==========
+                if len(original_photos) == 0:
+                    # Crea indice vuoto
+                    faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+                    meta_rows = []
+                    
+                    # Salva su R2 (sovrascrivi)
                     try:
-                        # Trova foto che sono found/paid ma non sono in r2_keys_set
-                        async with db_pool.acquire() as conn:
-                            # Query per trovare foto che devono essere marcate come deleted
-                            if r2_keys_set:
-                                # Usa NOT IN con array
-                                missing_rows = await conn.fetch("""
-                                    SELECT DISTINCT photo_id 
-                                    FROM user_photos 
-                                    WHERE status IN ('found', 'paid') 
-                                      AND r2_exists = TRUE
-                                      AND photo_id NOT IN (SELECT unnest($1::text[]))
-                                """, (list(r2_keys_set),))
-                            else:
-                                # Se r2_keys_set è vuoto, tutte le foto found/paid devono essere marcate come deleted
-                                missing_rows = await conn.fetch("""
-                                    SELECT DISTINCT photo_id 
-                                    FROM user_photos 
-                                    WHERE status IN ('found', 'paid') 
-                                      AND r2_exists = TRUE
-                                """)
-                            
-                            # Trova anche foto in indexed_photos che non esistono più in R2
-                            if r2_keys_set:
-                                missing_indexed_rows = await conn.fetch("""
-                                    SELECT photo_id 
-                                    FROM indexed_photos 
-                                    WHERE photo_id NOT IN (SELECT unnest($1::text[]))
-                                """, (list(r2_keys_set),))
-                            else:
-                                # Se r2_keys_set è vuoto, tutte le foto devono essere eliminate
-                                missing_indexed_rows = await conn.fetch("SELECT photo_id FROM indexed_photos")
-                            
-                            # Combina le liste di foto mancanti
-                            all_missing_photo_ids = set()
-                            if missing_rows:
-                                all_missing_photo_ids.update([row['photo_id'] for row in missing_rows])
-                            if missing_indexed_rows:
-                                all_missing_photo_ids.update([row['photo_id'] for row in missing_indexed_rows])
-                            
-                            if all_missing_photo_ids:
-                                missing_photo_ids = list(all_missing_photo_ids)
-                                logger.info(f"[INDEXING] Found {len(missing_photo_ids)} photos in DB that no longer exist in R2 (user_photos: {len(missing_rows) if missing_rows else 0}, indexed_photos: {len(missing_indexed_rows) if missing_indexed_rows else 0})")
-                                
-                                # HARD DELETE: elimina completamente i record (R2 è source of truth)
-                                if missing_photo_ids:
-                                    # 1. Elimina da user_photos
-                                    deleted_user_photos = await conn.execute("""
-                                        DELETE FROM user_photos 
-                                        WHERE photo_id = ANY($1::text[])
-                                    """, (missing_photo_ids,))
-                                    
-                                    # 2. Elimina da photo_assets (prima di indexed_photos per evitare constraint)
-                                    deleted_assets = await conn.execute("""
-                                        DELETE FROM photo_assets 
-                                        WHERE photo_id = ANY($1::text[])
-                                    """, (missing_photo_ids,))
-                                    
-                                    # 3. Elimina da indexed_photos
-                                    deleted_indexed = await conn.execute("""
-                                        DELETE FROM indexed_photos 
-                                        WHERE photo_id = ANY($1::text[])
-                                    """, (missing_photo_ids,))
-                                    
-                                    logger.info(f"[INDEXING] Hard deleted {len(missing_photo_ids)} photos from DB (missing in R2): user_photos={deleted_user_photos}, indexed_photos={deleted_indexed}, photo_assets={deleted_assets}")
-                                    
-                                    # 4. Pulisci ordini: rimuovi photo_ids non esistenti da orders.photo_ids (JSON)
-                                    orders_rows = await conn.fetch("""
-                                        SELECT order_id, photo_ids FROM orders WHERE photo_ids IS NOT NULL
-                                    """)
-                                    
-                                    cleaned_orders = 0
-                                    for order_row in orders_rows:
-                                        order_id = order_row['order_id']
-                                        photo_ids_json = order_row['photo_ids']
-                                        if not photo_ids_json:
-                                            continue
-                                        
-                                        try:
-                                            photo_ids_list = json.loads(photo_ids_json) if isinstance(photo_ids_json, str) else photo_ids_json
-                                            original_count = len(photo_ids_list)
-                                            missing_set = set(missing_photo_ids)
-                                            # Filtra photo_ids che non sono in missing_set (mantieni solo quelli esistenti)
-                                            cleaned_list = [pid for pid in photo_ids_list if pid not in missing_set]
-                                            
-                                            if len(cleaned_list) < original_count:
-                                                # Aggiorna ordine con lista pulita
-                                                await conn.execute("""
-                                                    UPDATE orders 
-                                                    SET photo_ids = $1::jsonb
-                                                    WHERE order_id = $2
-                                                """, (json.dumps(cleaned_list), order_id))
-                                                cleaned_orders += 1
-                                                logger.info(f"[INDEXING] Cleaned order {order_id}: removed {original_count - len(cleaned_list)} missing photo_ids")
-                                        except Exception as e:
-                                            logger.warning(f"[INDEXING] Error cleaning order {order_id}: {e}")
-                                    
-                                    if cleaned_orders > 0:
-                                        logger.info(f"[INDEXING] Cleaned {cleaned_orders} orders by removing missing photo_ids")
-                    except Exception as e:
-                        logger.error(f"[INDEXING] Error syncing R2 missing photos in DB: {e}", exc_info=True)
-                
-                # NOTA: Il purge viene eseguito sempre (anche se non ci sono nuove foto da indicizzare)
-                # perché le foto possono essere state cancellate da R2 in qualsiasi momento
-                
-                if not new_photos:
-                    # Non loggare "No new photos" ad ogni ciclo (troppo rumore)
-                    # Verrà loggato solo nel heartbeat ogni 30 minuti
-                    # Ma ritorna solo se non c'è stato purge (altrimenti abbiamo già salvato l'index)
-                    if purged_count == 0:
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        faiss.write_index(faiss_index, tmp_path)
+                        with open(tmp_path, 'rb') as f:
+                            index_bytes = f.read()
+                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
+                        
+                        # Salva metadata vuoto
+                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=b"")
+                        
+                        import os as os_module
+                        os_module.unlink(tmp_path)
+                        
+                        # Invalida cache
+                        _r2_keys_cache = None
+                        
+                        logger.info("[INDEXING] FULL REBUILD: 0 originals in R2 -> index reset to 0")
+                        logger.info("[INDEXING] FULL REBUILD done, saved index+meta to R2")
                         return 0
-                    else:
-                        # C'è stato purge, ritorna 0 ma l'index è già stato salvato sopra
+                    except Exception as e:
+                        logger.error(f"[INDEXING] Error saving empty index to R2: {e}")
                         return 0
                 
-                logger.info(f"[INDEXING] Found {len(new_photos)} new photos to index")
+                # ========== STEP 3: FULL REBUILD da zero ==========
+                # Crea nuovo indice vuoto
+                new_faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+                new_meta_rows = []
+                faces_total = 0
+                previews_generated_count = 0
                 
-                # Indicizza batch (max 50 per ciclo)
-                batch_size = 50
-                indexed_count = 0
-                new_embeddings = []
-                new_meta = []
-                new_back_photos = []
-                previews_generated_count = 0  # Conta preview generate in questo ciclo
-                
-                for i, photo_key in enumerate(new_photos[:batch_size]):
+                # Processa tutte le foto originali
+                for photo_idx, r2_key in enumerate(original_photos):
                     try:
-                        # Normalizza photo_key (dovrebbe già essere normalizzato, ma per sicurezza)
-                        photo_key_normalized = _normalize_photo_key(photo_key)
-                        if not photo_key_normalized or "/" in photo_key_normalized:
-                            logger.warning(f"[INDEXING] Skipping invalid photo_key: {photo_key}")
-                            continue
+                        # Estrai display_name (basename)
+                        from pathlib import Path
+                        display_name = Path(r2_key).name
                         
-                        # Scarica foto da R2 (usa la chiave normalizzata)
-                        photo_bytes = await _r2_get_object_bytes(photo_key_normalized)
+                        # Scarica foto da R2
+                        photo_bytes = await _r2_get_object_bytes(r2_key)
                         
                         # Decodifica immagine
                         nparr = np.frombuffer(photo_bytes, np.uint8)
@@ -2267,136 +2431,82 @@ async def startup():
                         faces = face_app.get(img)
                         
                         if not faces:
-                            # Foto senza volti -> back_photos (usa photo_key normalizzato)
-                            new_back_photos.append({"photo_id": photo_key_normalized})
-                            # Segna comunque come indicizzata
-                            if db_pool:
-                                async with db_pool.acquire() as conn:
-                                    await conn.execute(
-                                        "INSERT INTO indexed_photos (photo_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                                        photo_key
-                                    )
+                            # Foto senza volti -> salta
                             continue
                         
-                        # Per ogni volto, crea embedding
+                        # Per ogni volto, crea embedding e metadata
                         for face in faces:
                             embedding = face.embedding.astype(np.float32)
                             embedding = _normalize(embedding)
-                            new_embeddings.append(embedding)
                             
-                            # Metadata (usa photo_key normalizzato)
+                            # Aggiungi embedding al nuovo indice
+                            embedding_reshaped = embedding.reshape(1, -1)
+                            new_faiss_index.add(embedding_reshaped)
+                            
+                            # Metadata con r2_key e display_name
                             bbox = face.bbox
-                            new_meta.append({
-                                "photo_id": photo_key_normalized,
+                            new_meta_rows.append({
+                                "r2_key": r2_key,  # Chiave R2 completa
+                                "display_name": display_name,  # Solo nome file
+                                "photo_id": r2_key,  # Compatibilità retroattiva
                                 "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
                                 "det_score": float(face.det_score)
                             })
+                            faces_total += 1
                         
-                        # Genera thumb e wm precomputati usando funzione helper (rate limited)
-                        # Rate limit: max 3 foto per ciclo per non saturare CPU
-                        if indexed_count < 3:
-                            thumb_created, wm_created = await ensure_previews_for_photo(photo_key_normalized)
+                        # Genera preview (rate limited: max 3 foto per ciclo)
+                        if photo_idx < 3:
+                            thumb_created, wm_created = await ensure_previews_for_photo(r2_key)
                             if thumb_created:
                                 previews_generated_count += 1
                             if wm_created:
                                 previews_generated_count += 1
                         
-                        indexed_count += 1
-                        
                     except Exception as e:
-                        logger.error(f"Error indexing photo {photo_key}: {e}")
+                        logger.error(f"[INDEXING] Error processing photo {r2_key}: {e}")
                         continue
                 
-                # Aggiungi embeddings all'indice
-                if new_embeddings and faiss_index is not None:
-                    embeddings_array = np.array(new_embeddings, dtype=np.float32)
-                    faiss_index.add(embeddings_array)
-                    meta_rows.extend(new_meta)
-                    back_photos.extend(new_back_photos)
-                    
-                    logger.info(f"Added {len(new_embeddings)} embeddings to index (total: {faiss_index.ntotal})")
-                    
-                    # Salva su R2
-                    try:
-                        import tempfile
-                        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                            tmp_path = tmp_file.name
-                        faiss.write_index(faiss_index, tmp_path)
-                        with open(tmp_path, 'rb') as f:
-                            index_bytes = f.read()
-                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
-                        
-                        # Salva metadata
-                        meta_lines = [json.dumps(m, ensure_ascii=False) for m in meta_rows]
-                        meta_bytes = '\n'.join(meta_lines).encode('utf-8')
-                        r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=meta_bytes)
-                        
-                        # Salva back_photos se presenti
-                        if new_back_photos:
-                            back_lines = [json.dumps(b, ensure_ascii=False) for b in back_photos]
-                            back_bytes = '\n'.join(back_lines).encode('utf-8')
-                            r2_client.put_object(Bucket=R2_BUCKET, Key="back_photos.jsonl", Body=back_bytes)
-                        
-                        import os as os_module
-                        os_module.unlink(tmp_path)
-                        
-                        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                        logger.info(f"Indexing completed: {indexed_count} photos, {len(new_embeddings)} faces, {previews_generated_count} previews generated, {elapsed:.2f}s")
-                    except Exception as e:
-                        logger.error(f"Error saving index to R2: {e}")
+                # ========== STEP 4: Aggiorna variabili globali ==========
+                faiss_index = new_faiss_index
+                meta_rows = new_meta_rows
                 
-                # BACKFILL MODE: genera preview per foto già indicizzate ma senza thumb/wm
-                # Rate limit: max 2 foto per ciclo per non saturare CPU
-                if meta_rows and len(meta_rows) > 0:
-                    backfill_count = 0
-                    backfill_thumbs = 0
-                    backfill_wms = 0
+                vectors_in_index = faiss_index.ntotal
+                meta_rows_count = len(meta_rows)
+                
+                logger.info(f"[INDEXING] faces_total={faces_total} vectors_in_index={vectors_in_index} meta_rows={meta_rows_count}")
+                
+                # ========== STEP 5: Salva su R2 (sovrascrivi sempre) ==========
+                try:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                        tmp_path = tmp_file.name
+                    faiss.write_index(faiss_index, tmp_path)
+                    with open(tmp_path, 'rb') as f:
+                        index_bytes = f.read()
+                    r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
                     
-                    # Estrai photo_id unici da meta_rows
-                    existing_photo_ids = set()
-                    for row in meta_rows:
-                        photo_id = row.get('photo_id')
-                        if photo_id and not photo_id.startswith(THUMB_PREFIX) and not photo_id.startswith(WM_PREFIX):
-                            existing_photo_ids.add(photo_id)
+                    # Salva metadata
+                    meta_lines = [json.dumps(m, ensure_ascii=False) for m in meta_rows]
+                    meta_bytes = '\n'.join(meta_lines).encode('utf-8')
+                    r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=meta_bytes)
                     
-                    # Controlla quali foto non hanno thumb/wm
-                    for photo_id in list(existing_photo_ids)[:10]:  # Max 10 foto per ciclo
-                        if backfill_count >= 2:  # Rate limit: max 2 foto per ciclo
-                            break
-                        
-                        thumb_key = f"{THUMB_PREFIX}{photo_id}"
-                        wm_key = f"{WM_PREFIX}{photo_id}"
-                        needs_thumb = False
-                        needs_wm = False
-                        
-                        try:
-                            r2_client.head_object(Bucket=R2_BUCKET, Key=thumb_key)
-                        except:
-                            needs_thumb = True
-                        
-                        try:
-                            r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
-                        except:
-                            needs_wm = True
-                        
-                        if needs_thumb or needs_wm:
-                            try:
-                                thumb_created, wm_created = await ensure_previews_for_photo(photo_id)
-                                if thumb_created:
-                                    backfill_thumbs += 1
-                                if wm_created:
-                                    backfill_wms += 1
-                                backfill_count += 1
-                            except Exception as e:
-                                logger.warning(f"[BACKFILL] Error generating previews for {photo_id}: {e}")
+                    import os as os_module
+                    os_module.unlink(tmp_path)
                     
-                    if backfill_count > 0:
-                        logger.info(f"[BACKFILL] Generated {backfill_thumbs} thumbs, {backfill_wms} wm previews for existing photos")
+                    # Invalida cache
+                    _r2_keys_cache = None
+                    
+                    elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    logger.info(f"[INDEXING] FULL REBUILD done, saved index+meta to R2 (elapsed: {elapsed:.2f}s, previews: {previews_generated_count})")
+                    
+                except Exception as e:
+                    logger.error(f"[INDEXING] Error saving rebuilt index to R2: {e}")
+                    raise
                 
             except Exception as e:
-                logger.error(f"Error in automatic indexing: {e}", exc_info=True)
+                logger.error(f"[INDEXING] Error in FULL REBUILD: {e}", exc_info=True)
             
-            return indexed_count
+            return len(original_photos)
     
     # Avvia task periodico per cleanup (ogni 6 ore) e indicizzazione (ogni 60 secondi)
     async def periodic_tasks():
@@ -2409,27 +2519,22 @@ async def startup():
                 logger.error(f"Error in periodic tasks: {e}")
     
     async def indexing_task():
-        """Task periodico per indicizzazione automatica"""
-        logger.info("[INDEXING] Indexing task started, will run every 300 seconds (5 minutes)")
-        last_heartbeat = datetime.now(timezone.utc)
+        """Task periodico per indicizzazione automatica (DISABILITATO - usa /admin/index/sync)"""
+        # DISABILITATO: FULL REBUILD periodico non più usato in produzione
+        # Usa endpoint POST /admin/index/sync per sync incrementale
+        logger.info("[INDEXING] Periodic indexing task DISABLED - use POST /admin/index/sync for incremental sync")
+        # Manteniamo il task ma con sleep molto lungo (fallback)
         while True:
             try:
-                await asyncio.sleep(300)  # 300 secondi (5 minuti)
-                logger.info("[INDEXING] Running periodic indexing check...")
-                indexed_count = await index_new_r2_photos()
-                
-                # Log heartbeat solo ogni 30 minuti (6 cicli)
-                now = datetime.now(timezone.utc)
-                if (now - last_heartbeat).total_seconds() >= 1800:  # 30 minuti
-                    logger.info("[INDEXING] Heartbeat: indexing task running normally")
-                    last_heartbeat = now
+                await asyncio.sleep(15 * 60)  # 15 minuti (fallback, non dovrebbe mai essere usato)
+                logger.warning("[INDEXING] Periodic task fallback triggered - this should not happen in production")
             except Exception as e:
                 logger.error(f"[INDEXING] Error in indexing task: {e}", exc_info=True)
     
-    # Avvia task in background
+    # Avvia task in background (solo cleanup, indexing disabilitato)
     asyncio.create_task(periodic_tasks())
     asyncio.create_task(indexing_task())
-    logger.info("Periodic tasks started (cleanup every 6 hours, indexing every 60 seconds)")
+    logger.info("Periodic tasks started (cleanup every 6 hours, indexing DISABLED - use /admin/index/sync)")
     
     # ============================================================
     # LOGGING DEFINITIVO: PATH ESATTI DEI FILE STATICI
@@ -2595,6 +2700,258 @@ def health():
         "r2_client_ready": r2_client_ready,
         "index_size": index_size
     }
+
+# Funzione globale per sync incrementale (spostata da startup per accesso endpoint)
+async def sync_index_with_r2_incremental():
+    """Sync incrementale: add/remove foto dall'indice basandosi su R2 (source of truth)"""
+    global faiss_index, meta_rows, _r2_keys_cache
+    
+    if not USE_R2 or not r2_client or not R2_ONLY_MODE:
+        logger.warning(f"[INDEXING] SYNC skipped - conditions not met: USE_R2={USE_R2}, r2_client={r2_client is not None}, R2_ONLY_MODE={R2_ONLY_MODE}")
+        return
+    
+    if indexing_lock.locked():
+        logger.info("[INDEXING] SYNC already running, skipping")
+        return
+    
+    async with indexing_lock:
+        try:
+            start_time = datetime.now(timezone.utc)
+            logger.info("[INDEXING] SYNC start")
+            
+            # ========== STEP 1: Lista tutte le foto originali in R2 ==========
+            paginator = r2_client.get_paginator('list_objects_v2')
+            
+            # Log prefix usato (R2_PHOTOS_PREFIX, default vuoto)
+            logger.info(f"[INDEXING] list prefix={R2_PHOTOS_PREFIX!r}")
+            
+            # Raccogli tutte le keys prima del filtro
+            # Se R2_PHOTOS_PREFIX è vuoto, non passare Prefix (lista tutto il bucket)
+            all_keys = []
+            paginate_kwargs = {"Bucket": R2_BUCKET}
+            if R2_PHOTOS_PREFIX:
+                paginate_kwargs["Prefix"] = R2_PHOTOS_PREFIX
+            
+            for page in paginator.paginate(**paginate_kwargs):
+                for obj in page.get('Contents', []):
+                    all_keys.append(obj['Key'])
+            
+            # Log totale keys e sample
+            logger.info(f"[INDEXING] list total keys={len(all_keys)} sample={all_keys[:20]}")
+            
+            # Filtra per originali
+            r2_originals_keys = set()
+            for key in all_keys:
+                # Escludi file di sistema
+                if key.startswith("faces.") or key.startswith("downloads_track"):
+                    continue
+                # Escludi preview (wm/ e thumbs/)
+                if key.startswith("wm/") or key.startswith("thumbs/"):
+                    continue
+                # Include solo immagini originali
+                # Se R2_PHOTOS_PREFIX è impostato, accetta solo keys che iniziano con quel prefix
+                if R2_PHOTOS_PREFIX:
+                    if not key.startswith(R2_PHOTOS_PREFIX):
+                        continue
+                # Se R2_PHOTOS_PREFIX è vuoto, accetta qualsiasi path (già esclusi wm/ e thumbs/)
+                
+                if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
+                    continue
+                
+                r2_originals_keys.add(key)
+            
+            # Log keys dopo filtro originali
+            r2_originals_list = sorted(list(r2_originals_keys))
+            logger.info(f"[INDEXING] after filter originals: {len(r2_originals_list)} keys, sample={r2_originals_list[:20]}")
+            
+            # ========== STEP 2: Costruisci set delle foto già indicizzate ==========
+            indexed_keys_set = set()
+            if meta_rows:
+                for row in meta_rows:
+                    # Supporta sia r2_key (nuovo) che photo_id (retrocompatibilità)
+                    r2_key = row.get("r2_key") or row.get("photo_id")
+                    if r2_key:
+                        indexed_keys_set.add(r2_key)
+            
+            # ========== STEP 3: Calcola differenze ==========
+            to_add = r2_originals_keys - indexed_keys_set
+            to_remove = indexed_keys_set - r2_originals_keys
+            
+            logger.info(f"[INDEXING] r2_originals={len(r2_originals_keys)} indexed={len(indexed_keys_set)} to_add={len(to_add)} to_remove={len(to_remove)}")
+            
+            # ========== STEP 4: Remove (senza ricalcolare embeddings) ==========
+            # Filtra meta_rows mantenendo solo quelle NON in to_remove
+            new_meta_rows = []
+            old_idx_to_new_idx = {}  # Mappa vecchio indice -> nuovo indice
+            new_idx = 0
+            
+            if faiss_index is not None and faiss_index.ntotal > 0:
+                for old_idx, row in enumerate(meta_rows):
+                    r2_key = row.get("r2_key") or row.get("photo_id")
+                    if r2_key and r2_key not in to_remove:
+                        new_meta_rows.append(row)
+                        old_idx_to_new_idx[old_idx] = new_idx
+                        new_idx += 1
+                
+                # Ricostruisci FAISS index solo con gli embedding delle righe mantenute
+                new_faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+                new_embeddings_list = []
+                
+                for old_idx, row in enumerate(meta_rows):
+                    r2_key = row.get("r2_key") or row.get("photo_id")
+                    if r2_key and r2_key not in to_remove:
+                        try:
+                            # Ricostruisci embedding dal vecchio index
+                            embedding = faiss_index.reconstruct(int(old_idx))
+                            embedding = np.array(embedding, dtype=np.float32)
+                            new_embeddings_list.append(embedding)
+                        except Exception as e:
+                            logger.warning(f"[INDEXING] Could not reconstruct embedding for old_idx={old_idx}, r2_key={r2_key}: {e}")
+                
+                # Aggiungi tutti gli embedding in batch
+                if new_embeddings_list:
+                    embeddings_array = np.array(new_embeddings_list, dtype=np.float32)
+                    new_faiss_index.add(embeddings_array)
+            else:
+                new_faiss_index = faiss.IndexFlatIP(INDEX_DIM)
+            
+            # ========== STEP 5: Add (solo nuove foto) ==========
+            faces_total = len(new_meta_rows)  # Conta già le facce mantenute
+            new_faces_count = 0
+            previews_generated_count = 0
+            
+            for r2_key in to_add:
+                try:
+                    # Estrai display_name (basename)
+                    from pathlib import Path
+                    display_name = Path(r2_key).name
+                    
+                    # Scarica foto da R2
+                    photo_bytes = await _r2_get_object_bytes(r2_key)
+                    
+                    # Decodifica immagine
+                    nparr = np.frombuffer(photo_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if img is None:
+                        continue
+                    
+                    # Estrai volti
+                    faces = face_app.get(img)
+                    
+                    if not faces:
+                        # Foto senza volti -> salta
+                        continue
+                    
+                    # Per ogni volto, crea embedding e metadata
+                    for face in faces:
+                        embedding = face.embedding.astype(np.float32)
+                        embedding = _normalize(embedding)
+                        
+                        # Aggiungi embedding al nuovo indice
+                        embedding_reshaped = embedding.reshape(1, -1)
+                        new_faiss_index.add(embedding_reshaped)
+                        
+                        # Metadata con r2_key e display_name
+                        bbox = face.bbox
+                        new_meta_rows.append({
+                            "r2_key": r2_key,  # Chiave R2 completa
+                            "display_name": display_name,  # Solo nome file
+                            "photo_id": r2_key,  # Compatibilità retroattiva
+                            "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+                            "det_score": float(face.det_score)
+                        })
+                        new_faces_count += 1
+                        faces_total += 1
+                    
+                    # Genera preview per le nuove foto (rate limited: max 3)
+                    if previews_generated_count < 3:
+                        thumb_created, wm_created = await ensure_previews_for_photo(r2_key)
+                        if thumb_created:
+                            previews_generated_count += 1
+                        if wm_created:
+                            previews_generated_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"[INDEXING] Error processing new photo {r2_key}: {e}")
+                    continue
+            
+            # ========== STEP 6: Swap atomico ==========
+            faiss_index = new_faiss_index
+            meta_rows = new_meta_rows
+            
+            vectors_in_index = faiss_index.ntotal
+            meta_rows_count = len(meta_rows)
+            
+            logger.info(f"[INDEXING] faces_total={faces_total} vectors_in_index={vectors_in_index} meta_rows={meta_rows_count}")
+            
+            # ========== STEP 7: Salva su R2 (sovrascrivi sempre) ==========
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                    tmp_path = tmp_file.name
+                faiss.write_index(faiss_index, tmp_path)
+                with open(tmp_path, 'rb') as f:
+                    index_bytes = f.read()
+                r2_client.put_object(Bucket=R2_BUCKET, Key="faces.index", Body=index_bytes)
+                
+                # Salva metadata
+                meta_lines = [json.dumps(m, ensure_ascii=False) for m in meta_rows]
+                meta_bytes = '\n'.join(meta_lines).encode('utf-8')
+                r2_client.put_object(Bucket=R2_BUCKET, Key="faces.meta.jsonl", Body=meta_bytes)
+                
+                import os as os_module
+                os_module.unlink(tmp_path)
+                
+                # Invalida cache
+                _r2_keys_cache = None
+                
+                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                logger.info(f"[INDEXING] SYNC done elapsed={elapsed:.2f}s (added={len(to_add)} removed={len(to_remove)} new_faces={new_faces_count})")
+                
+            except Exception as e:
+                logger.error(f"[INDEXING] Error saving synced index to R2: {e}")
+                raise
+            
+        except Exception as e:
+            logger.error(f"[INDEXING] Error in SYNC: {e}", exc_info=True)
+            raise
+
+@app.post("/admin/index/sync")
+async def admin_index_sync(password: Optional[str] = Query(None)):
+    """Endpoint admin per sync incrementale dell'indice con R2"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        await sync_index_with_r2_incremental()
+        return {
+            "ok": True,
+            "message": "Incremental sync completed",
+            "index_size": faiss_index.ntotal if faiss_index else 0,
+            "meta_rows": len(meta_rows)
+        }
+    except Exception as e:
+        logger.error(f"Error in admin index sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+@app.post("/admin/index/rebuild")
+async def admin_index_rebuild(password: Optional[str] = Query(None)):
+    """Endpoint admin per FULL REBUILD completo dell'indice (solo uso manuale)"""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        count = await index_new_r2_photos()
+        return {
+            "ok": True,
+            "message": "Full rebuild completed",
+            "photos_indexed": count,
+            "index_size": faiss_index.ntotal if faiss_index else 0,
+            "meta_rows": len(meta_rows)
+        }
+    except Exception as e:
+        logger.error(f"Error in admin index rebuild: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Rebuild failed: {str(e)}")
 
 @app.post("/admin/cleanup")
 async def cleanup_downloads():
@@ -2939,7 +3296,7 @@ async def serve_photo(
     logger.info(f"Filename parameter: {filename}, variant: {variant}")
     logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {email is not None}")
     
-    # Decodifica il filename (potrebbe essere URL encoded)
+    # Decodifica il filename (potrebbe essere URL encoded r2_key completo)
     try:
         from urllib.parse import unquote
         decoded_filename = unquote(filename)
@@ -2948,33 +3305,35 @@ async def serve_photo(
         logger.warning(f"Error decoding filename: {e}")
         decoded_filename = filename
     
-    # NORMALIZZA: rimuovi tutti i prefissi (wm/, thumbs/) per ottenere il nome base
-    base = decoded_filename.strip().lstrip("/")
+    # Rimuovi prefissi wm/ e thumbs/ se presenti (per retrocompatibilità)
+    r2_key = decoded_filename.strip().lstrip("/")
     while True:
-        if base.startswith("wm/"):
-            base = base[3:]
+        if r2_key.startswith("wm/"):
+            r2_key = r2_key[3:]
             continue
-        if base.startswith("thumbs/"):
-            base = base[7:]
+        if r2_key.startswith("thumbs/"):
+            r2_key = r2_key[7:]
             continue
         break
     
-    # Validazione: se dopo normalizzazione contiene ancora "/" o è vuoto -> errore
-    if not base or "/" in base:
-        logger.error(f"Invalid photo key after normalization: original={decoded_filename}, normalized={base}")
-        raise HTTPException(status_code=400, detail="Invalid photo filename")
+    # Validazione: r2_key deve essere non vuoto
+    if not r2_key:
+        logger.error(f"Invalid photo key: original={decoded_filename}, r2_key={r2_key}")
+        raise HTTPException(status_code=400, detail="Invalid photo key")
     
-    logger.info(f"[PHOTO] normalized base={base} variant={variant}")
+    logger.info(f"[PHOTO] r2_key={r2_key} variant={variant}")
     
     # Gestisci variant=thumb e variant=wm (priorità su tutto)
-    # Usa SEMPRE base normalizzato per costruire le chiavi R2
-    # NO runtime generation durante richieste utente (solo fallback con flag DEBUG)
+    # Costruisci chiavi thumb/wm mantenendo la struttura del path
     if variant == "thumb":
-        thumb_key = f"{THUMB_PREFIX}{base}"  # Usa base normalizzato, NON filename
+        if r2_key.startswith("photos/"):
+            thumb_key = r2_key.replace("photos/", f"{THUMB_PREFIX}", 1)
+        else:
+            thumb_key = f"{THUMB_PREFIX}{r2_key}"
         try:
             # Non marcare come deleted se thumb non esiste (mark_missing=False)
             photo_bytes = await _r2_get_object_bytes(thumb_key, mark_missing=False)
-            logger.info(f"Serving thumb: R2 key={thumb_key} (base={base})")
+            logger.info(f"Serving thumb: R2 key={thumb_key}")
             return Response(
                 content=photo_bytes,
                 media_type="image/jpeg",
@@ -2986,7 +3345,7 @@ async def serve_photo(
                 if ENABLE_RUNTIME_PREVIEW_GENERATION:
                     logger.warning(f"[RUNTIME] Thumb not found: {thumb_key}, generating runtime (DEBUG mode)")
                     try:
-                        original_bytes = await _r2_get_object_bytes(base)  # Usa base per originale
+                        original_bytes = await _r2_get_object_bytes(r2_key)
                         thumb_bytes = _generate_thumb(original_bytes)
                         try:
                             r2_client.put_object(Bucket=R2_BUCKET, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
@@ -3006,11 +3365,14 @@ async def serve_photo(
                 raise
     
     if variant == "wm":
-        wm_key = f"{WM_PREFIX}{base}"  # Usa base normalizzato, NON filename
+        if r2_key.startswith("photos/"):
+            wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+        else:
+            wm_key = f"{WM_PREFIX}{r2_key}"
         try:
             # Non marcare come deleted se wm non esiste (mark_missing=False)
             photo_bytes = await _r2_get_object_bytes(wm_key, mark_missing=False)
-            logger.info(f"Serving wm preview: R2 key={wm_key} (base={base})")
+            logger.info(f"Serving wm preview: R2 key={wm_key}")
             return Response(
                 content=photo_bytes,
                 media_type="image/jpeg",
@@ -3022,7 +3384,7 @@ async def serve_photo(
                 if ENABLE_RUNTIME_PREVIEW_GENERATION:
                     logger.warning(f"[RUNTIME] WM preview not found: {wm_key}, generating runtime (DEBUG mode)")
                     try:
-                        original_bytes = await _r2_get_object_bytes(base)  # Usa base per originale
+                        original_bytes = await _r2_get_object_bytes(r2_key)
                         wm_bytes = _generate_wm_preview(original_bytes)
                         try:
                             r2_client.put_object(Bucket=R2_BUCKET, Key=wm_key, Body=wm_bytes, ContentType='image/jpeg')
@@ -3041,9 +3403,8 @@ async def serve_photo(
             else:
                 raise
     
-    # Usa base normalizzato per i check pagamento
-    from pathlib import Path
-    filename_check = base  # Usa base normalizzato
+    # Usa r2_key per i check pagamento
+    filename_check = r2_key
     
     # Verifica se la foto è pagata usando token o email
     # IMPORTANTE: NON fidarsi mai del query param `paid=true` da solo.
@@ -3065,18 +3426,18 @@ async def serve_photo(
                     expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
                     now = datetime.now(timezone.utc)
                     if now > expires_date:
-                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, base={base}")
+                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, r2_key={r2_key}")
                         is_paid = False
                     else:
                         is_paid = True
-                        logger.info(f"Photo verified as paid via token: base={base}")
+                        logger.info(f"Photo verified as paid via token: r2_key={r2_key}")
                 except Exception as e:
                     logger.error(f"Error parsing expires_at for token validation: {e}")
                     is_paid = False
             else:
                 # Nessuna scadenza, valido
                 is_paid = True
-                logger.info(f"Photo verified as paid via token (no expiry): base={base}")
+                logger.info(f"Photo verified as paid via token (no expiry): r2_key={r2_key}")
 
     # Fallback: verifica per email (solo se non già pagata via token)
     if (not is_paid) and email:
@@ -3084,7 +3445,7 @@ async def serve_photo(
             paid_photos = await _get_user_paid_photos(email)
             if filename_check in paid_photos:
                 is_paid = True
-                logger.info(f"Photo verified as paid via email: base={base}")
+                logger.info(f"Photo verified as paid via email: r2_key={r2_key}")
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
@@ -3096,17 +3457,20 @@ async def serve_photo(
     
     # Determina quale key usare su R2 in base a is_paid
     if is_paid:
-        # Foto pagata: serve originale (key = base, senza prefix)
-        r2_key = base
-        logger.info(f"[PHOTO] Serving ORIGINAL from R2: key={r2_key} (paid=true)")
+        # Foto pagata: serve originale (key = r2_key completo, senza prefix)
+        serve_key = r2_key
+        logger.info(f"[PHOTO] Serving ORIGINAL from R2: key={serve_key} (paid=true)")
     else:
-        # Foto non pagata: serve watermarked (key = wm/<base>)
-        r2_key = f"{WM_PREFIX}{base}"
-        logger.info(f"[PHOTO] Serving WM from R2: key={r2_key} (paid=false)")
+        # Foto non pagata: serve watermarked (mantiene struttura path)
+        if r2_key.startswith("photos/"):
+            serve_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+        else:
+            serve_key = f"{WM_PREFIX}{r2_key}"
+        logger.info(f"[PHOTO] Serving WM from R2: key={serve_key} (paid=false)")
     
     # Leggi da R2 usando la key corretta
     try:
-        photo_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+        photo_bytes = await _r2_get_object_bytes(serve_key, mark_missing=True)
         
         # Se download=true, forza il download con header Content-Disposition
         if download:
@@ -3205,14 +3569,7 @@ async def check_date(
             if photo_tour_date and normalized_date in str(photo_tour_date):
                 photos_with_faces += 1
         
-        # Conta foto di spalle per questa data
-        photos_back = 0
-        for back_photo in back_photos:
-            photo_tour_date = back_photo.get("tour_date")
-            if photo_tour_date and normalized_date in str(photo_tour_date):
-                photos_back += 1
-        
-        total_photos = photos_with_faces + photos_back
+        total_photos = photos_with_faces
         
         if total_photos == 0:
             # Verifica se ci sono foto in elaborazione (foto caricate di recente senza tour_date)
@@ -3228,8 +3585,7 @@ async def check_date(
             "ok": True,
             "status": "available",
             "photos_count": total_photos,
-            "photos_with_faces": photos_with_faces,
-            "photos_back": photos_back
+            "photos_with_faces": photos_with_faces
         }
     except Exception as e:
         logger.error(f"Error checking date: {e}")
@@ -4492,8 +4848,7 @@ async def test_album(
             "count": len(results),
             "matches": results,
             "results": results,
-            "matched_count": len(results),
-            "back_photos_count": 0
+            "matched_count": len(results)
         }
     except Exception as e:
         logger.error(f"Error in test-album endpoint: {e}", exc_info=True)
@@ -4555,16 +4910,17 @@ def _is_tiny_or_weak_face(meta: dict) -> bool:
 async def _filter_photos_by_rules(
     selfie_embedding: np.ndarray,
     email: Optional[str] = None,
-    min_score: float = 0.25,
+    min_score: float = 0.35,
     tour_date: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Filtra le foto: include TUTTE le foto che contengono almeno UNA faccia che matcha il selfie.
-    
-    Regola semplice:
-    - Se una foto contiene almeno UNA faccia con score >= min_score che matcha il selfie, la foto viene inclusa.
-    - Non importa quante altre facce siano presenti nella foto.
-    - Nessun filtro su facce esterne o family members.
+    Filtra le foto usando pipeline STRICT:
+    - Raggruppa FAISS results per photo_id e conserva best_score, second_best_score
+    - Include una foto SOLO se:
+      a) best_score >= min_score (default 0.35)
+      b) det_score >= 0.80 (se disponibile)
+      c) best_score - second_best_score >= 0.05 (opzionale, solo log)
+    - Verifica esistenza su R2 (wm/<photo_id>)
     
     Returns:
         List[Dict]: Lista di foto filtrate con metadata
@@ -4580,10 +4936,8 @@ async def _filter_photos_by_rules(
     # Cerca tutte le facce che matchano il selfie
     D, I = faiss_index.search(selfie_emb, len(meta_rows))
     
-    # Raggruppa per photo_id: photo_id -> miglior score
-    photo_scores: Dict[str, float] = {}  # photo_id -> miglior score
-    photo_tour_dates: Dict[str, str] = {}  # photo_id -> tour_date
-    normalized_date = _normalize_tour_date(tour_date) if tour_date else None
+    # Raggruppa per photo_id: photo_id -> (best_score, second_best_score, best_idx)
+    photo_scores: Dict[str, Tuple[float, Optional[float], int]] = {}  # photo_id -> (best_score, second_best_score, best_idx)
     
     for score, idx in zip(D[0].tolist(), I[0].tolist()):
         if idx < 0 or idx >= len(meta_rows):
@@ -4592,50 +4946,127 @@ async def _filter_photos_by_rules(
             continue
         
         row = meta_rows[idx]
-        photo_id = row.get("photo_id")
-        if not photo_id:
+        # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
+        r2_key = row.get("r2_key") or row.get("photo_id")
+        if not r2_key:
             continue
 
-        # Normalizza photo_id (rimuove prefissi wm/, thumbs/)
-        photo_id = _normalize_photo_key(str(photo_id))
-        if not photo_id or "/" in photo_id:
-            continue  # Filtra via photo_id invalidi dopo normalizzazione
+        # NON normalizzare: r2_key deve essere la chiave completa (es. "photos/2024-01-12/tour123/file.jpg")
+        # Se contiene "/" è valido (path completo)
+        if not r2_key:
+            continue
 
-        # Filtra per tour_date se fornita
-        if normalized_date:
-            raw_td = row.get("tour_date")
-            photo_tour_date = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
-            if photo_tour_date != "unknown" and normalized_date not in str(photo_tour_date):
-                continue
-
-        # Salva il miglior score per questa foto
+        # Salva best_score e second_best_score per questa foto (usa r2_key come chiave)
         s = float(score)
-        if photo_id not in photo_scores or s > photo_scores[photo_id]:
-            photo_scores[photo_id] = s
-            # Salva anche il tour_date
-            raw_td = row.get("tour_date")
-            photo_tour_dates[photo_id] = _normalize_tour_date(str(raw_td)) if raw_td else "unknown"
+        if r2_key not in photo_scores:
+            photo_scores[r2_key] = (s, None, idx)
+        else:
+            best, second, best_idx = photo_scores[r2_key]
+            if s > best:
+                # Nuovo best, il vecchio best diventa second
+                photo_scores[r2_key] = (s, best, idx)
+            elif second is None or s > second:
+                # Nuovo second
+                photo_scores[r2_key] = (best, s, best_idx)
     
-    # 2) Costruisci i risultati: includi TUTTE le foto che hanno almeno UNA faccia matchata
-    # Regola semplice: se photo_id è in photo_scores, la foto viene inclusa
-    for photo_id, best_score in photo_scores.items():
-        photo_tour_date = photo_tour_dates.get(photo_id, "unknown")
-
+    # 2) Filtra per regole di matching robuste
+    # Include una foto SOLO se:
+    # a) best_score >= min_score
+    # b) det_score >= 0.80 (se disponibile)
+    # c) best_score - second_best_score >= 0.05 (se second esiste, opzionale ma consigliato)
+    verified_photo_scores: Dict[str, Tuple[float, Optional[float], int]] = {}
+    verified_tour_dates: Dict[str, str] = {}
+    filtered_by_det_score = 0
+    filtered_by_gap = 0
+    
+    for r2_key, (best_score, second_best_score, best_idx) in photo_scores.items():
+        # a) Verifica best_score >= min_score (già fatto sopra, ma ricontrolla)
+        if best_score < float(min_score):
+            continue
         
+        # b) Verifica det_score >= 0.85 (STRICT)
+        det_score_strict = 0.85
+        if best_idx >= 0 and best_idx < len(meta_rows):
+            row = meta_rows[best_idx]
+            det_score = row.get("det_score") or row.get("score")
+            if det_score is not None:
+                det_score_float = float(det_score)
+                if det_score_float < det_score_strict:
+                    filtered_by_det_score += 1
+                    continue
+            else:
+                # Se det_score non disponibile, escludi per sicurezza in STRICT
+                filtered_by_det_score += 1
+                continue
+        
+        # c) Verifica gap best - second >= 0.06 (obbligatorio per STRICT)
+        gap_strict = 0.06
+        if second_best_score is not None:
+            gap = best_score - second_best_score
+            if gap < gap_strict:
+                filtered_by_gap += 1
+                continue  # STRICT: gap obbligatorio, escludi se non soddisfatto
+        else:
+            # Se non c'è second_best_score, escludi per sicurezza in STRICT
+            filtered_by_gap += 1
+            continue
+        
+        verified_photo_scores[r2_key] = (best_score, second_best_score, best_idx)
+    
+    # 3) Filtra per esistenza su R2 (wm/<r2_key> mantenendo struttura path)
+    r2_verified_scores: Dict[str, Tuple[float, Optional[float], int]] = {}
+    
+    if USE_R2 and r2_client:
+        for r2_key, score_data in verified_photo_scores.items():
+            # Costruisci wm_key mantenendo struttura path
+            if r2_key.startswith("photos/"):
+                wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+            else:
+                wm_key = f"{WM_PREFIX}{r2_key}"
+            try:
+                # Verifica esistenza senza scaricare (head_object è veloce)
+                r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
+                r2_verified_scores[r2_key] = score_data
+            except Exception as e:
+                # Key non esiste su R2 -> filtra out
+                logger.info(f"[FILTER] R2 missing wm for r2_key={r2_key}, filtered out")
+                continue
+    else:
+        # Se R2 non disponibile, usa tutti i verified_photo_scores (fallback)
+        r2_verified_scores = verified_photo_scores
+    
+    # 4) Costruisci i risultati: includi SOLO foto che passano tutti i filtri
+    for r2_key, (best_score, second_best_score, best_idx) in r2_verified_scores.items():
+        # Estrai display_name (basename) per retrocompatibilità
+        from pathlib import Path
+        display_name = Path(r2_key).name
+        # URL encode r2_key per l'endpoint /photo
+        from urllib.parse import quote
+        r2_key_encoded = quote(r2_key, safe='')
         filtered_results.append({
-            "photo_id": str(photo_id),
+            "r2_key": r2_key,  # Chiave R2 completa
+            "display_name": display_name,  # Solo nome file
+            "photo_id": r2_key,  # Retrocompatibilità
             "score": best_score,
             "has_face": True,
             "has_selfie": True,
-            "tour_date": photo_tour_date,
+            "wm_url": f"/photo/{r2_key_encoded}?variant=wm",  # URL per preview watermarked
+            "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",  # URL per thumbnail
         })
-    logger.info(f"[FILTER] Included {len(filtered_results)} photos (simple rule: any face matches selfie)")
+    
+    # Log: numero candidati FAISS sopra soglia
+    candidates_above_threshold = sum(1 for score in D[0].tolist() if score >= float(min_score))
+    logger.info(f"[FILTER] FAISS candidates above threshold ({min_score}): {candidates_above_threshold}")
+    
+    # Log: numero photo_id unici dopo grouping
+    logger.info(f"[FILTER] Unique photo_ids after grouping: {len(photo_scores)}")
+    
+    # Log: numero finali dopo filtro det_score e gap
+    logger.info(f"[STRICT] Filtered by det_score < 0.85: {filtered_by_det_score}, by gap < 0.06: {filtered_by_gap}")
+    logger.info(f"[STRICT] Final photos after all filters (det_score + gap + R2): {len(filtered_results)}")
     
     # Ordina per score decrescente
     filtered_results.sort(key=lambda x: x["score"], reverse=True)
-    
-    if tour_date:
-        logger.info(f"[DEBUG] tour_date filter: {tour_date}")
     
     return filtered_results
 
@@ -4646,16 +5077,15 @@ async def match_selfie(
     selfie: UploadFile = File(...),
     email: Optional[str] = Query(None, description="Email utente (opzionale, per salvare foto trovate)"),
     top_k_faces: int = Query(120),
-    min_score: float = Query(0.25, description="Soglia minima di similarità (0.0-1.0). Più alta = meno falsi positivi"),
-    tour_date: Optional[str] = Query(None, description="Data del tour (YYYY-MM-DD) per filtrare foto di spalle")
+    min_score: float = Query(0.35, description="Soglia minima di similarità (0.0-1.0). Più alta = meno falsi positivi")
 ):
     """
-    Endpoint per il face matching:
-    - Mostra TUTTE le foto che contengono almeno UNA faccia che matcha il selfie (score >= min_score)
-    - Nessun filtro su facce esterne o altre persone nella foto
-    - Regola semplice: se una foto contiene il selfie, viene inclusa
+    Endpoint per il face matching usando pipeline STRICT + RESCUE (consensus):
+    - FASE STRICT: usa embedding robusto (media) con min_score >= 0.35, det_score >= 0.80
+    - FASE RESCUE: usa 7 embeddings varianti, richiede almeno 3 hits, min_score >= 0.30, det_score >= 0.75
+    - Nessun altro percorso di matching
     """
-    global meta_rows, back_photos
+    global meta_rows
     _ensure_ready()
     
     try:
@@ -4668,7 +5098,6 @@ async def match_selfie(
                 "matches": [],
                 "results": [],
                 "matched_count": 0,
-                "back_photos_count": 0,
                 "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
             }
         
@@ -4685,19 +5114,8 @@ async def match_selfie(
             logger.warning(f"Metadata file not found: {META_PATH}")
             current_meta_rows = []
         
-        current_back_photos = []
-        if R2_ONLY_MODE:
-            # In R2_ONLY_MODE usa back_photos già caricati
-            current_back_photos = back_photos
-        elif BACK_PHOTOS_PATH.exists():
-            current_back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
-            logger.info(f"Reloaded {len(current_back_photos)} back photos from {BACK_PHOTOS_PATH}")
-        else:
-            logger.info(f"Back photos file not found: {BACK_PHOTOS_PATH}")
-            current_back_photos = []
-        
         # Se non ci sono metadata, non ci sono foto da cercare
-        if len(current_meta_rows) == 0 and len(current_back_photos) == 0:
+        if len(current_meta_rows) == 0:
             logger.info("No photos in metadata - returning empty result")
             return {
                 "ok": True,
@@ -4705,7 +5123,6 @@ async def match_selfie(
                 "matches": [],
                 "results": [],
                 "matched_count": 0,
-                "back_photos_count": 0,
                 "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
             }
         
@@ -4718,124 +5135,310 @@ async def match_selfie(
         faces = face_app.get(img)
         
         matched_results: List[Dict[str, Any]] = []
-        # Set per evitare duplicati tra match e back photos
-        seen_photos: Set[str] = set()
         
         if faces:
-            # Prendi il volto più grande (presumibilmente il selfie principale)
-            faces_sorted = sorted(
-                faces,
-                key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-                reverse=True
-            )
+            # Genera embedding robusto (media) per fase STRICT
+            selfie_embedding = _generate_robust_selfie_embedding(img)
             
-            # Estrai embedding del selfie
-            selfie_embedding = faces_sorted[0].embedding.astype("float32")
+            if selfie_embedding is None:
+                logger.warning("No face detected in selfie variants")
+                return {
+                    "ok": True,
+                    "count": 0,
+                    "matches": [],
+                    "results": [],
+                    "matched_count": 0,
+                    "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
+                }
+            
+            # Genera anche i 7 embeddings varianti per fase RESCUE
+            variant_embeddings = _generate_selfie_embeddings_variants(img)
+            
+            if not variant_embeddings:
+                logger.warning("No variant embeddings generated")
+                return {
+                    "ok": True,
+                    "count": 0,
+                    "matches": [],
+                    "results": [],
+                    "matched_count": 0,
+                    "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
+                }
             
             # Stateless mode: non salvare embedding nel DB
-            logger.info(f"[DEBUG] Starting face matching: tour_date={tour_date}, min_score={min_score}")
+            # BLOCCA min_score a minimo 0.35 (ignora valori più bassi dal frontend)
+            min_score_received = float(min_score) if min_score is not None else 0.35
+            min_score_effective = max(min_score_received, 0.35)
+            logger.info(f"[PARAMS] min_score_received={min_score_received} min_score_effective={min_score_effective} top_k_faces={top_k_faces}")
             
             # AGGIORNA TEMPORANEAMENTE LE VARIABILI GLOBALI CON I METADATA FRESCHI
             old_meta_rows = meta_rows
-            old_back_photos = back_photos
             meta_rows = current_meta_rows
-            back_photos = current_back_photos
             
             try:
-                # Filtra le foto in base alle regole (solo selfie + family members)
-                matched_results = await _filter_photos_by_rules(
+                # ========== FASE 1: STRICT (zero falsi positivi) ==========
+                min_score_strict = max(min_score_effective, 0.40)  # FISSO a 0.40 per STRICT
+                strict_results = await _filter_photos_by_rules(
                     selfie_embedding,
-                    email=email,  # Passa email per recuperare family members
-                    min_score=min_score,
-                    tour_date=tour_date
+                    email=email,
+                    min_score=min_score_strict,
+                    tour_date=None
                 )
+                
+                logger.info(f"[STRICT] final={len(strict_results)}")
+                
+                # Set di photo_id già inclusi in strict
+                strict_photo_ids = set(r["photo_id"] for r in strict_results if r.get("photo_id"))
+                
+                # ========== FASE 2: RESCUE CONSENSUS (profilo/bacio) ==========
+                rescue_results: List[Dict[str, Any]] = []
+                
+                if faiss_index is not None and len(meta_rows) > 0:
+                    # Parametri rescue
+                    min_score_soft = 0.32
+                    min_hits = 4  # Almeno 4 varianti su 7 devono matchare
+                    det_score_soft = 0.75
+                    top_k_rescue = 80
+                    
+                    # Accumula hits per photo_id: photo_id -> (hits_count, best_score_soft, best_idx_soft)
+                    rescue_hits: Dict[str, Tuple[int, float, int]] = {}
+                    
+                    # Per ogni variante, cerca foto
+                    for variant_idx, variant_emb in enumerate(variant_embeddings):
+                        variant_emb_reshaped = variant_emb.reshape(1, -1)
+                        D, I = faiss_index.search(variant_emb_reshaped, top_k_rescue)
+                        
+                        for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                            if idx < 0 or idx >= len(meta_rows):
+                                continue
+                            if score < min_score_soft:
+                                continue
+                            
+                            row = meta_rows[idx]
+                            # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
+                            r2_key = row.get("r2_key") or row.get("photo_id")
+                            if not r2_key:
+                                continue
+                            
+                            # NON normalizzare: r2_key deve essere la chiave completa
+                            
+                            # Salta se già incluso in strict
+                            if r2_key in strict_photo_ids:
+                                continue
+                            
+                            # Accumula hit
+                            s = float(score)
+                            if r2_key not in rescue_hits:
+                                rescue_hits[r2_key] = (1, s, idx)
+                            else:
+                                hits, best_score, best_idx = rescue_hits[r2_key]
+                                rescue_hits[r2_key] = (hits + 1, max(best_score, s), idx if s > best_score else best_idx)
+                    
+                    # Filtra rescue: include solo se hits_count >= min_hits, best_score >= min_score_soft, det_score >= det_score_soft
+                    for r2_key, (hits_count, best_score_soft, best_idx_soft) in rescue_hits.items():
+                        if hits_count < min_hits:
+                            continue
+                        if best_score_soft < min_score_soft:
+                            continue
+                        
+                        # Verifica det_score
+                        if best_idx_soft >= 0 and best_idx_soft < len(meta_rows):
+                            row = meta_rows[best_idx_soft]
+                            det_score = row.get("det_score") or row.get("score")
+                            if det_score is not None:
+                                det_score_float = float(det_score)
+                                if det_score_float < det_score_soft:
+                                    continue
+                        
+                        # Verifica esistenza su R2 (wm/<r2_key> mantenendo struttura path)
+                        include_in_rescue = True
+                        if USE_R2 and r2_client:
+                            if r2_key.startswith("photos/"):
+                                wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+                            else:
+                                wm_key = f"{WM_PREFIX}{r2_key}"
+                            try:
+                                r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
+                            except Exception:
+                                include_in_rescue = False
+                                logger.info(f"[RESCUE] R2 missing wm for r2_key={r2_key}, filtered out")
+                        
+                        if include_in_rescue:
+                            # Resolve the metadata row for the best soft match
+                            if best_idx_soft is None or best_idx_soft < 0 or best_idx_soft >= len(meta_rows):
+                                continue
+                            row_soft = meta_rows[best_idx_soft]
+
+                            det_score_val = row_soft.get("det_score")
+                            if det_score_val is None:
+                                # Some rows may use alternate keys
+                                det_score_val = row_soft.get("score")
+                            try:
+                                det_score_val = float(det_score_val) if det_score_val is not None else 1.0
+                            except Exception:
+                                det_score_val = 1.0
+                            
+                            # Estrai display_name
+                            from pathlib import Path
+                            display_name = Path(r2_key).name
+                            from urllib.parse import quote
+                            r2_key_encoded = quote(r2_key, safe='')
+                            
+                            rescue_results.append({
+                                "r2_key": r2_key,  # Chiave R2 completa
+                                "display_name": display_name,  # Solo nome file
+                                "photo_id": r2_key,  # Retrocompatibilità
+                                "score": best_score_soft,
+                                "has_face": True,
+                                "has_selfie": True,
+                                "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
+                                "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
+                            })
+                            
+                            logger.info(f"[RESCUE_ACCEPT] r2_key={r2_key} hits={hits_count} best_score_soft={best_score_soft:.3f} det_score={det_score_val:.3f}")
+                    
+                    logger.info(f"[RESCUE] final={len(rescue_results)} (min_hits=4, min_score=0.32)")
+                else:
+                    logger.info(f"[RESCUE] Skipped (faiss_index or meta_rows empty)")
+                
+                # Set di r2_key già inclusi in strict+rescue
+                rescue_photo_ids = set(r.get("r2_key") or r.get("photo_id") for r in rescue_results if r.get("r2_key") or r.get("photo_id"))
+                strict_rescue_photo_ids = strict_photo_ids | rescue_photo_ids
+                
+                # ========== FASE 3: OCCLUSION RESCUE (cappelli/occhiali/ombra) ==========
+                occlusion_results: List[Dict[str, Any]] = []
+                
+                if faiss_index is not None and len(meta_rows) > 0:
+                    # Genera varianti occlusion
+                    occlusion_embeddings = _generate_occlusion_variants(img)
+                    
+                    if occlusion_embeddings:
+                        # Parametri occlusion
+                        min_score_occ = 0.30
+                        min_hits_occ = 4  # Almeno 4 varianti su 5 devono matchare (consenso ALTISSIMO)
+                        det_score_occ = 0.70
+                        top_k_occ = 60
+                        
+                        # Accumula hits per photo_id: photo_id -> (hits_count, best_score_occ, best_idx_occ)
+                        occlusion_hits: Dict[str, Tuple[int, float, int]] = {}
+                        
+                        # Per ogni variante occlusion, cerca foto
+                        for occ_idx, occ_emb in enumerate(occlusion_embeddings):
+                            occ_emb_reshaped = occ_emb.reshape(1, -1)
+                            D, I = faiss_index.search(occ_emb_reshaped, top_k_occ)
+                            
+                            for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                                if idx < 0 or idx >= len(meta_rows):
+                                    continue
+                                if score < min_score_occ:
+                                    continue
+                                
+                                row = meta_rows[idx]
+                                # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
+                                r2_key = row.get("r2_key") or row.get("photo_id")
+                                if not r2_key:
+                                    continue
+                                
+                                # NON normalizzare: r2_key deve essere la chiave completa
+                                
+                                # Salta se già incluso in strict/rescue
+                                if r2_key in strict_rescue_photo_ids:
+                                    continue
+                                
+                                # Accumula hit
+                                s = float(score)
+                                if r2_key not in occlusion_hits:
+                                    occlusion_hits[r2_key] = (1, s, idx)
+                                else:
+                                    hits, best_score, best_idx = occlusion_hits[r2_key]
+                                    occlusion_hits[r2_key] = (hits + 1, max(best_score, s), idx if s > best_score else best_idx)
+                        
+                        # Filtra occlusion: include solo se hits_count >= min_hits_occ, best_score >= min_score_occ, det_score >= det_score_occ
+                        for r2_key, (hits_count, best_score_occ, best_idx_occ) in occlusion_hits.items():
+                            if hits_count < min_hits_occ:
+                                continue
+                            if best_score_occ < min_score_occ:
+                                continue
+                            
+                            # Verifica det_score
+                            if best_idx_occ >= 0 and best_idx_occ < len(meta_rows):
+                                row_occ = meta_rows[best_idx_occ]
+                                det_score = row_occ.get("det_score") or row_occ.get("score")
+                                if det_score is not None:
+                                    det_score_float = float(det_score)
+                                    if det_score_float < det_score_occ:
+                                        continue
+                                else:
+                                    continue
+                            else:
+                                continue
+                            
+                            # Verifica esistenza su R2 (wm/<r2_key> mantenendo struttura path)
+                            include_in_occ = True
+                            if USE_R2 and r2_client:
+                                if r2_key.startswith("photos/"):
+                                    wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+                                else:
+                                    wm_key = f"{WM_PREFIX}{r2_key}"
+                                try:
+                                    r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
+                                except Exception:
+                                    include_in_occ = False
+                                    logger.info(f"[OCCLUSION] R2 missing wm for r2_key={r2_key}, filtered out")
+                            
+                            if include_in_occ:
+                                # Estrai display_name
+                                from pathlib import Path
+                                display_name = Path(r2_key).name
+                                from urllib.parse import quote
+                                r2_key_encoded = quote(r2_key, safe='')
+                                
+                                occlusion_results.append({
+                                    "r2_key": r2_key,  # Chiave R2 completa
+                                    "display_name": display_name,  # Solo nome file
+                                    "photo_id": r2_key,  # Retrocompatibilità
+                                    "score": best_score_occ,
+                                    "has_face": True,
+                                    "has_selfie": True,
+                                    "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
+                                    "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
+                                })
+                        
+                        logger.info(f"[OCCLUSION] final={len(occlusion_results)} (min_hits=4/5, min_score=0.30)")
+                    else:
+                        logger.info(f"[OCCLUSION] Skipped (no occlusion embeddings generated)")
+                else:
+                    logger.info(f"[OCCLUSION] Skipped (faiss_index or meta_rows empty)")
+                
+                # ========== UNISCI RISULTATI ==========
+                matched_results = strict_results + rescue_results + occlusion_results
+                
+                # Ordina per score decrescente (strict score > rescue score > occ score)
+                matched_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+                
+                # Limita a 60 risultati migliori
+                if len(matched_results) > 60:
+                    logger.info(f"Limiting results from {len(matched_results)} to 60 best matches")
+                    matched_results = matched_results[:60]
+                
+                logger.info(f"[FINAL] total={len(matched_results)}")
+                
             finally:
                 # Ripristina le variabili globali originali
                 meta_rows = old_meta_rows
-                back_photos = old_back_photos
             
-            logger.info(f"[DEBUG] Final matched results: {len(matched_results)} photos")
-            
-            # Limita a 50 risultati migliori per evitare troppi falsi positivi
-            if len(matched_results) > 50:
-                logger.info(f"Limiting results from {len(matched_results)} to 50 best matches")
-                matched_results = matched_results[:50]
-            # Set per evitare duplicati tra match e back photos
+            # Limita a 50 risultati migliori per evitare troppi falsi positivi (già fatto sopra a 60)
+            # Set per evitare duplicati
             seen_photos = set(r["photo_id"] for r in matched_results if r.get("photo_id"))
         else:
             # Se non ci sono faces, inizializza seen_photos vuoto
             seen_photos = set()
-        
-        # Aggiungi foto di spalle/ombra/silhouette (senza volti visibili)
-        back_results: List[Dict[str, Any]] = []
-        
-        # Se tour_date fornita, filtra per data, altrimenti mostra tutte le foto di spalle
-        if tour_date:
-            # Normalizza formato data (accetta YYYY-MM-DD o YYYYMMDD)
-            normalized_date = _normalize_tour_date(tour_date)
-            
-            seen_back_photos = set()
-            for back_photo in current_back_photos:
-                photo_id = back_photo.get("photo_id")
-                if not photo_id:
-                    continue
-                
-                # Normalizza photo_id
-                photo_id = _normalize_photo_key(str(photo_id))
-                if not photo_id or "/" in photo_id:
-                    continue  # Filtra via photo_id invalidi
-                
-                if photo_id in seen_back_photos:
-                    continue
-                seen_back_photos.add(photo_id)
-                
-                # Evita duplicati con foto già matchate
-                if photo_id in seen_photos:
-                    continue
-                seen_photos.add(photo_id)
-                
-                # Filtra per data del tour
-                photo_tour_date = back_photo.get("tour_date")
-                if photo_tour_date and normalized_date and normalized_date in photo_tour_date:
-                    back_results.append({
-                        "photo_id": str(photo_id),
-                        "score": 0.0,  # Foto di spalle non hanno score di matching
-                        "has_face": False,
-                        "is_back_photo": True,
-                    })
-        else:
-            # Senza tour_date, mostra tutte le foto di spalle/ombra/silhouette
-            seen_back_photos = set()
-            for back_photo in current_back_photos:
-                photo_id = back_photo.get("photo_id")
-                if not photo_id:
-                    continue
-                
-                # Normalizza photo_id
-                photo_id = _normalize_photo_key(str(photo_id))
-                if not photo_id or "/" in photo_id:
-                    continue  # Filtra via photo_id invalidi
-                
-                if photo_id in seen_back_photos:
-                    continue
-                seen_back_photos.add(photo_id)
-                
-                # Evita duplicati con foto già matchate
-                if photo_id in seen_photos:
-                    continue
-                seen_photos.add(photo_id)
-                
-                back_results.append({
-                    "photo_id": str(photo_id),
-                    "score": 0.0,
-                    "has_face": False,
-                    "is_back_photo": True,
-                })
+            matched_results = []
         
         # Stateless mode: non salvare foto nel database
         
-        # Combina risultati: prima foto matchate, poi foto di spalle
-        all_results = matched_results + back_results
+        # Risultati finali: SOLO matched_results (no back_photos)
+        all_results = matched_results
         
         # Filtra foto che non esistono più su R2 (VERIFICA OBBLIGATORIA - solo R2)
         if not USE_R2 or r2_client is None:
@@ -4849,35 +5452,38 @@ async def match_selfie(
             }
         
         # VERIFICA OBBLIGATORIA: ogni foto deve esistere su R2
-        # Normalizza anche qui per sicurezza
         filtered_results = []
         for result in all_results:
-            photo_id = result.get("photo_id")
-            if not photo_id:
+            # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
+            r2_key = result.get("r2_key") or result.get("photo_id")
+            if not r2_key:
                 continue
             
-            # Normalizza photo_id prima di verificare su R2
-            photo_id = _normalize_photo_key(str(photo_id))
-            if not photo_id or "/" in photo_id:
-                continue  # Filtra via photo_id invalidi
+            # NON normalizzare: r2_key deve essere la chiave completa
             
-            # Aggiorna il photo_id nel risultato
-            result["photo_id"] = photo_id
+            # Aggiorna il risultato con r2_key
+            result["r2_key"] = r2_key
+            result["photo_id"] = r2_key  # Retrocompatibilità
             
             try:
-                # Verifica rapida se la foto esiste su R2 (usa photo_id normalizzato)
-                r2_client.head_object(Bucket=R2_BUCKET, Key=photo_id)
+                # Verifica rapida se la preview wm/ esiste su R2 (per la griglia)
+                # Mantiene struttura path: photos/... -> wm/...
+                if r2_key.startswith("photos/"):
+                    wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+                else:
+                    wm_key = f"{WM_PREFIX}{r2_key}"
+                r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
                 filtered_results.append(result)
             except ClientError as e:
                 error_code = e.response.get('Error', {}).get('Code', 'Unknown')
                 if error_code == 'NoSuchKey':
-                    logger.warning(f"Photo not found in R2, filtering out: {photo_id}")
+                    logger.info(f"[FILTER] R2 missing wm for r2_key={r2_key}, filtered out")
                     continue
                 # Per altri errori, escludi comunque (non vogliamo foto che non possiamo servire)
-                logger.warning(f"R2 error for photo {photo_id}: {error_code}, filtering out")
+                logger.warning(f"R2 error for photo {r2_key}: {error_code}, filtering out")
                 continue
             except Exception as e:
-                logger.warning(f"Error checking photo existence in R2: {e}, filtering out: {photo_id}")
+                logger.warning(f"Error checking photo existence in R2: {e}, filtering out: {r2_key}")
                 continue
         
         if len(filtered_results) < len(all_results):
@@ -4894,11 +5500,11 @@ async def match_selfie(
                 "matches": [],
                 "results": [],
                 "matched_count": 0,
-                "back_photos_count": 0,
                 "message": "Nessuna foto trovata. Le foto potrebbero essere state rimosse o non sono ancora state caricate su R2."
             }
         
-        logger.info(f"Match completed: {len(matched_results)} matched photos, {len(back_results)} back photos, {len(all_results)} after R2 filter")
+        # Log finale
+        logger.info(f"Match completed: {len(matched_results)} matched photos")
         if all_results:
             logger.info(f"First 3 photo_ids: {[r['photo_id'] for r in all_results[:3]]}")
         
@@ -4934,7 +5540,6 @@ async def match_selfie(
             "matches": all_results,  # Per compatibilità
             "results": all_results,    # Per compatibilità con frontend
             "matched_count": len(matched_results),
-            "back_photos_count": len(back_results),
         }
         
     except HTTPException:
@@ -4950,7 +5555,7 @@ async def _match_member_photos(selfie_embedding: np.ndarray, email: str, member_
     Match foto per un membro famiglia usando SOLO primary_face_indices (nessun linked).
     Salva le foto trovate in user_photos con source_member_id.
     """
-    global meta_rows, back_photos, faiss_index
+    global meta_rows, faiss_index
     _ensure_ready()
     
     if faiss_index is None or faiss_index.ntotal == 0 or len(meta_rows) == 0:
@@ -6890,7 +7495,7 @@ async def admin_upload(
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
-        global meta_rows, back_photos, faiss_index
+        global meta_rows, faiss_index
         
         # Leggi il contenuto del file
         content = await photo.read()
@@ -6999,23 +7604,10 @@ async def admin_upload(
                 
                 logger.info(f"Photo indexed: {photo.filename} - {len(faces)} faces (tour_date: {tour_date})")
             else:
-                # Foto senza volti - aggiungi a back_photos
-                back_record = {
-                    "photo_id": jpeg_filename,  # Usa il nome JPEG convertito
-                    "has_face": False,
-                }
-                if tour_date:
-                    back_record["tour_date"] = tour_date
-                back_photos.append(back_record)
+                # Foto senza volti -> salta (non gestiamo foto senza volti)
+                logger.info(f"Photo without faces skipped: {jpeg_filename}")
                 
-                # Salva su file (disabilitato in R2_ONLY_MODE)
-                if not R2_ONLY_MODE:
-                    with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
-                        back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
-                else:
-                    logger.info("R2_ONLY_MODE: Skipping back_photos write to filesystem")
                 
-                logger.info(f"Photo added as back photo (no faces): {jpeg_filename} (original: {photo.filename}, tour_date: {tour_date})")
         
         return {"ok": True, "filename": jpeg_filename, "original_filename": photo.filename}
     except Exception as e:
@@ -7052,7 +7644,7 @@ async def admin_purge(request: Request):
         for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
             for obj in page.get('Contents', []):
                 key = obj['Key']
-                if key not in ['faces.index', 'faces.meta.jsonl', 'back_photos.jsonl']:
+                if key not in ['faces.index', 'faces.meta.jsonl']:
                     if any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
                         r2_keys_set.add(key)
         
@@ -7172,25 +7764,6 @@ async def admin_photos_by_date(password: str = Query(..., description="Password 
                         "det_score": record.get("det_score", 0.0)
                     })
         
-        # Foto senza volti (da BACK_PHOTOS_PATH)
-        current_back_photos = []
-        if BACK_PHOTOS_PATH.exists():
-            current_back_photos = _load_meta_jsonl(BACK_PHOTOS_PATH)
-        else:
-            # Fallback a back_photos in memoria se il file non esiste
-            current_back_photos = back_photos
-        
-        for record in current_back_photos:
-            photo_id = record.get("photo_id")
-            tour_date = record.get("tour_date", "Senza data")
-            if photo_id:
-                # Evita duplicati
-                if not any(p["photo_id"] == photo_id for p in photos_by_date[tour_date]):
-                    photos_by_date[tour_date].append({
-                        "photo_id": photo_id,
-                        "has_face": False
-                    })
-        
         # Converti in lista ordinata per data (più recente prima)
         result = []
         for date in sorted(photos_by_date.keys(), reverse=True):
@@ -7203,139 +7776,6 @@ async def admin_photos_by_date(password: str = Query(..., description="Password 
         return {"ok": True, "photos_by_date": result}
     except Exception as e:
         logger.error(f"Error getting photos by date: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/admin/back-photos")
-async def admin_back_photos(password: str = Query(..., description="Password admin")):
-    """Lista foto senza volti"""
-    if not _check_admin_auth(password):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    try:
-        photos = []
-        if R2_ONLY_MODE:
-            # In R2_ONLY_MODE usa solo back_photos in memoria
-            photos = back_photos
-        elif BACK_PHOTOS_PATH.exists():
-            with open(BACK_PHOTOS_PATH, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        record = json.loads(line)
-                        photos.append({
-                            'filename': record.get('photo_id'),
-                            'has_face': record.get('has_face', False)
-                        })
-        
-        return {"ok": True, "photos": photos}
-    except Exception as e:
-        logger.error(f"Error getting back photos: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/admin/back-photo")
-async def admin_add_back_photo(
-    photo: UploadFile = File(...),
-    password: str = Form(...),
-    tour_date: Optional[str] = Form(None)
-):
-    """Aggiungi foto senza volti"""
-    if not _check_admin_auth(password):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    try:
-        # Verifica R2 configurato
-        if not USE_R2 or r2_client is None:
-            raise HTTPException(status_code=500, detail="R2 storage not configured. Cannot upload photos.")
-        
-        # Leggi contenuto
-        content = await photo.read()
-        
-        # Determina nome file finale
-        filename = photo.filename
-        if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-            # Converti in JPEG se necessario
-            img = _read_image_from_bytes(content)
-            original_name = Path(photo.filename).stem
-            filename = f"{original_name}.jpg"
-            
-            from io import BytesIO
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(img_rgb)
-            output = BytesIO()
-            pil_img.save(output, 'JPEG', quality=100, optimize=False, subsampling=0)
-            content = output.getvalue()
-        
-        # Evita duplicati su R2
-        counter = 1
-        original_name = Path(filename).stem
-        final_filename = filename
-        while True:
-            try:
-                r2_client.head_object(Bucket=R2_BUCKET, Key=final_filename)
-                final_filename = f"{original_name}_{counter}.jpg"
-                counter += 1
-            except ClientError as e:
-                if e.response['Error']['Code'] == '404':
-                    break
-                else:
-                    raise
-        
-        # Salva su R2
-        r2_client.put_object(
-            Bucket=R2_BUCKET,
-            Key=final_filename,
-            Body=content,
-            ContentType='image/jpeg'
-        )
-        logger.info(f"PHOTO STORAGE: target=R2, filename={final_filename}")
-        
-        # Aggiungi a back_photos (con tour_date se fornita)
-        back_record = {
-            "photo_id": final_filename,
-            "has_face": False,
-        }
-        if tour_date:
-            back_record["tour_date"] = tour_date
-        back_photos.append(back_record)
-        
-        # Salva su file (disabilitato in R2_ONLY_MODE)
-        if not R2_ONLY_MODE:
-            with open(BACK_PHOTOS_PATH, 'a', encoding='utf-8') as back_f:
-                back_f.write(json.dumps(back_record, ensure_ascii=False) + "\n")
-        else:
-            logger.info("R2_ONLY_MODE: Skipping back_photos write to filesystem")
-        
-        logger.info(f"Back photo added to R2: {final_filename} (tour_date: {tour_date})")
-        return {"ok": True, "filename": final_filename}
-    except Exception as e:
-        logger.error(f"Error adding back photo: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/admin/back-photo/{filename:path}")
-async def admin_remove_back_photo(
-    filename: str,
-    password: str = Query(..., description="Password admin")
-):
-    """Rimuovi foto senza volti"""
-    if not _check_admin_auth(password):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    try:
-        # Rimuovi da back_photos
-        global back_photos
-        back_photos = [p for p in back_photos if p.get('photo_id') != filename]
-        
-        # Riscrivi file (disabilitato in R2_ONLY_MODE)
-        if not R2_ONLY_MODE:
-            with open(BACK_PHOTOS_PATH, 'w', encoding='utf-8') as f:
-                for record in back_photos:
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        else:
-            logger.info("R2_ONLY_MODE: Skipping back_photos write to filesystem")
-        
-        logger.info(f"Back photo removed: {filename}")
-        return {"ok": True}
-    except Exception as e:
-        logger.error(f"Error removing back photo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/packages")

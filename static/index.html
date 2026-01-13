@@ -3431,7 +3431,8 @@
           xhr.timeout = 120000;
           
           // Aggiungi email se disponibile
-          let url = '/match_selfie?top_k_faces=120&min_score=0.25';
+          // min_score non passato: usa default server (0.35) che è più sicuro
+          let url = '/match_selfie?top_k_faces=120';
           if(userEmail) {
             url += `&email=${encodeURIComponent(userEmail)}`;
           }
@@ -3529,7 +3530,7 @@
         // Se non ci sono foto, mostra errore
         if (allIds.length === 0) {
           console.warn("⚠️ Nessuna foto trovata - allIds è vuoto");
-          showSelfieError("Photos not found or still processing. Please try again.");
+          showSelfieError("Nessuna foto trovata per questo selfie. Riprova con un selfie più frontale/luminoso.");
           return;
         }
         
@@ -3632,7 +3633,7 @@
           
           // Solo se davvero non ci sono foto, mostra errore
           console.warn("⚠️ Nessuna foto trovata - allIds è vuoto e data.ok è false");
-          showSelfieError("Photos not found or still processing. Please try again.");
+          showSelfieError("Nessuna foto trovata per questo selfie. Riprova con un selfie più frontale/luminoso.");
           
           // Controlla se ci sono foto già acquistate da mostrare (stateless: disabilitato)
           if(false && userEmail) {
@@ -3817,12 +3818,13 @@
                   console.log(`[RETRY] Thumb not ready for ${photoId}, retrying (${retryCount}/${maxRetries})...`);
                   setTimeout(tryLoadLazyImage, retryDelay * retryCount); // Backoff esponenziale
                 } else {
-                  // Max retries raggiunto, mostra placeholder
-                  console.error('Thumb not ready after retries:', photoId);
-                  img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23ddd" width="400" height="400"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999"%3ELoading...%3C/text%3E%3C/svg%3E';
-                  img.classList.add('loaded');
-                const skeleton = img.parentElement.querySelector('.photo-skeleton');
-                  if(skeleton) skeleton.remove();
+                  // Max retries raggiunto: rimuovi completamente la card dal DOM
+                  console.error('Thumb not ready after retries, removing card:', photoId);
+                  const cardDiv = img.closest('.album-photo');
+                  if(cardDiv && cardDiv.parentNode) {
+                    imageObserver.unobserve(img);
+                    cardDiv.parentNode.removeChild(cardDiv);
+                  }
                 }
               };
               
@@ -4048,12 +4050,11 @@
               console.log(`[RETRY] Thumb not ready for ${photo.photo_id}, retrying (${retryCount}/${maxRetries})...`);
               setTimeout(tryLoadImage, retryDelay * retryCount); // Backoff esponenziale
             } else {
-              // Max retries raggiunto, mostra placeholder o rimuovi
-              console.error('Thumb not ready after retries:', photo.photo_id);
-              // Mostra placeholder invece di rimuovere
-              img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23ddd" width="400" height="400"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999"%3ELoading...%3C/text%3E%3C/svg%3E';
-              img.classList.add('loaded');
-              skeleton.remove();
+              // Max retries raggiunto: rimuovi completamente la card dal DOM
+              console.error('Thumb not ready after retries, removing card:', photo.photo_id);
+              if(div && div.parentNode) {
+                div.parentNode.removeChild(div);
+              }
               firstPhotosLoaded++;
               checkAllPhotosLoaded();
             }
