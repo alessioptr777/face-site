@@ -94,6 +94,10 @@ R2_ONLY_MODE = os.getenv("R2_ONLY_MODE", "1") == "1"
 # R2_PHOTOS_PREFIX: prefisso per le foto su R2 (default vuoto o "photos/")
 R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
 
+# Configurazione indexing automatico
+INDEXING_ENABLED = os.getenv("INDEXING_ENABLED", "1") == "1"
+INDEXING_INTERVAL_SECONDS = int(os.getenv("INDEXING_INTERVAL_SECONDS", "300"))
+
 # Path per file index/tracking (disabilitati in R2_ONLY_MODE)
 INDEX_PATH = DATA_DIR / "faces.index"
 META_PATH = DATA_DIR / "faces.meta.jsonl"
@@ -200,6 +204,7 @@ logger.info(
 # Configurazione Cloudflare R2 (S3 compatible) - dopo logger
 # Variabili standardizzate: R2_ENDPOINT_URL, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
+R2_PUBLIC_BASE_URL = os.getenv("R2_PUBLIC_BASE_URL", "").strip()  # URL pubblico R2 (es: https://pub-xxxxx.r2.dev o cdn.metaproos.com)
 # Supporto per variabili legacy (alias)
 if not R2_ENDPOINT_URL:
     R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT", "").strip()
@@ -2008,6 +2013,26 @@ def _generate_wm_preview(image_bytes: bytes) -> bytes:
         logger.error(f"Error generating wm preview: {e}", exc_info=True)
         raise
 
+def _get_r2_public_url(r2_key: str) -> str:
+    """
+    Costruisce l'URL pubblico per un oggetto R2.
+    
+    Args:
+        r2_key: Chiave R2 dell'oggetto (es: "thumbs/IMG_2914.jpg", "wm/IMG_2914.jpg", "IMG_2914.jpg")
+    
+    Returns:
+        URL pubblico completo (es: "https://pub-xxxxx.r2.dev/thumbs/IMG_2914.jpg")
+    """
+    if not R2_PUBLIC_BASE_URL:
+        raise ValueError("R2_PUBLIC_BASE_URL not configured")
+    
+    # Rimuovi trailing slash se presente
+    base_url = R2_PUBLIC_BASE_URL.rstrip('/')
+    # Rimuovi leading slash da r2_key se presente
+    key = r2_key.lstrip('/')
+    
+    return f"{base_url}/{key}"
+
 async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
     """
     Assicura che thumb e wm preview esistano per una foto.
@@ -2312,7 +2337,7 @@ async def startup():
             except Exception as e:
                 logger.error(f"Error loading metadata: {e}")
                 meta_rows = []
-            
+    
     # Inizializza indice vuoto se non esiste
     if faiss_index is None:
         logger.info("Initializing empty FAISS index")
@@ -2455,12 +2480,17 @@ async def startup():
                             faces_total += 1
                         
                         # Genera preview (rate limited: max 3 foto per ciclo)
+                        # IMPORTANTE: se fallisce la preview, non bloccare il rebuild, logga e continua
                         if photo_idx < 3:
-                            thumb_created, wm_created = await ensure_previews_for_photo(r2_key)
-                            if thumb_created:
-                                previews_generated_count += 1
-                            if wm_created:
-                                previews_generated_count += 1
+                            try:
+                                thumb_created, wm_created = await ensure_previews_for_photo(r2_key)
+                                if thumb_created:
+                                    previews_generated_count += 1
+                                if wm_created:
+                                    previews_generated_count += 1
+                            except Exception as preview_err:
+                                logger.error(f"[INDEXING] Failed to generate previews for {r2_key}: {preview_err}, continuing rebuild")
+                                # Non bloccare il rebuild, continua con la prossima foto
                         
                     except Exception as e:
                         logger.error(f"[INDEXING] Error processing photo {r2_key}: {e}")
@@ -2519,22 +2549,27 @@ async def startup():
                 logger.error(f"Error in periodic tasks: {e}")
     
     async def indexing_task():
-        """Task periodico per indicizzazione automatica (DISABILITATO - usa /admin/index/sync)"""
-        # DISABILITATO: FULL REBUILD periodico non più usato in produzione
-        # Usa endpoint POST /admin/index/sync per sync incrementale
-        logger.info("[INDEXING] Periodic indexing task DISABLED - use POST /admin/index/sync for incremental sync")
-        # Manteniamo il task ma con sleep molto lungo (fallback)
+        """Task periodico per indicizzazione automatica (check veloce + sync incrementale se necessario)"""
+        if not INDEXING_ENABLED:
+            logger.info("[INDEXING] Periodic indexing task DISABLED (INDEXING_ENABLED=false)")
+            return
+        
+        logger.info(f"[INDEXING] Periodic indexing task ENABLED - interval={INDEXING_INTERVAL_SECONDS}s (auto-sync on changes)")
+        
         while True:
             try:
-                await asyncio.sleep(15 * 60)  # 15 minuti (fallback, non dovrebbe mai essere usato)
-                logger.warning("[INDEXING] Periodic task fallback triggered - this should not happen in production")
+                await asyncio.sleep(INDEXING_INTERVAL_SECONDS)
+                await maybe_sync_index()
             except Exception as e:
                 logger.error(f"[INDEXING] Error in indexing task: {e}", exc_info=True)
     
-    # Avvia task in background (solo cleanup, indexing disabilitato)
+    # Avvia task in background
     asyncio.create_task(periodic_tasks())
-    asyncio.create_task(indexing_task())
-    logger.info("Periodic tasks started (cleanup every 6 hours, indexing DISABLED - use /admin/index/sync)")
+    if INDEXING_ENABLED:
+        asyncio.create_task(indexing_task())
+        logger.info(f"Periodic tasks started (cleanup every 6 hours, indexing ENABLED every {INDEXING_INTERVAL_SECONDS}s)")
+    else:
+        logger.info("Periodic tasks started (cleanup every 6 hours, indexing DISABLED - use /admin/index/sync)")
     
     # ============================================================
     # LOGGING DEFINITIVO: PATH ESATTI DEI FILE STATICI
@@ -2700,6 +2735,76 @@ def health():
         "r2_client_ready": r2_client_ready,
         "index_size": index_size
     }
+
+# Funzione globale per check veloce se R2 è cambiato (usata dal task periodico)
+async def maybe_sync_index():
+    """Check veloce se R2 è cambiato. Se sì, esegue sync incrementale. Se no, skip."""
+    global faiss_index, meta_rows, indexing_lock
+    
+    if not USE_R2 or not r2_client or not R2_ONLY_MODE:
+        return
+    
+    # Anti-overlap: se sync già in corso, skip
+    if indexing_lock.locked():
+        logger.info("[INDEXING] Sync already running. Skipping this cycle.")
+        return
+    
+    try:
+        # ========== STEP 1: Lista veloce R2 keys (solo originali) ==========
+        paginator = r2_client.get_paginator('list_objects_v2')
+        
+        # Se R2_PHOTOS_PREFIX è vuoto, non passare Prefix (lista tutto il bucket)
+        paginate_kwargs = {"Bucket": R2_BUCKET}
+        if R2_PHOTOS_PREFIX:
+            paginate_kwargs["Prefix"] = R2_PHOTOS_PREFIX
+        
+        r2_originals_set = set()
+        for page in paginator.paginate(**paginate_kwargs):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                
+                # Escludi file di sistema
+                if key.startswith("faces.") or key.startswith("downloads_track"):
+                    continue
+                # Escludi preview (wm/ e thumbs/)
+                if key.startswith("wm/") or key.startswith("thumbs/"):
+                    continue
+                # Include solo immagini originali
+                # Se R2_PHOTOS_PREFIX è impostato, accetta solo keys che iniziano con quel prefix
+                if R2_PHOTOS_PREFIX:
+                    if not key.startswith(R2_PHOTOS_PREFIX):
+                        continue
+                
+                # Filtro estensioni CASE-INSENSITIVE: .jpg .jpeg .png
+                if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png']):
+                    continue
+                
+                r2_originals_set.add(key)
+        
+        # ========== STEP 2: Costruisci set delle foto già indicizzate ==========
+        indexed_set = set()
+        if meta_rows:
+            for row in meta_rows:
+                # Supporta sia r2_key (nuovo) che photo_id (retrocompatibilità)
+                r2_key = row.get("r2_key") or row.get("photo_id")
+                if r2_key:
+                    indexed_set.add(r2_key)
+        
+        # ========== STEP 3: Calcola differenze ==========
+        to_add = r2_originals_set - indexed_set
+        to_remove = indexed_set - r2_originals_set
+        
+        # ========== STEP 4: Se nessun cambiamento, skip ==========
+        if len(to_add) == 0 and len(to_remove) == 0:
+            logger.info(f"[INDEXING] No changes detected (r2={len(r2_originals_set)} indexed={len(indexed_set)}). Skipping sync.")
+            return
+        
+        # ========== STEP 5: Cambiamenti rilevati, esegui sync incrementale ==========
+        logger.info(f"[INDEXING] Changes detected: to_add={len(to_add)} to_remove={len(to_remove)}. Running incremental sync.")
+        await sync_index_with_r2_incremental()
+        
+    except Exception as e:
+        logger.error(f"[INDEXING] Error in maybe_sync_index: {e}", exc_info=True)
 
 # Funzione globale per sync incrementale (spostata da startup per accesso endpoint)
 async def sync_index_with_r2_incremental():
@@ -2918,9 +3023,11 @@ async def sync_index_with_r2_incremental():
 
 @app.post("/admin/index/sync")
 async def admin_index_sync(password: Optional[str] = Query(None)):
-    """Endpoint admin per sync incrementale dell'indice con R2"""
+    """Endpoint admin per sync incrementale dell'indice con R2 (manual override)"""
     if not _check_admin_auth(password):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    logger.info("[INDEXING] Manual sync requested")
     
     try:
         await sync_index_with_r2_incremental()
@@ -3327,81 +3434,71 @@ async def serve_photo(
     # Costruisci chiavi thumb/wm mantenendo la struttura del path
     if variant == "thumb":
         if r2_key.startswith("photos/"):
-            thumb_key = r2_key.replace("photos/", f"{THUMB_PREFIX}", 1)
+            object_key = r2_key.replace("photos/", f"{THUMB_PREFIX}", 1)
         else:
-            thumb_key = f"{THUMB_PREFIX}{r2_key}"
+            object_key = f"{THUMB_PREFIX}{r2_key}"
+        
+        # Verifica esistenza su R2 con head_object
         try:
-            # Non marcare come deleted se thumb non esiste (mark_missing=False)
-            photo_bytes = await _r2_get_object_bytes(thumb_key, mark_missing=False)
-            logger.info(f"Serving thumb: R2 key={thumb_key}")
-            return Response(
-                content=photo_bytes,
-                media_type="image/jpeg",
+            r2_client.head_object(Bucket=R2_BUCKET, Key=object_key)
+            # Esiste: redirect a URL pubblico R2
+            if not R2_PUBLIC_BASE_URL:
+                raise HTTPException(status_code=503, detail="R2_PUBLIC_BASE_URL not configured")
+            public_url = _get_r2_public_url(object_key)
+            logger.info(f"[PHOTO] Redirecting thumb to R2: {object_key}")
+            return RedirectResponse(
+                url=public_url,
+                status_code=302,
                 headers={"Cache-Control": "public, max-age=31536000, immutable"}
             )
-        except HTTPException as e:
-            if e.status_code == 404:
-                # Fallback runtime SOLO se flag DEBUG attivo
-                if ENABLE_RUNTIME_PREVIEW_GENERATION:
-                    logger.warning(f"[RUNTIME] Thumb not found: {thumb_key}, generating runtime (DEBUG mode)")
-                    try:
-                        original_bytes = await _r2_get_object_bytes(r2_key)
-                        thumb_bytes = _generate_thumb(original_bytes)
-                        try:
-                            r2_client.put_object(Bucket=R2_BUCKET, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
-                            logger.info(f"[RUNTIME] Generated and saved thumb: {thumb_key}")
-                        except Exception as save_err:
-                            logger.warning(f"Could not save thumb to R2: {save_err}")
-                        return Response(
-                            content=thumb_bytes,
-                            media_type="image/jpeg",
-                            headers={"Cache-Control": "public, max-age=3600"}
-                        )
-                    except Exception as gen_err:
-                        logger.error(f"Error generating thumb runtime: {gen_err}")
-                # Normale: restituisci 404 (frontend ritenterà)
-                raise HTTPException(status_code=404, detail="Thumbnail not ready yet")
+        except Exception as e:
+            # Gestisci errori boto3/botocore
+            error_code = None
+            if hasattr(e, 'response') and e.response:
+                error_code = e.response.get('Error', {}).get('Code', '')
+            elif hasattr(e, 'error_code'):
+                error_code = e.error_code
+            
+            if error_code in ('404', 'NoSuchKey'):
+                logger.warning(f"[PHOTO] Missing object in R2: {object_key}")
+                raise HTTPException(status_code=404, detail="Thumbnail not found")
             else:
-                raise
+                logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
+                raise HTTPException(status_code=503, detail="R2 storage error")
     
     if variant == "wm":
         if r2_key.startswith("photos/"):
-            wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+            object_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
         else:
-            wm_key = f"{WM_PREFIX}{r2_key}"
+            object_key = f"{WM_PREFIX}{r2_key}"
+        
+        # Verifica esistenza su R2 con head_object
         try:
-            # Non marcare come deleted se wm non esiste (mark_missing=False)
-            photo_bytes = await _r2_get_object_bytes(wm_key, mark_missing=False)
-            logger.info(f"Serving wm preview: R2 key={wm_key}")
-            return Response(
-                content=photo_bytes,
-                media_type="image/jpeg",
+            r2_client.head_object(Bucket=R2_BUCKET, Key=object_key)
+            # Esiste: redirect a URL pubblico R2
+            if not R2_PUBLIC_BASE_URL:
+                raise HTTPException(status_code=503, detail="R2_PUBLIC_BASE_URL not configured")
+            public_url = _get_r2_public_url(object_key)
+            logger.info(f"[PHOTO] Redirecting wm to R2: {object_key}")
+            return RedirectResponse(
+                url=public_url,
+                status_code=302,
                 headers={"Cache-Control": "public, max-age=31536000, immutable"}
             )
-        except HTTPException as e:
-            if e.status_code == 404:
-                # Fallback runtime SOLO se flag DEBUG attivo
-                if ENABLE_RUNTIME_PREVIEW_GENERATION:
-                    logger.warning(f"[RUNTIME] WM preview not found: {wm_key}, generating runtime (DEBUG mode)")
-                    try:
-                        original_bytes = await _r2_get_object_bytes(r2_key)
-                        wm_bytes = _generate_wm_preview(original_bytes)
-                        try:
-                            r2_client.put_object(Bucket=R2_BUCKET, Key=wm_key, Body=wm_bytes, ContentType='image/jpeg')
-                            logger.info(f"[RUNTIME] Generated and saved wm preview: {wm_key}")
-                        except Exception as save_err:
-                            logger.warning(f"Could not save wm preview to R2: {save_err}")
-                        return Response(
-                            content=wm_bytes,
-                            media_type="image/jpeg",
-                            headers={"Cache-Control": "public, max-age=3600"}
-                        )
-                    except Exception as gen_err:
-                        logger.error(f"Error generating wm preview runtime: {gen_err}")
-                # Normale: restituisci 404 (frontend ritenterà)
-                raise HTTPException(status_code=404, detail="Watermarked preview not ready yet")
+        except Exception as e:
+            # Gestisci errori boto3/botocore
+            error_code = None
+            if hasattr(e, 'response') and e.response:
+                error_code = e.response.get('Error', {}).get('Code', '')
+            elif hasattr(e, 'error_code'):
+                error_code = e.error_code
+            
+            if error_code in ('404', 'NoSuchKey'):
+                logger.warning(f"[PHOTO] Missing object in R2: {object_key}")
+                raise HTTPException(status_code=404, detail="Watermarked preview not found")
             else:
-                raise
+                logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
+                raise HTTPException(status_code=503, detail="R2 storage error")
     
     # Usa r2_key per i check pagamento
     filename_check = r2_key
@@ -3458,46 +3555,56 @@ async def serve_photo(
     # Determina quale key usare su R2 in base a is_paid
     if is_paid:
         # Foto pagata: serve originale (key = r2_key completo, senza prefix)
-        serve_key = r2_key
-        logger.info(f"[PHOTO] Serving ORIGINAL from R2: key={serve_key} (paid=true)")
+        object_key = r2_key
+        logger.info(f"[PHOTO] Redirecting ORIGINAL to R2: key={object_key} (paid=true)")
     else:
         # Foto non pagata: serve watermarked (mantiene struttura path)
         if r2_key.startswith("photos/"):
-            serve_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+            object_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
         else:
-            serve_key = f"{WM_PREFIX}{r2_key}"
-        logger.info(f"[PHOTO] Serving WM from R2: key={serve_key} (paid=false)")
+            object_key = f"{WM_PREFIX}{r2_key}"
+        logger.info(f"[PHOTO] Redirecting WM to R2: key={object_key} (paid=false)")
     
-    # Leggi da R2 usando la key corretta
+    # Verifica esistenza su R2 con head_object
     try:
-        photo_bytes = await _r2_get_object_bytes(serve_key, mark_missing=True)
+        r2_client.head_object(Bucket=R2_BUCKET, Key=object_key)
+        # Esiste: redirect a URL pubblico R2
+        if not R2_PUBLIC_BASE_URL:
+            raise HTTPException(status_code=503, detail="R2_PUBLIC_BASE_URL not configured")
+        public_url = _get_r2_public_url(object_key)
         
-        # Se download=true, forza il download con header Content-Disposition
-        if download:
-            headers = {
-                "Content-Disposition": f'attachment; filename="{base}"',
-                "Content-Type": "image/jpeg",
-                "Cache-Control": "public, max-age=31536000, immutable"
-            }
-            return Response(content=photo_bytes, headers=headers, media_type="image/jpeg")
-        
-        # Serve come image/jpeg senza Content-Disposition per permettere long-press nativo
+        # Track download se pagato
         if is_paid:
+            from pathlib import Path
+            base = Path(r2_key).name
             _track_download(base)
         
-        return Response(
-            content=photo_bytes,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "public, max-age=31536000, immutable"
-            }
+        # Se download=true, aggiungi header Content-Disposition (il CDN potrebbe ignorarlo, ma proviamo)
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+        if download:
+            from pathlib import Path
+            headers["Content-Disposition"] = f'attachment; filename="{Path(r2_key).name}"'
+        
+        return RedirectResponse(
+            url=public_url,
+            status_code=302,
+            headers=headers
         )
         
-    except HTTPException as e:
-        # Se 404, ritorna 404 (frontend filtrerà quel photo_id)
-        if e.status_code == 404:
-            logger.warning(f"[PHOTO] Key not found in R2: {r2_key}, returning 404")
-        raise
+    except Exception as e:
+        # Gestisci errori boto3/botocore
+        error_code = None
+        if hasattr(e, 'response') and e.response:
+            error_code = e.response.get('Error', {}).get('Code', '')
+        elif hasattr(e, 'error_code'):
+            error_code = e.error_code
+        
+        if error_code in ('404', 'NoSuchKey'):
+            logger.warning(f"[PHOTO] Missing object in R2: {object_key}")
+            raise HTTPException(status_code=404, detail="Photo not found")
+        else:
+            logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
+            raise HTTPException(status_code=503, detail="R2 storage error")
     except Exception as e:
         logger.error(f"Unexpected error serving photo from R2: {type(e).__name__}: {e}, key={r2_key}")
         raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
@@ -4949,7 +5056,7 @@ async def _filter_photos_by_rules(
         # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
         r2_key = row.get("r2_key") or row.get("photo_id")
         if not r2_key:
-            continue
+                continue
 
         # NON normalizzare: r2_key deve essere la chiave completa (es. "photos/2024-01-12/tour123/file.jpg")
         # Se contiene "/" è valido (path completo)
@@ -4983,7 +5090,7 @@ async def _filter_photos_by_rules(
         # a) Verifica best_score >= min_score (già fatto sopra, ma ricontrolla)
         if best_score < float(min_score):
             continue
-        
+
         # b) Verifica det_score >= 0.85 (STRICT)
         det_score_strict = 0.85
         if best_idx >= 0 and best_idx < len(meta_rows):
@@ -5010,7 +5117,7 @@ async def _filter_photos_by_rules(
             # Se non c'è second_best_score, escludi per sicurezza in STRICT
             filtered_by_gap += 1
             continue
-        
+
         verified_photo_scores[r2_key] = (best_score, second_best_score, best_idx)
     
     # 3) Filtra per esistenza su R2 (wm/<r2_key> mantenendo struttura path)
@@ -6810,7 +6917,7 @@ async def stripe_webhook(request: Request):
             # Stateless: non svuotare carrello (non più usato)
         else:
             logger.error(f"Order failed: missing photo_ids in webhook")
-            
+    
     return {"ok": True}
 
 @app.get("/test-email")
