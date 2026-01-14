@@ -29,6 +29,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Set
 
+try:
+    import asyncpg  # type: ignore
+except Exception:
+    asyncpg = None  # type: ignore
+
 import numpy as np
 import cv2
 import faiss
@@ -66,9 +71,9 @@ except ImportError:
 
 # Database: PostgreSQL (opzionale - stateless mode)
 try:
-    import asyncpg
-    POSTGRES_AVAILABLE = True
-except ImportError:
+    # asyncpg puede no estar instalado en algunos entornos
+    POSTGRES_AVAILABLE = asyncpg is not None
+except Exception:
     POSTGRES_AVAILABLE = False
 
 # Verifica configurazione PostgreSQL (opzionale)
@@ -145,7 +150,7 @@ ORDERS_DIR = DATA_DIR / "orders"
 ORDERS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Pool di connessioni PostgreSQL (inizializzato all'avvio)
-db_pool: Optional[asyncpg.Pool] = None
+db_pool = None  # type: ignore
 
 # Configurazione logging
 class UTCFormatter(logging.Formatter):
@@ -1301,18 +1306,20 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
             logger.debug(f"[MULTI_EMB] Error generating augmented embedding: {e}")
             continue
     
-    # Se non abbiamo abbastanza embeddings, usa quello originale più volte
+    # Estrai embedding originale come fallback
+    original_embedding = main_face.embedding.astype(np.float32)
+    original_embedding = _normalize(original_embedding)
+    
+    # Se non abbiamo abbastanza embeddings, completa con quello originale
     if len(embeddings) == 0:
-        # Fallback: usa embedding originale
-        embedding = main_face.embedding.astype(np.float32)
-        embedding = _normalize(embedding)
-        embeddings.append(embedding)
+        # Fallback: usa embedding originale per tutti
+        logger.warning(f"[MULTI_EMB] No augmented embeddings generated, using original {num_embeddings} times")
+        embeddings = [original_embedding.copy() for _ in range(num_embeddings)]
     elif len(embeddings) < num_embeddings:
         # Completa con embedding originale
-        embedding = main_face.embedding.astype(np.float32)
-        embedding = _normalize(embedding)
+        logger.info(f"[MULTI_EMB] Generated {len(embeddings)} augmented embeddings, completing to {num_embeddings} with original")
         while len(embeddings) < num_embeddings:
-            embeddings.append(embedding)
+            embeddings.append(original_embedding.copy())
     
     logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings from image")
     return embeddings
@@ -3541,6 +3548,8 @@ async def serve_photo(
     else:
         # Original variant: verifica pagamento
         filename_check = original_key
+        # Inizializza object_key (verrà sovrascritto dopo verifica pagamento)
+        object_key = None
     
     # Verifica se la foto è pagata usando token o email
     is_paid = False
@@ -3580,7 +3589,8 @@ async def serve_photo(
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
-        # Determina quale key usare su R2 in base a is_paid
+    # Determina quale key usare su R2 in base a is_paid (solo per variant=None)
+    if variant is None:
         if is_paid:
             object_key = original_key
             logger.info(f"[PHOTO] Redirecting ORIGINAL to R2: key={object_key} (paid=true)")
