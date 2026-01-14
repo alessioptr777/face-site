@@ -5472,11 +5472,15 @@ async def match_selfie(
                             "best_idx": idx,
                             "det_score": det_f,
                             "area": area,
-                            "scores": [s],
+                            # face_scores: best score per face idx (across ref embeddings)
+                            "face_scores": {idx: s},
                         }
                         candidates_by_photo[r2_key] = entry
                     else:
-                        entry["scores"].append(s)
+                        face_scores = entry["face_scores"]
+                        current_face_best = face_scores.get(idx)
+                        if current_face_best is None or s > current_face_best:
+                            face_scores[idx] = s
                         if s > entry["best_score"]:
                             entry["best_score"] = s
                             entry["best_idx"] = idx
@@ -5495,7 +5499,8 @@ async def match_selfie(
                 best_score = float(c["best_score"])
                 det_score_val = float(c.get("det_score") or 0.0)
                 area = float(c.get("area") or 0.0)
-                scores_sorted = sorted(c.get("scores", []), reverse=True)
+                face_scores = c.get("face_scores", {})
+                scores_sorted = sorted(face_scores.values(), reverse=True)
                 second_best = scores_sorted[1] if len(scores_sorted) > 1 else None
                 margin = (best_score - second_best) if second_best is not None else None
 
