@@ -1219,18 +1219,12 @@ def _normalize(v: np.ndarray) -> np.ndarray:
         return v
     return v / n
 
-def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int = 5) -> List[np.ndarray]:
+def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int = 2) -> List[np.ndarray]:
     """
-    Genera embeddings di riferimento da un'immagine:
+    Genera SEMPRE e SOLO 2 embeddings di riferimento:
     - emb0: originale
     - emb1: flip orizzontale (se possibile)
-    
-    Args:
-        img: Immagine OpenCV BGR
-        num_embeddings: Numero di embeddings da generare (default 5)
-    
-    Returns:
-        Lista di embeddings normalizzati
+    Se il flip fallisce, duplica emb0 e logga WARNING.
     """
     assert face_app is not None
     def _largest_face_embedding(bgr: np.ndarray) -> Optional[np.ndarray]:
@@ -1261,13 +1255,11 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
     emb1 = _largest_face_embedding(img_flip) if img_flip is not None else None
 
     if emb1 is None:
-        logger.info("[MULTI_EMB] Flip failed, using single embedding")
-        logger.info("[MULTI_EMB] Generated 1 reference embeddings (original+flip when possible)")
-        return [emb0]
+        logger.warning("[MULTI_EMB] Flip failed, duplicating original embedding")
+        return [emb0, emb0]
 
-    refs = [emb0, emb1]
-    logger.info(f"[MULTI_EMB] Generated {len(refs)} reference embeddings (original+flip when possible)")
-    return refs
+    logger.info("[MULTI_EMB] Generated 2 reference embeddings (original+flip)")
+    return [emb0, emb1]
 
 def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
     """Carica i metadata dal file JSONL"""
@@ -5268,7 +5260,7 @@ def _extract_embeddings_from_frames(frames: List[np.ndarray]) -> List[np.ndarray
 async def match_selfie(
     selfie: UploadFile = File(...),
     email: Optional[str] = Query(None, description="Email utente (opzionale, per salvare foto trovate)"),
-    top_k_faces: int = Query(300, description="Numero massimo di volti da cercare (default 300 per 'tutte le foto')"),
+    top_k_faces: int = Query(400, description="Numero massimo di volti da cercare (default 400)"),
     min_score: float = Query(0.25, description="Soglia minima di similarità (default 0.25)"),
     # Parametri per two-pass query expansion
     strict_min_score: float = Query(0.35, description="Soglia strict per Pass 1 (default 0.35)"),
@@ -5280,11 +5272,10 @@ async def match_selfie(
     target_min_results: int = Query(15, description="Minimo risultati Pass 1 per saltare Pass 2 (default 15)")
 ):
     """
-    Endpoint per face matching con Two-Pass Query Expansion:
+    Endpoint per face matching single-pass:
     - Accetta selfie (immagine) o mini-video (mp4/mov, 2-3 secondi)
     - Se video: estrae 5 frame chiave e crea embedding medio
-    - Pass 1: ricerca strict (soglie 0.35/0.65), se risultati >= target_min ritorna
-    - Pass 2: query expansion con anchor embedding (soglie 0.30/0.60), unisce con Pass 1
+    - Single-pass FAISS (top_k configurabile) + filtri dinamici (score/margin)
     - Nessun check R2 durante match (solo embedding + FAISS + metadata)
     - Ritorna fino a 80 foto ordinate per score
     - Logging dettagliato per debug
@@ -5348,6 +5339,7 @@ async def match_selfie(
         )
         
         ref_embeddings: List[np.ndarray] = []
+        selfie_start = time.time()
         
         if is_video:
             # Estrai frame da video
@@ -5395,7 +5387,7 @@ async def match_selfie(
                 }
             
             # Genera multipli embeddings con augmentazioni leggere
-            ref_embeddings = _generate_multi_embeddings_from_image(img, num_embeddings=5)
+            ref_embeddings = _generate_multi_embeddings_from_image(img, num_embeddings=2)
             
             if len(ref_embeddings) == 0:
                 return {
@@ -5408,6 +5400,8 @@ async def match_selfie(
                 }
             
             logger.info(f"[IMAGE] ref_embeddings={len(ref_embeddings)}")
+        
+        selfie_elapsed_ms = (time.time() - selfie_start) * 1000
         
         if len(ref_embeddings) == 0:
             return {
@@ -5422,17 +5416,11 @@ async def match_selfie(
         # Aggiorna temporaneamente meta_rows
         meta_rows = current_meta_rows
         
-        # ========== TWO-PASS QUERY EXPANSION ==========
+        # ========== SINGLE-PASS MATCHING ==========
         n_faces_index = faiss_index.ntotal
         n_meta_rows = len(meta_rows)
-        
-        logger.info(f"[MATCH] Starting two-pass: n_faces_index={n_faces_index} meta_rows={n_meta_rows} ref_embeddings={len(ref_embeddings)}")
-        
-        # ========= Helpers: candidates + policies =========
-        MIN_FACE_AREA = 6000.0  # bbox area minimo per considerare la faccia "grande" (coerente con _is_tiny_or_weak_face)
-        EASY_DET_SCORE = 0.75
-        ADAPTIVE_BEST_MIN = 0.48
-        ADAPTIVE_MARGIN_MIN = 0.08
+        top_k = min(top_k_faces, n_faces_index)
+        logger.info(f"[MATCH] Starting single-pass: n_faces_index={n_faces_index} meta_rows={n_meta_rows} ref_embeddings={len(ref_embeddings)} top_k={top_k}")
 
         def _compute_face_area(meta: Dict[str, Any]) -> float:
             bbox = meta.get("bbox")
@@ -5444,40 +5432,34 @@ async def match_selfie(
                     return 0.0
             return 0.0
 
-        def _grouped_candidates_from_faiss(
-            ref_embeddings: List[np.ndarray],
-            top_k: int,
-            score_threshold: float,
-        ) -> tuple[Dict[str, Dict[str, Any]], int]:
-            """
-            Crea candidates raggruppati per foto usando FAISS e più ref embeddings.
-            Ritorna:
-              - candidates_by_photo: r2_key -> {
-                    best_score, best_idx, det_score, area,
-                    hits_count, required,
-                    margin (best-second su tutti i scores visti per quella foto)
-                }
-              - face_hits_above_threshold: count di match (face,ref) sopra soglia
-            """
-            candidates_by_photo: Dict[str, Dict[str, Any]] = {}
-            face_hits_above_threshold = 0
-            required = max(1, len(ref_embeddings))
+        def _dynamic_min_score(det_score_val: float, area: float) -> float:
+            if det_score_val >= 0.85 and area >= 60000:
+                return 0.30
+            if det_score_val >= 0.75 and area >= 30000:
+                return 0.33
+            return 0.36
 
-            # Per policy hits_count: per ogni foto, per ogni ref emb teniamo il max score visto.
-            # Per margin: per ogni foto accumuliamo tutti i scores visti (ref * facce).
-            for ref_j, ref_emb in enumerate(ref_embeddings):
+        def _dynamic_margin_min(det_score_val: float, area: float) -> float:
+            if area < 30000 or det_score_val < 0.75:
+                return 0.03
+            return 0.015
+        
+        try:
+            candidates_by_photo: Dict[str, Dict[str, Any]] = {}
+            total_candidates = 0
+
+            # Single-pass FAISS search (top_k)
+            for ref_emb in ref_embeddings:
                 D, I = faiss_index.search(ref_emb.reshape(1, -1), top_k)
+                total_candidates += len(I[0])
                 for score, idx in zip(D[0].tolist(), I[0].tolist()):
                     if idx < 0 or idx >= len(meta_rows):
                         continue
-                    s = float(score)
-                    if s >= score_threshold:
-                        face_hits_above_threshold += 1
-
                     row = meta_rows[idx]
                     r2_key = row.get("r2_key") or row.get("photo_id")
                     if not r2_key:
                         continue
+                    s = float(score)
 
                     entry = candidates_by_photo.get(r2_key)
                     if entry is None:
@@ -5490,111 +5472,55 @@ async def match_selfie(
                             "best_idx": idx,
                             "det_score": det_f,
                             "area": area,
-                            "ref_max": [0.0] * required,
-                            "all_scores": [],
+                            "scores": [s],
                         }
                         candidates_by_photo[r2_key] = entry
+                    else:
+                        entry["scores"].append(s)
+                        if s > entry["best_score"]:
+                            entry["best_score"] = s
+                            entry["best_idx"] = idx
+                            det = row.get("det_score") or row.get("score")
+                            entry["det_score"] = float(det) if det is not None else 0.0
+                            entry["area"] = _compute_face_area(row)
 
-                    entry["all_scores"].append(s)
-                    # aggiorna max per questo ref
-                    if ref_j < len(entry["ref_max"]) and s > entry["ref_max"][ref_j]:
-                        entry["ref_max"][ref_j] = s
-                    # aggiorna best globale e best_idx/det/area coerenti con il best
-                    if s > entry["best_score"]:
-                        entry["best_score"] = s
-                        entry["best_idx"] = idx
-                        det = row.get("det_score") or row.get("score")
-                        entry["det_score"] = float(det) if det is not None else 0.0
-                        entry["area"] = _compute_face_area(row)
-
-            # Finalizza hits_count e margin
-            for entry in candidates_by_photo.values():
-                ref_max = entry["ref_max"]
-                entry["required"] = required
-                entry["hits_count"] = sum(1 for v in ref_max if v >= score_threshold)
-                scores_sorted = sorted(entry["all_scores"], reverse=True)
-                if len(scores_sorted) >= 2:
-                    entry["margin"] = float(scores_sorted[0] - scores_sorted[1])
-                else:
-                    entry["margin"] = None
-
-            return candidates_by_photo, face_hits_above_threshold
-
-        def _apply_filters(
-            candidates_by_photo: Dict[str, Dict[str, Any]],
-            min_score_threshold: float,
-            det_score_threshold: float,
-            confirmation_policy: str,  # "strict" | "adaptive"
-        ) -> tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, int]]:
-            filtered_results: List[Dict[str, Any]] = []
+            results: List[Dict[str, Any]] = []
+            rejected: List[Dict[str, Any]] = []
             stats = {
                 "filtered_by_score": 0,
-                "filtered_by_det_score": 0,
-                "filtered_by_confirmation": 0,
+                "filtered_by_margin": 0,
             }
-            candidates_list: List[Dict[str, Any]] = []
 
             for r2_key, c in candidates_by_photo.items():
                 best_score = float(c["best_score"])
                 det_score_val = float(c.get("det_score") or 0.0)
                 area = float(c.get("area") or 0.0)
-                hits_count = int(c.get("hits_count") or 0)
-                required = int(c.get("required") or 1)
-                margin = c.get("margin")
+                scores_sorted = sorted(c.get("scores", []), reverse=True)
+                second_best = scores_sorted[1] if len(scores_sorted) > 1 else None
+                margin = (best_score - second_best) if second_best is not None else None
+
+                min_score_dyn = _dynamic_min_score(det_score_val, area)
+                margin_min = _dynamic_margin_min(det_score_val, area)
 
                 reject_reason = None
-                # Score threshold
-                if best_score < min_score_threshold:
+                if best_score < min_score_dyn:
                     stats["filtered_by_score"] += 1
-                    reject_reason = f"score={best_score:.3f}<{min_score_threshold:.2f}"
-                # det_score threshold (pass-specific)
-                elif det_score_val < det_score_threshold:
-                    stats["filtered_by_det_score"] += 1
-                    reject_reason = f"det_score={det_score_val:.3f}<{det_score_threshold:.2f}"
+                    reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f}"
                 else:
-                    # Confirmation
-                    if confirmation_policy == "strict":
-                        # Sempre 2/2 quando abbiamo 2 ref embeddings (coerente con required)
-                        if hits_count < required:
-                            stats["filtered_by_confirmation"] += 1
-                            reject_reason = f"confirmation_failed: {hits_count}/{required} ref_embeddings above {min_score_threshold:.2f}"
+                    if margin is None:
+                        if best_score < (min_score_dyn + 0.02):
+                            stats["filtered_by_margin"] += 1
+                            reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
                     else:
-                        # adaptive
-                        if det_score_val >= EASY_DET_SCORE and area >= MIN_FACE_AREA:
-                            # Caso "facile": richiedi 2/2
-                            if hits_count < required:
-                                stats["filtered_by_confirmation"] += 1
-                                reject_reason = f"confirmation_failed: {hits_count}/{required} ref_embeddings above {min_score_threshold:.2f}"
-                        else:
-                            # Caso difficile: consenti 1/2 SOLO con condizioni extra severe
-                            if hits_count >= required:
-                                reject_reason = None
-                            else:
-                                if (
-                                    hits_count >= 1
-                                    and best_score >= ADAPTIVE_BEST_MIN
-                                    and (margin is not None and float(margin) >= ADAPTIVE_MARGIN_MIN)
-                                ):
-                                    reject_reason = None
-                                else:
-                                    stats["filtered_by_confirmation"] += 1
-                                    reject_reason = f"confirmation_failed: {hits_count}/{required} ref_embeddings"
-
-                # Log di decisione confirmation (richiesto)
-                # Nota: logghiamo solo se la foto supera score threshold (altrimenti troppo rumore)
-                if best_score >= min_score_threshold:
-                    decision = "ACCEPT" if reject_reason is None else "REJECT"
-                    margin_str = f"{float(margin):.3f}" if margin is not None else "None"
-                    logger.info(
-                        f"[CONFIRM] photo={r2_key} hits={hits_count}/{required} best={best_score:.3f} "
-                        f"margin={margin_str} det={det_score_val:.3f} area={int(area)} policy={confirmation_policy} -> {decision}"
-                    )
+                        if margin < margin_min:
+                            stats["filtered_by_margin"] += 1
+                            reject_reason = f"margin={margin:.3f}<{margin_min:.3f}"
 
                 if reject_reason is None:
                     from pathlib import Path
                     from urllib.parse import quote
                     r2_key_encoded = quote(r2_key, safe='')
-                    filtered_results.append({
+                    results.append({
                         "r2_key": r2_key,
                         "display_name": Path(r2_key).name,
                         "photo_id": r2_key,
@@ -5604,81 +5530,52 @@ async def match_selfie(
                         "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
                         "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
                     })
+                else:
+                    rejected.append({
+                        "r2_key": r2_key,
+                        "score": best_score,
+                        "det_score": det_score_val,
+                        "area": int(area),
+                        "min_score": min_score_dyn,
+                        "margin": margin,
+                        "margin_min": margin_min,
+                        "reason": reject_reason,
+                    })
 
-                candidates_list.append({
-                    "r2_key": r2_key,
-                    "best_score": best_score,
-                    "det_score": det_score_val,
-                    "reject_reason": reject_reason,
-                })
-
-            rejected = [c for c in candidates_list if c["reject_reason"]]
-            rejected.sort(key=lambda x: x["best_score"], reverse=True)
-            top_rejected_dict = {c["r2_key"]: c["reject_reason"] for c in rejected[:20]}
-            return filtered_results, top_rejected_dict, stats
-        
-        try:
-            # Costruisci candidates UNA volta (top_k_pass2) e applica due policy/threshold diverse.
-            logger.info(f"[MATCH_PASS1] strict_min_score={strict_min_score} det_min_score={det_min_score} top_k={top_k_pass1}")
-            logger.info(f"[MATCH_PASS2] strict_min_score={strict_min_score} det_min_score_soft={det_min_score_soft} top_k={top_k_pass2}")
-
-            # Metriche: count face-hits sopra soglia per pass1/pass2 (solo log)
-            _, face_hits_pass1 = _grouped_candidates_from_faiss(ref_embeddings, top_k_pass1, strict_min_score)
-            candidates, face_hits_pass2 = _grouped_candidates_from_faiss(ref_embeddings, top_k_pass2, strict_min_score)
-
-            logger.info(f"[MATCH_PASS2] Grouped candidates: {len(candidates)} unique photos")
-
-            # PASS1: strict confirmation
-            results_pass1, top_rejected_pass1, stats_pass1 = _apply_filters(
-                candidates, strict_min_score, det_min_score, "strict"
-            )
-            logger.info(f"[MATCH_PASS1] After filters: final={len(results_pass1)} stats={stats_pass1}")
-
-            # PASS2: adaptive confirmation (reconsidera TUTTI i candidates, anche se scartati in PASS1)
-            results_pass2: List[Dict[str, Any]] = []
-            top_rejected_pass2: Dict[str, str] = {}
-            stats_pass2: Dict[str, int] = {"filtered_by_score": 0, "filtered_by_det_score": 0, "filtered_by_confirmation": 0}
-            if len(results_pass1) < target_min_results:
-                results_pass2, top_rejected_pass2, stats_pass2 = _apply_filters(
-                    candidates, strict_min_score, det_min_score_soft, "adaptive"
-                )
-                logger.info(f"[MATCH_PASS2] After filters: final={len(results_pass2)} stats={stats_pass2}")
-            else:
-                logger.info(f"[MATCH_PASS2] Skipped (pass1 results >= {target_min_results})")
-
-            # Union (dedupe) mantenendo best score
-            merged: Dict[str, Dict[str, Any]] = {}
-            for r in results_pass1 + results_pass2:
-                k = r["r2_key"]
-                if k not in merged or r["score"] > merged[k]["score"]:
-                    merged[k] = r
-
-            all_results = list(merged.values())
-            all_results.sort(key=lambda x: x["score"], reverse=True)
-            if len(all_results) > 80:
-                all_results = all_results[:80]
+            results.sort(key=lambda x: x["score"], reverse=True)
+            if len(results) > 80:
+                results = results[:80]
 
             elapsed_ms = (time.time() - start_time) * 1000
-            total_filtered_by_det = stats_pass1["filtered_by_det_score"] + stats_pass2["filtered_by_det_score"]
-            total_filtered_by_score = stats_pass1["filtered_by_score"] + stats_pass2["filtered_by_score"]
             logger.info(
-                f"[MATCH_STATS] candidates_pass1={face_hits_pass1} candidates_pass2={face_hits_pass2} final={len(all_results)} "
-                f"filtered_by_det_score={total_filtered_by_det} filtered_by_score={total_filtered_by_score} "
-                f"elapsed_ms={elapsed_ms:.1f}"
+                f"[MATCH] elapsed_ms={elapsed_ms:.1f} selfie_ms={selfie_elapsed_ms:.1f} "
+                f"photos={len(results)} candidates={len(candidates_by_photo)}"
+            )
+            logger.info(
+                f"[MATCH_STATS] filtered_by_score={stats['filtered_by_score']} filtered_by_margin={stats['filtered_by_margin']}"
             )
 
-            # Log top rejected (merge pass1+pass2 reasons)
-            all_rejected = {**top_rejected_pass1, **top_rejected_pass2}
-            if all_rejected:
-                # ordina usando best_score dai candidates (se presente)
-                sorted_rejected = sorted(
-                    all_rejected.items(),
-                    key=lambda x: float(candidates.get(x[0], {}).get("best_score", 0.0)),
-                    reverse=True
-                )
-                logger.info(f"[MATCH_REJECTED] Top 10: {sorted_rejected[:10]}")
-            
-            filtered_results = all_results
+            # Log top 10 rejected con dettagli richiesti
+            rejected.sort(key=lambda x: x["score"], reverse=True)
+            if rejected:
+                top10 = []
+                for r in rejected[:10]:
+                    margin_str = "None" if r["margin"] is None else f"{r['margin']:.3f}"
+                    top10.append(
+                        (
+                            r["r2_key"],
+                            f"score={r['score']:.3f}",
+                            f"det={r['det_score']:.3f}",
+                            f"area={r['area']}",
+                            f"min_score={r['min_score']:.2f}",
+                            f"margin={margin_str}",
+                            f"margin_min={r['margin_min']:.3f}",
+                            r["reason"],
+                        )
+                    )
+                logger.info(f"[MATCH_REJECTED] Top 10: {top10}")
+
+            filtered_results = results
             
         finally:
             # Ripristina meta_rows
