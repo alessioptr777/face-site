@@ -1221,7 +1221,9 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int = 5) -> List[np.ndarray]:
     """
-    Genera multipli embeddings da un'immagine con augmentazioni leggere.
+    Genera embeddings di riferimento da un'immagine:
+    - emb0: originale
+    - emb1: flip orizzontale (se possibile)
     
     Args:
         img: Immagine OpenCV BGR
@@ -1231,90 +1233,41 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
         Lista di embeddings normalizzati
     """
     assert face_app is not None
-    embeddings = []
-    
-    # Detection iniziale del volto
-    faces = face_app.get(img)
-    if not faces:
-        return []
-    
-    # Prendi il volto più grande
-    faces_sorted = sorted(
-        faces,
-        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-        reverse=True
-    )
-    if not faces_sorted:
-        return []
-    
-    main_face = faces_sorted[0]
-    bbox = main_face.bbox  # [x1, y1, x2, y2]
-    
-    h, w = img.shape[:2]
-    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-    
-    # Padding e rotazioni leggere
-    augment_configs = [
-        {"padding": 0.05, "rotation": 0},      # Originale con padding
-        {"padding": 0.10, "rotation": 0},      # Più padding
-        {"padding": 0.05, "rotation": -2},      # Rotazione leggera sinistra
-        {"padding": 0.05, "rotation": 2},       # Rotazione leggera destra
-        {"padding": 0.08, "rotation": 0},      # Padding medio
-    ]
-    
-    # Limita al numero richiesto
-    augment_configs = augment_configs[:num_embeddings]
-    
-    for aug_config in augment_configs:
-        try:
-            # Calcola crop con padding
-            face_w = x2 - x1
-            face_h = y2 - y1
-            padding_w = int(face_w * aug_config["padding"])
-            padding_h = int(face_h * aug_config["padding"])
-            
-            crop_x1 = max(0, x1 - padding_w)
-            crop_y1 = max(0, y1 - padding_h)
-            crop_x2 = min(w, x2 + padding_w)
-            crop_y2 = min(h, y2 + padding_h)
-            
-            # Estrai crop
-            crop = img[crop_y1:crop_y2, crop_x1:crop_x2].copy()
-            
-            # Applica rotazione leggera se necessario
-            if aug_config["rotation"] != 0:
-                center = (crop.shape[1] // 2, crop.shape[0] // 2)
-                M = cv2.getRotationMatrix2D(center, aug_config["rotation"], 1.0)
-                crop = cv2.warpAffine(crop, M, (crop.shape[1], crop.shape[0]), 
-                                     flags=cv2.INTER_LINEAR, 
-                                     borderMode=cv2.BORDER_REPLICATE)
-            
-            # Estrai embedding dal crop
-            faces_crop = face_app.get(crop)
-            if faces_crop:
-                # Prendi il volto più grande nel crop
-                faces_crop_sorted = sorted(
-                    faces_crop,
-                    key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-                    reverse=True
-                )
-                if faces_crop_sorted:
-                    embedding = faces_crop_sorted[0].embedding.astype(np.float32)
-                    embedding = _normalize(embedding)
-                    embeddings.append(embedding)
-        except Exception as e:
-            logger.debug(f"[MULTI_EMB] Error generating augmented embedding: {e}")
-            continue
-    
-    # Fallback: se non riusciamo a generare embeddings augmentati, NON duplicare N volte lo stesso.
-    # Usa SOLO 1 embedding (l'originale).
-    original_embedding = _normalize(main_face.embedding.astype(np.float32))
-    if len(embeddings) == 0:
-        logger.info("[MULTI_EMB] fallback to single embedding")
-        return [original_embedding]
+    def _largest_face_embedding(bgr: np.ndarray) -> Optional[np.ndarray]:
+        faces = face_app.get(bgr)
+        if not faces:
+            return None
+        faces_sorted = sorted(
+            faces,
+            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+            reverse=True
+        )
+        if not faces_sorted:
+            return None
+        emb = faces_sorted[0].embedding.astype(np.float32)
+        return _normalize(emb)
 
-    logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings from image")
-    return embeddings
+    # 1) Originale
+    emb0 = _largest_face_embedding(img)
+    if emb0 is None:
+        return []
+
+    # 2) Flip orizzontale
+    try:
+        img_flip = cv2.flip(img, 1)
+    except Exception:
+        img_flip = None
+
+    emb1 = _largest_face_embedding(img_flip) if img_flip is not None else None
+
+    if emb1 is None:
+        logger.info("[MULTI_EMB] Flip failed, using single embedding")
+        logger.info("[MULTI_EMB] Generated 1 reference embeddings (original+flip when possible)")
+        return [emb0]
+
+    refs = [emb0, emb1]
+    logger.info(f"[MULTI_EMB] Generated {len(refs)} reference embeddings (original+flip when possible)")
+    return refs
 
 def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
     """Carica i metadata dal file JSONL"""
@@ -5528,10 +5481,11 @@ async def match_selfie(
                     reject_reason = f"det_score={det_score_val or 'None'}<{det_score_threshold:.2f}"
                 # Filtro 3: Regola di conferma
                 elif best_score < super_match_score:
-                    # Deve avere almeno 2 ref_embeddings con score >= min_score_threshold
-                    if num_above_threshold < 2:
+                    # Confirmation dinamica: vogliamo TUTTI gli embeddings disponibili sopra soglia
+                    required = max(1, len(ref_embeddings))
+                    if num_above_threshold < required:
                         stats["filtered_by_confirmation"] += 1
-                        reject_reason = f"confirmation_failed: {num_above_threshold}/2 ref_embeddings above {min_score_threshold:.2f}"
+                        reject_reason = f"confirmation_failed: {num_above_threshold}/{required} ref_embeddings above {min_score_threshold:.2f}"
                     else:
                         # Accettato per conferma
                         stats["accepted_by_confirmation"] += 1
