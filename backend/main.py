@@ -1306,21 +1306,13 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
             logger.debug(f"[MULTI_EMB] Error generating augmented embedding: {e}")
             continue
     
-    # Estrai embedding originale come fallback
-    original_embedding = main_face.embedding.astype(np.float32)
-    original_embedding = _normalize(original_embedding)
-    
-    # Se non abbiamo abbastanza embeddings, completa con quello originale
+    # Fallback: se non riusciamo a generare embeddings augmentati, NON duplicare N volte lo stesso.
+    # Usa SOLO 1 embedding (l'originale).
+    original_embedding = _normalize(main_face.embedding.astype(np.float32))
     if len(embeddings) == 0:
-        # Fallback: usa embedding originale per tutti
-        logger.warning(f"[MULTI_EMB] No augmented embeddings generated, using original {num_embeddings} times")
-        embeddings = [original_embedding.copy() for _ in range(num_embeddings)]
-    elif len(embeddings) < num_embeddings:
-        # Completa con embedding originale
-        logger.info(f"[MULTI_EMB] Generated {len(embeddings)} augmented embeddings, completing to {num_embeddings} with original")
-        while len(embeddings) < num_embeddings:
-            embeddings.append(original_embedding.copy())
-    
+        logger.info("[MULTI_EMB] fallback to single embedding")
+        return [original_embedding]
+
     logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings from image")
     return embeddings
 
@@ -3539,17 +3531,11 @@ async def serve_photo(
     if not USE_R2 or r2_client is None:
         logger.error("R2 storage not configured. Cannot serve photos.")
         raise HTTPException(status_code=503, detail="Photo storage not available")
-    
-    # Determina object_key in base a variant
-    if variant == "thumb":
-        object_key = f"{THUMB_PREFIX}{original_key}"
-    elif variant == "wm":
-        object_key = f"{WM_PREFIX}{original_key}"
-    else:
-        # Original variant: verifica pagamento
-        filename_check = original_key
-        # Inizializza object_key (verrà sovrascritto dopo verifica pagamento)
-        object_key = None
+
+    # Determina se l'utente vuole l'originale (paid=true) oppure una preview (thumb/wm).
+    # Nota: paid=true NON basta da solo; facciamo sempre verifica server-side via token/email.
+    wants_original = bool(paid)
+    filename_check = original_key
     
     # Verifica se la foto è pagata usando token o email
     is_paid = False
@@ -3589,78 +3575,69 @@ async def serve_photo(
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
-    # Determina quale key usare su R2 in base a is_paid (solo per variant=None)
-    if variant is None:
-        if is_paid:
-            object_key = original_key
-            logger.info(f"[PHOTO] Redirecting ORIGINAL to R2: key={object_key} (paid=true)")
+    # Costruisci object_key in modo deterministico:
+    # - Se (paid=true e verificato) -> originals/<filename>
+    # - Altrimenti -> variant default "thumb": thumbs/<filename> oppure wm/<filename>
+    if wants_original and is_paid:
+        object_key = f"originals/{original_key}"
+    else:
+        variant_effective = (variant or "thumb").lower()
+        if variant_effective == "thumb":
+            object_key = f"thumbs/{original_key}"
+        elif variant_effective == "wm":
+            object_key = f"wm/{original_key}"
         else:
-            object_key = f"{WM_PREFIX}{original_key}"
-            logger.info(f"[PHOTO] Redirecting WM to R2: key={object_key} (paid=false)")
+            object_key = f"wm/{original_key}"
     
-    # Se R2_PUBLIC_BASE_URL è configurato, usa redirect (produzione)
+    # Render: deve essere SEMPRE settato per avere foto istantanee.
+    is_render = (os.getenv("RENDER", "").lower() == "true") or bool(os.getenv("RENDER_SERVICE_ID"))
+
+    # Se R2_PUBLIC_BASE_URL è configurato, usa SEMPRE redirect (produzione).
     if R2_PUBLIC_BASE_URL:
-        # Costruisci URL pubblico R2 e redirect (senza verificare esistenza - Cloudflare gestirà 404)
         public_url = _get_r2_public_url(object_key)
-        
-        # Track download se pagato (solo per original)
-        if variant is None and is_paid:
+
+        # Track download se pagato (solo per originals/*)
+        if is_paid and wants_original:
             from pathlib import Path
-            base = Path(original_key).name
-            _track_download(base)
-        
-        # Headers con Cache-Control aggressivo
+            _track_download(Path(original_key).name)
+
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         if download:
             from pathlib import Path
             headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
-        
-        logger.info(f"[PHOTO] Redirecting to R2: {object_key}")
-        return RedirectResponse(
-            url=public_url,
-            status_code=302,
-            headers=headers
-        )
-    else:
-        # Fallback locale: scarica da R2 e servi bytes (solo per sviluppo)
-        logger.warning(f"[PHOTO] R2_PUBLIC_BASE_URL not configured, using fallback (local dev mode)")
-        try:
-            photo_bytes = await _r2_get_object_bytes(object_key)
-            
-            # Track download se pagato (solo per original)
-            if variant is None and is_paid:
-                from pathlib import Path
-                base = Path(original_key).name
-                _track_download(base)
-            
-            # Headers
-            headers = {"Cache-Control": "public, max-age=31536000, immutable"}
-            if download:
-                from pathlib import Path
-                headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
-            
-            logger.info(f"[PHOTO] Serving from R2 (fallback mode): {object_key}")
-            return Response(
-                content=photo_bytes,
-                media_type="image/jpeg",
-                headers=headers
-            )
-        except ClientError as e:
-            error_code = e.response.get('Error', {}).get('Code', '')
-            if error_code in ('404', 'NoSuchKey'):
-                logger.warning(f"[PHOTO] Missing R2 object: {object_key}")
-                if variant == "thumb":
-                    raise HTTPException(status_code=404, detail="Thumbnail not found")
-                elif variant == "wm":
-                    raise HTTPException(status_code=404, detail="Watermarked preview not found")
-                else:
-                    raise HTTPException(status_code=404, detail="Photo not found")
-            else:
-                logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
-                raise HTTPException(status_code=503, detail="R2 storage error")
-        except Exception as e:
-            logger.error(f"[PHOTO] Unexpected error serving photo: {type(e).__name__}: {e}, key={object_key}")
-            raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
+
+        logger.info(f"[PHOTO] Redirecting to: {object_key}")
+        return RedirectResponse(url=public_url, status_code=302, headers=headers)
+
+    # DEV only: se manca R2_PUBLIC_BASE_URL, stream bytes localmente.
+    if is_render:
+        logger.error("[PHOTO] R2_PUBLIC_BASE_URL missing on Render (must be configured)")
+        raise HTTPException(status_code=500, detail="R2_PUBLIC_BASE_URL not configured (required on Render)")
+
+    try:
+        photo_bytes = await _r2_get_object_bytes(object_key)
+
+        if is_paid and wants_original:
+            from pathlib import Path
+            _track_download(Path(original_key).name)
+
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+        if download:
+            from pathlib import Path
+            headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
+
+        logger.info(f"[PHOTO] Streaming bytes (dev): {object_key}")
+        return Response(content=photo_bytes, media_type="image/jpeg", headers=headers)
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        if error_code in ('404', 'NoSuchKey'):
+            logger.warning(f"[PHOTO] Missing R2 object: {object_key}")
+            raise HTTPException(status_code=404, detail="Photo not found")
+        logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
+        raise HTTPException(status_code=503, detail="R2 storage error")
+    except Exception as e:
+        logger.error(f"[PHOTO] Unexpected error serving photo: {type(e).__name__}: {e}, key={object_key}")
+        raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
 
 # ========== ENDPOINT UTENTI ==========
 
@@ -5500,21 +5477,19 @@ async def match_selfie(
         
         # Parametri per regole di conferma
         super_match_score = 0.50  # Soglia per super match (bypass regola 2-su-N)
-        margin_delta = 0.03  # Margine minimo tra best e second best
         
         def _apply_filters_with_confirmation(
-            photo_scores: Dict[str, Tuple[float, int, float, int]], 
+            photo_scores: Dict[str, Tuple[float, int, int]],
             min_score_threshold: float, 
             det_score_threshold: float,
             ref_embeddings: List[np.ndarray],
             super_match_score: float = 0.50,
-            margin_delta: float = 0.03
         ) -> tuple[List[Dict], Dict[str, str], Dict[str, int]]:
             """
-            Applica filtri con regole di conferma e margine.
+            Applica filtri con regole di conferma (NO margine).
             
             Args:
-                photo_scores: Dict[r2_key -> (best_score, best_idx, second_best_score, num_above_threshold)]
+                photo_scores: Dict[r2_key -> (best_score, best_idx, num_above_threshold)]
                 min_score_threshold: Soglia minima per best_score
                 det_score_threshold: Soglia minima per det_score
                 ref_embeddings: Lista di reference embeddings
@@ -5528,13 +5503,12 @@ async def match_selfie(
                 "filtered_by_score": 0,
                 "filtered_by_det_score": 0,
                 "filtered_by_confirmation": 0,
-                "filtered_by_margin": 0,
                 "accepted_by_super_match": 0,
                 "accepted_by_confirmation": 0
             }
             
             candidates_list = []
-            for r2_key, (best_score, best_idx, second_best_score, num_above_threshold) in photo_scores.items():
+            for r2_key, (best_score, best_idx, num_above_threshold) in photo_scores.items():
                 det_score_val = None
                 if best_idx >= 0 and best_idx < len(meta_rows):
                     row = meta_rows[best_idx]
@@ -5558,10 +5532,6 @@ async def match_selfie(
                     if num_above_threshold < 2:
                         stats["filtered_by_confirmation"] += 1
                         reject_reason = f"confirmation_failed: {num_above_threshold}/2 ref_embeddings above {min_score_threshold:.2f}"
-                    # Filtro 4: Margine
-                    elif best_score - second_best_score < margin_delta:
-                        stats["filtered_by_margin"] += 1
-                        reject_reason = f"margin_insufficient: {best_score:.3f}-{second_best_score:.3f}={best_score-second_best_score:.3f}<{margin_delta:.2f}"
                     else:
                         # Accettato per conferma
                         stats["accepted_by_confirmation"] += 1
@@ -5622,9 +5592,9 @@ async def match_selfie(
                         all_candidates[idx] = []
                     all_candidates[idx].append(float(score))
             
-            # Per ogni face indicizzata, calcola best_score = max(similarities) e second_best
+            # Per ogni face indicizzata, calcola best_score = max(similarities)
             # Raggruppa per photo_id/r2_key
-            photo_scores_pass1: Dict[str, Tuple[float, int, float, int]] = {}  # r2_key -> (best_score, best_idx, second_best_score, num_above_threshold)
+            photo_scores_pass1: Dict[str, Tuple[float, int, int]] = {}  # r2_key -> (best_score, best_idx, num_above_threshold)
             
             for idx, similarities in all_candidates.items():
                 if idx < 0 or idx >= len(meta_rows):
@@ -5643,18 +5613,17 @@ async def match_selfie(
                 # Calcoliamo similarity usando i scores già ottenuti
                 similarities_sorted = sorted(similarities, reverse=True)
                 best_score = similarities_sorted[0] if similarities_sorted else 0.0
-                second_best_score = similarities_sorted[1] if len(similarities_sorted) > 1 else 0.0
                 num_above_threshold = sum(1 for s in similarities if s >= strict_min_score)
                 
                 if best_score < strict_min_score:
                     continue
                 
                 if r2_key not in photo_scores_pass1:
-                    photo_scores_pass1[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                    photo_scores_pass1[r2_key] = (best_score, idx, num_above_threshold)
                 else:
-                    current_best, current_idx, current_second, current_num = photo_scores_pass1[r2_key]
+                    current_best, current_idx, current_num = photo_scores_pass1[r2_key]
                     if best_score > current_best:
-                        photo_scores_pass1[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                        photo_scores_pass1[r2_key] = (best_score, idx, num_above_threshold)
             
             n_candidates_faiss = len([s for s in all_candidates.values() if max(s) >= strict_min_score])
             logger.info(f"[MATCH_PASS1] FAISS candidates above {strict_min_score}: {n_candidates_faiss}")
@@ -5662,7 +5631,7 @@ async def match_selfie(
             
             # Applica filtri strict con conferma
             results_pass1, top_rejected_pass1, stats_pass1 = _apply_filters_with_confirmation(
-                photo_scores_pass1, strict_min_score, det_min_score, ref_embeddings, super_match_score, margin_delta
+                photo_scores_pass1, strict_min_score, det_min_score, ref_embeddings, super_match_score
             )
             
             logger.info(f"[MATCH_PASS1] After filters: final={len(results_pass1)} stats={stats_pass1}")
@@ -5674,7 +5643,11 @@ async def match_selfie(
                     results_pass1 = results_pass1[:80]
                 
                 elapsed_ms = (time.time() - start_time) * 1000
-                logger.info(f"[MATCH_STATS] candidates={n_candidates_faiss} final={len(results_pass1)} stats={stats_pass1} elapsed_ms={elapsed_ms:.1f}")
+                logger.info(
+                    f"[MATCH_STATS] candidates_pass1={n_candidates_faiss} candidates_pass2=0 final={len(results_pass1)} "
+                    f"filtered_by_det_score={stats_pass1['filtered_by_det_score']} filtered_by_score={stats_pass1['filtered_by_score']} "
+                    f"elapsed_ms={elapsed_ms:.1f}"
+                )
                 
                 # Log top rejected
                 if top_rejected_pass1:
@@ -5701,7 +5674,7 @@ async def match_selfie(
                         all_candidates_pass2[idx].append(float(score))
                 
                 # Raggruppa per photo_id/r2_key (stessa logica del Pass 1)
-                photo_scores_pass2: Dict[str, Tuple[float, int, float, int]] = {}
+                photo_scores_pass2: Dict[str, Tuple[float, int, int]] = {}
                 
                 for idx, similarities in all_candidates_pass2.items():
                     if idx < 0 or idx >= len(meta_rows):
@@ -5714,18 +5687,17 @@ async def match_selfie(
                     
                     similarities_sorted = sorted(similarities, reverse=True)
                     best_score = similarities_sorted[0] if similarities_sorted else 0.0
-                    second_best_score = similarities_sorted[1] if len(similarities_sorted) > 1 else 0.0
                     num_above_threshold = sum(1 for s in similarities if s >= strict_min_score)
                     
                     if best_score < strict_min_score:  # Mantieni strict_min_score invariato
                         continue
                     
                     if r2_key not in photo_scores_pass2:
-                        photo_scores_pass2[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                        photo_scores_pass2[r2_key] = (best_score, idx, num_above_threshold)
                     else:
-                        current_best, current_idx, current_second, current_num = photo_scores_pass2[r2_key]
+                        current_best, current_idx, current_num = photo_scores_pass2[r2_key]
                         if best_score > current_best:
-                            photo_scores_pass2[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                            photo_scores_pass2[r2_key] = (best_score, idx, num_above_threshold)
                 
                 n_candidates_faiss_pass2 = len([s for s in all_candidates_pass2.values() if max(s) >= strict_min_score])
                 logger.info(f"[MATCH_PASS2] FAISS candidates above {strict_min_score}: {n_candidates_faiss_pass2}")
@@ -5733,7 +5705,7 @@ async def match_selfie(
                 
                 # Applica filtri soft (solo det_score più basso, strict_min_score invariato)
                 results_pass2, top_rejected_pass2, stats_pass2 = _apply_filters_with_confirmation(
-                    photo_scores_pass2, strict_min_score, det_min_score_soft, ref_embeddings, super_match_score, margin_delta
+                    photo_scores_pass2, strict_min_score, det_min_score_soft, ref_embeddings, super_match_score
                 )
                 
                 logger.info(f"[MATCH_PASS2] After filters: final={len(results_pass2)} stats={stats_pass2}")
@@ -5764,16 +5736,23 @@ async def match_selfie(
                     "filtered_by_score": stats_pass1["filtered_by_score"] + stats_pass2["filtered_by_score"],
                     "filtered_by_det_score": stats_pass1["filtered_by_det_score"] + stats_pass2["filtered_by_det_score"],
                     "filtered_by_confirmation": stats_pass1["filtered_by_confirmation"] + stats_pass2["filtered_by_confirmation"],
-                    "filtered_by_margin": stats_pass1["filtered_by_margin"] + stats_pass2["filtered_by_margin"],
                     "accepted_by_super_match": stats_pass1["accepted_by_super_match"] + stats_pass2["accepted_by_super_match"],
                     "accepted_by_confirmation": stats_pass1["accepted_by_confirmation"] + stats_pass2["accepted_by_confirmation"]
                 }
-                logger.info(f"[MATCH_STATS] candidates_pass1={n_candidates_faiss} candidates_pass2={n_candidates_faiss_pass2} final={len(all_results)} total_stats={total_stats} elapsed_ms={elapsed_ms:.1f}")
+                logger.info(
+                    f"[MATCH_STATS] candidates_pass1={n_candidates_faiss} candidates_pass2={n_candidates_faiss_pass2} final={len(all_results)} "
+                    f"filtered_by_det_score={total_stats['filtered_by_det_score']} filtered_by_score={total_stats['filtered_by_score']} "
+                    f"elapsed_ms={elapsed_ms:.1f}"
+                )
                 
                 # Log top rejected
                 all_rejected = {**top_rejected_pass1, **top_rejected_pass2}
                 if all_rejected:
-                    sorted_rejected = sorted(all_rejected.items(), key=lambda x: photo_scores_pass1.get(x[0], photo_scores_pass2.get(x[0], (0, 0, 0, 0)))[0], reverse=True)
+                    sorted_rejected = sorted(
+                        all_rejected.items(),
+                        key=lambda x: photo_scores_pass1.get(x[0], photo_scores_pass2.get(x[0], (0.0, 0, 0)))[0],
+                        reverse=True
+                    )
                     logger.info(f"[MATCH_REJECTED] Top 10: {sorted_rejected[:10]}")
             
             filtered_results = all_results
