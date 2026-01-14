@@ -5428,83 +5428,175 @@ async def match_selfie(
         
         logger.info(f"[MATCH] Starting two-pass: n_faces_index={n_faces_index} meta_rows={n_meta_rows} ref_embeddings={len(ref_embeddings)}")
         
-        # Parametri per regole di conferma
-        super_match_score = 0.50  # Soglia per super match (bypass regola 2-su-N)
-        
-        def _apply_filters_with_confirmation(
-            photo_scores: Dict[str, Tuple[float, int, int]],
-            min_score_threshold: float, 
-            det_score_threshold: float,
+        # ========= Helpers: candidates + policies =========
+        MIN_FACE_AREA = 6000.0  # bbox area minimo per considerare la faccia "grande" (coerente con _is_tiny_or_weak_face)
+        EASY_DET_SCORE = 0.75
+        ADAPTIVE_BEST_MIN = 0.48
+        ADAPTIVE_MARGIN_MIN = 0.08
+
+        def _compute_face_area(meta: Dict[str, Any]) -> float:
+            bbox = meta.get("bbox")
+            if bbox and isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                try:
+                    x1, y1, x2, y2 = bbox
+                    return max(0.0, float(x2) - float(x1)) * max(0.0, float(y2) - float(y1))
+                except Exception:
+                    return 0.0
+            return 0.0
+
+        def _grouped_candidates_from_faiss(
             ref_embeddings: List[np.ndarray],
-            super_match_score: float = 0.50,
-        ) -> tuple[List[Dict], Dict[str, str], Dict[str, int]]:
+            top_k: int,
+            score_threshold: float,
+        ) -> tuple[Dict[str, Dict[str, Any]], int]:
             """
-            Applica filtri con regole di conferma (NO margine).
-            
-            Args:
-                photo_scores: Dict[r2_key -> (best_score, best_idx, num_above_threshold)]
-                min_score_threshold: Soglia minima per best_score
-                det_score_threshold: Soglia minima per det_score
-                ref_embeddings: Lista di reference embeddings
-            
-            Returns:
-                (filtered_results, top_rejected_dict, stats)
+            Crea candidates raggruppati per foto usando FAISS e più ref embeddings.
+            Ritorna:
+              - candidates_by_photo: r2_key -> {
+                    best_score, best_idx, det_score, area,
+                    hits_count, required,
+                    margin (best-second su tutti i scores visti per quella foto)
+                }
+              - face_hits_above_threshold: count di match (face,ref) sopra soglia
             """
-            filtered_results = []
-            top_rejected: List[Dict[str, Any]] = []
+            candidates_by_photo: Dict[str, Dict[str, Any]] = {}
+            face_hits_above_threshold = 0
+            required = max(1, len(ref_embeddings))
+
+            # Per policy hits_count: per ogni foto, per ogni ref emb teniamo il max score visto.
+            # Per margin: per ogni foto accumuliamo tutti i scores visti (ref * facce).
+            for ref_j, ref_emb in enumerate(ref_embeddings):
+                D, I = faiss_index.search(ref_emb.reshape(1, -1), top_k)
+                for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                    if idx < 0 or idx >= len(meta_rows):
+                        continue
+                    s = float(score)
+                    if s >= score_threshold:
+                        face_hits_above_threshold += 1
+
+                    row = meta_rows[idx]
+                    r2_key = row.get("r2_key") or row.get("photo_id")
+                    if not r2_key:
+                        continue
+
+                    entry = candidates_by_photo.get(r2_key)
+                    if entry is None:
+                        det = row.get("det_score") or row.get("score")
+                        det_f = float(det) if det is not None else 0.0
+                        area = _compute_face_area(row)
+                        entry = {
+                            "r2_key": r2_key,
+                            "best_score": s,
+                            "best_idx": idx,
+                            "det_score": det_f,
+                            "area": area,
+                            "ref_max": [0.0] * required,
+                            "all_scores": [],
+                        }
+                        candidates_by_photo[r2_key] = entry
+
+                    entry["all_scores"].append(s)
+                    # aggiorna max per questo ref
+                    if ref_j < len(entry["ref_max"]) and s > entry["ref_max"][ref_j]:
+                        entry["ref_max"][ref_j] = s
+                    # aggiorna best globale e best_idx/det/area coerenti con il best
+                    if s > entry["best_score"]:
+                        entry["best_score"] = s
+                        entry["best_idx"] = idx
+                        det = row.get("det_score") or row.get("score")
+                        entry["det_score"] = float(det) if det is not None else 0.0
+                        entry["area"] = _compute_face_area(row)
+
+            # Finalizza hits_count e margin
+            for entry in candidates_by_photo.values():
+                ref_max = entry["ref_max"]
+                entry["required"] = required
+                entry["hits_count"] = sum(1 for v in ref_max if v >= score_threshold)
+                scores_sorted = sorted(entry["all_scores"], reverse=True)
+                if len(scores_sorted) >= 2:
+                    entry["margin"] = float(scores_sorted[0] - scores_sorted[1])
+                else:
+                    entry["margin"] = None
+
+            return candidates_by_photo, face_hits_above_threshold
+
+        def _apply_filters(
+            candidates_by_photo: Dict[str, Dict[str, Any]],
+            min_score_threshold: float,
+            det_score_threshold: float,
+            confirmation_policy: str,  # "strict" | "adaptive"
+        ) -> tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, int]]:
+            filtered_results: List[Dict[str, Any]] = []
             stats = {
                 "filtered_by_score": 0,
                 "filtered_by_det_score": 0,
                 "filtered_by_confirmation": 0,
-                "accepted_by_super_match": 0,
-                "accepted_by_confirmation": 0
             }
-            
-            candidates_list = []
-            for r2_key, (best_score, best_idx, num_above_threshold) in photo_scores.items():
-                det_score_val = None
-                if best_idx >= 0 and best_idx < len(meta_rows):
-                    row = meta_rows[best_idx]
-                    det_score_val = row.get("det_score") or row.get("score")
-                    if det_score_val is not None:
-                        det_score_val = float(det_score_val)
-                
+            candidates_list: List[Dict[str, Any]] = []
+
+            for r2_key, c in candidates_by_photo.items():
+                best_score = float(c["best_score"])
+                det_score_val = float(c.get("det_score") or 0.0)
+                area = float(c.get("area") or 0.0)
+                hits_count = int(c.get("hits_count") or 0)
+                required = int(c.get("required") or 1)
+                margin = c.get("margin")
+
                 reject_reason = None
-                
-                # Filtro 1: best_score >= min_score_threshold
+                # Score threshold
                 if best_score < min_score_threshold:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<{min_score_threshold:.2f}"
-                # Filtro 2: det_score >= det_score_threshold
-                elif det_score_val is None or det_score_val < det_score_threshold:
+                # det_score threshold (pass-specific)
+                elif det_score_val < det_score_threshold:
                     stats["filtered_by_det_score"] += 1
-                    reject_reason = f"det_score={det_score_val or 'None'}<{det_score_threshold:.2f}"
-                # Filtro 3: Regola di conferma
-                elif best_score < super_match_score:
-                    # Confirmation dinamica: vogliamo TUTTI gli embeddings disponibili sopra soglia
-                    required = max(1, len(ref_embeddings))
-                    if num_above_threshold < required:
-                        stats["filtered_by_confirmation"] += 1
-                        reject_reason = f"confirmation_failed: {num_above_threshold}/{required} ref_embeddings above {min_score_threshold:.2f}"
-                    else:
-                        # Accettato per conferma
-                        stats["accepted_by_confirmation"] += 1
-                        reject_reason = None
+                    reject_reason = f"det_score={det_score_val:.3f}<{det_score_threshold:.2f}"
                 else:
-                    # Super match: bypass regole di conferma
-                    stats["accepted_by_super_match"] += 1
-                    reject_reason = None
-                
+                    # Confirmation
+                    if confirmation_policy == "strict":
+                        # Sempre 2/2 quando abbiamo 2 ref embeddings (coerente con required)
+                        if hits_count < required:
+                            stats["filtered_by_confirmation"] += 1
+                            reject_reason = f"confirmation_failed: {hits_count}/{required} ref_embeddings above {min_score_threshold:.2f}"
+                    else:
+                        # adaptive
+                        if det_score_val >= EASY_DET_SCORE and area >= MIN_FACE_AREA:
+                            # Caso "facile": richiedi 2/2
+                            if hits_count < required:
+                                stats["filtered_by_confirmation"] += 1
+                                reject_reason = f"confirmation_failed: {hits_count}/{required} ref_embeddings above {min_score_threshold:.2f}"
+                        else:
+                            # Caso difficile: consenti 1/2 SOLO con condizioni extra severe
+                            if hits_count >= required:
+                                reject_reason = None
+                            else:
+                                if (
+                                    hits_count >= 1
+                                    and best_score >= ADAPTIVE_BEST_MIN
+                                    and (margin is not None and float(margin) >= ADAPTIVE_MARGIN_MIN)
+                                ):
+                                    reject_reason = None
+                                else:
+                                    stats["filtered_by_confirmation"] += 1
+                                    reject_reason = f"confirmation_failed: {hits_count}/{required} ref_embeddings"
+
+                # Log di decisione confirmation (richiesto)
+                # Nota: logghiamo solo se la foto supera score threshold (altrimenti troppo rumore)
+                if best_score >= min_score_threshold:
+                    decision = "ACCEPT" if reject_reason is None else "REJECT"
+                    margin_str = f"{float(margin):.3f}" if margin is not None else "None"
+                    logger.info(
+                        f"[CONFIRM] photo={r2_key} hits={hits_count}/{required} best={best_score:.3f} "
+                        f"margin={margin_str} det={det_score_val:.3f} area={int(area)} policy={confirmation_policy} -> {decision}"
+                    )
+
                 if reject_reason is None:
-                    # Accettato
                     from pathlib import Path
-                    display_name = Path(r2_key).name
                     from urllib.parse import quote
                     r2_key_encoded = quote(r2_key, safe='')
-                    
                     filtered_results.append({
                         "r2_key": r2_key,
-                        "display_name": display_name,
+                        "display_name": Path(r2_key).name,
                         "photo_id": r2_key,
                         "score": best_score,
                         "has_face": True,
@@ -5512,202 +5604,79 @@ async def match_selfie(
                         "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
                         "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
                     })
-                
-                # Aggiungi a candidati per top rejected
+
                 candidates_list.append({
                     "r2_key": r2_key,
                     "best_score": best_score,
                     "det_score": det_score_val,
-                    "reject_reason": reject_reason
+                    "reject_reason": reject_reason,
                 })
-            
-            # Top 20 scartati ordinati per score
+
             rejected = [c for c in candidates_list if c["reject_reason"]]
             rejected.sort(key=lambda x: x["best_score"], reverse=True)
             top_rejected_dict = {c["r2_key"]: c["reject_reason"] for c in rejected[:20]}
-            
             return filtered_results, top_rejected_dict, stats
         
         try:
-            # ========== PASS 1: Ricerca strict con multi-embedding ==========
+            # Costruisci candidates UNA volta (top_k_pass2) e applica due policy/threshold diverse.
             logger.info(f"[MATCH_PASS1] strict_min_score={strict_min_score} det_min_score={det_min_score} top_k={top_k_pass1}")
-            
-            # Cerca con tutti i ref_embeddings
-            all_candidates: Dict[int, List[float]] = {}  # idx -> [scores da tutti i ref_embeddings]
-            
-            for ref_idx, ref_emb in enumerate(ref_embeddings):
-                ref_emb_reshaped = ref_emb.reshape(1, -1)
-                D, I = faiss_index.search(ref_emb_reshaped, top_k_pass1)
-                
-                for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                    if idx < 0 or idx >= len(meta_rows):
-                        continue
-                    if idx not in all_candidates:
-                        all_candidates[idx] = []
-                    all_candidates[idx].append(float(score))
-            
-            # Per ogni face indicizzata, calcola best_score = max(similarities)
-            # Raggruppa per photo_id/r2_key
-            photo_scores_pass1: Dict[str, Tuple[float, int, int]] = {}  # r2_key -> (best_score, best_idx, num_above_threshold)
-            
-            for idx, similarities in all_candidates.items():
-                if idx < 0 or idx >= len(meta_rows):
-                    continue
-                
-                row = meta_rows[idx]
-                r2_key = row.get("r2_key") or row.get("photo_id")
-                if not r2_key:
-                    continue
-                
-                # Calcola best_score, second_best_score, num_above_threshold usando tutti i ref_embeddings
-                # Per ogni face indicizzata, calcola similarity contro tutti i ref_embeddings
-                indexed_embedding = None
-                # Recupera embedding dall'indice FAISS (non salvato in meta_rows, dobbiamo ricostruirlo)
-                # Per ora usiamo il primo ref_embedding come proxy (in futuro possiamo salvare gli embeddings)
-                # Calcoliamo similarity usando i scores già ottenuti
-                similarities_sorted = sorted(similarities, reverse=True)
-                best_score = similarities_sorted[0] if similarities_sorted else 0.0
-                num_above_threshold = sum(1 for s in similarities if s >= strict_min_score)
-                
-                if best_score < strict_min_score:
-                    continue
-                
-                if r2_key not in photo_scores_pass1:
-                    photo_scores_pass1[r2_key] = (best_score, idx, num_above_threshold)
-                else:
-                    current_best, current_idx, current_num = photo_scores_pass1[r2_key]
-                    if best_score > current_best:
-                        photo_scores_pass1[r2_key] = (best_score, idx, num_above_threshold)
-            
-            n_candidates_faiss = len([s for s in all_candidates.values() if max(s) >= strict_min_score])
-            logger.info(f"[MATCH_PASS1] FAISS candidates above {strict_min_score}: {n_candidates_faiss}")
-            logger.info(f"[MATCH_PASS1] Grouped: {len(photo_scores_pass1)} unique photos")
-            
-            # Applica filtri strict con conferma
-            results_pass1, top_rejected_pass1, stats_pass1 = _apply_filters_with_confirmation(
-                photo_scores_pass1, strict_min_score, det_min_score, ref_embeddings, super_match_score
+            logger.info(f"[MATCH_PASS2] strict_min_score={strict_min_score} det_min_score_soft={det_min_score_soft} top_k={top_k_pass2}")
+
+            # Metriche: count face-hits sopra soglia per pass1/pass2 (solo log)
+            _, face_hits_pass1 = _grouped_candidates_from_faiss(ref_embeddings, top_k_pass1, strict_min_score)
+            candidates, face_hits_pass2 = _grouped_candidates_from_faiss(ref_embeddings, top_k_pass2, strict_min_score)
+
+            logger.info(f"[MATCH_PASS2] Grouped candidates: {len(candidates)} unique photos")
+
+            # PASS1: strict confirmation
+            results_pass1, top_rejected_pass1, stats_pass1 = _apply_filters(
+                candidates, strict_min_score, det_min_score, "strict"
             )
-            
             logger.info(f"[MATCH_PASS1] After filters: final={len(results_pass1)} stats={stats_pass1}")
-            
-            # Se Pass 1 produce abbastanza risultati, ritorna
-            if len(results_pass1) >= target_min_results:
-                results_pass1.sort(key=lambda x: x["score"], reverse=True)
-                if len(results_pass1) > 80:
-                    results_pass1 = results_pass1[:80]
-                
-                elapsed_ms = (time.time() - start_time) * 1000
-                logger.info(
-                    f"[MATCH_STATS] candidates_pass1={n_candidates_faiss} candidates_pass2=0 final={len(results_pass1)} "
-                    f"filtered_by_det_score={stats_pass1['filtered_by_det_score']} filtered_by_score={stats_pass1['filtered_by_score']} "
-                    f"elapsed_ms={elapsed_ms:.1f}"
+
+            # PASS2: adaptive confirmation (reconsidera TUTTI i candidates, anche se scartati in PASS1)
+            results_pass2: List[Dict[str, Any]] = []
+            top_rejected_pass2: Dict[str, str] = {}
+            stats_pass2: Dict[str, int] = {"filtered_by_score": 0, "filtered_by_det_score": 0, "filtered_by_confirmation": 0}
+            if len(results_pass1) < target_min_results:
+                results_pass2, top_rejected_pass2, stats_pass2 = _apply_filters(
+                    candidates, strict_min_score, det_min_score_soft, "adaptive"
                 )
-                
-                # Log top rejected
-                if top_rejected_pass1:
-                    logger.info(f"[MATCH_REJECTED] Top 10: {list(top_rejected_pass1.items())[:10]}")
-                
-                all_results = results_pass1
-            else:
-                # ========== PASS 2: Ricerca soft con multi-embedding (solo det_score più basso) ==========
-                logger.info(f"[MATCH_PASS2] Pass 1 found {len(results_pass1)} < {target_min_results}, running Pass 2")
-                logger.info(f"[MATCH_PASS2] strict_min_score={strict_min_score} (invariato) det_min_score_soft={det_min_score_soft} top_k={top_k_pass2}")
-                
-                # Usa gli stessi ref_embeddings, ma con det_score più basso
-                all_candidates_pass2: Dict[int, List[float]] = {}
-                
-                for ref_idx, ref_emb in enumerate(ref_embeddings):
-                    ref_emb_reshaped = ref_emb.reshape(1, -1)
-                    D, I = faiss_index.search(ref_emb_reshaped, top_k_pass2)
-                    
-                    for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                        if idx < 0 or idx >= len(meta_rows):
-                            continue
-                        if idx not in all_candidates_pass2:
-                            all_candidates_pass2[idx] = []
-                        all_candidates_pass2[idx].append(float(score))
-                
-                # Raggruppa per photo_id/r2_key (stessa logica del Pass 1)
-                photo_scores_pass2: Dict[str, Tuple[float, int, int]] = {}
-                
-                for idx, similarities in all_candidates_pass2.items():
-                    if idx < 0 or idx >= len(meta_rows):
-                        continue
-                    
-                    row = meta_rows[idx]
-                    r2_key = row.get("r2_key") or row.get("photo_id")
-                    if not r2_key:
-                        continue
-                    
-                    similarities_sorted = sorted(similarities, reverse=True)
-                    best_score = similarities_sorted[0] if similarities_sorted else 0.0
-                    num_above_threshold = sum(1 for s in similarities if s >= strict_min_score)
-                    
-                    if best_score < strict_min_score:  # Mantieni strict_min_score invariato
-                        continue
-                    
-                    if r2_key not in photo_scores_pass2:
-                        photo_scores_pass2[r2_key] = (best_score, idx, num_above_threshold)
-                    else:
-                        current_best, current_idx, current_num = photo_scores_pass2[r2_key]
-                        if best_score > current_best:
-                            photo_scores_pass2[r2_key] = (best_score, idx, num_above_threshold)
-                
-                n_candidates_faiss_pass2 = len([s for s in all_candidates_pass2.values() if max(s) >= strict_min_score])
-                logger.info(f"[MATCH_PASS2] FAISS candidates above {strict_min_score}: {n_candidates_faiss_pass2}")
-                logger.info(f"[MATCH_PASS2] Grouped: {len(photo_scores_pass2)} unique photos")
-                
-                # Applica filtri soft (solo det_score più basso, strict_min_score invariato)
-                results_pass2, top_rejected_pass2, stats_pass2 = _apply_filters_with_confirmation(
-                    photo_scores_pass2, strict_min_score, det_min_score_soft, ref_embeddings, super_match_score
-                )
-                
                 logger.info(f"[MATCH_PASS2] After filters: final={len(results_pass2)} stats={stats_pass2}")
-                
-                # Unisci Pass1 + Pass2, dedup per r2_key, mantieni best_score
-                all_photo_scores: Dict[str, Dict] = {}
-                for r in results_pass1:
-                    r2_key = r["r2_key"]
-                    all_photo_scores[r2_key] = r
-                
-                for r in results_pass2:
-                    r2_key = r["r2_key"]
-                    if r2_key not in all_photo_scores:
-                        all_photo_scores[r2_key] = r
-                    else:
-                        # Mantieni quello con score più alto
-                        if r["score"] > all_photo_scores[r2_key]["score"]:
-                            all_photo_scores[r2_key] = r
-                
-                all_results = list(all_photo_scores.values())
-                all_results.sort(key=lambda x: x["score"], reverse=True)
-                
-                if len(all_results) > 80:
-                    all_results = all_results[:80]
-                
-                elapsed_ms = (time.time() - start_time) * 1000
-                total_stats = {
-                    "filtered_by_score": stats_pass1["filtered_by_score"] + stats_pass2["filtered_by_score"],
-                    "filtered_by_det_score": stats_pass1["filtered_by_det_score"] + stats_pass2["filtered_by_det_score"],
-                    "filtered_by_confirmation": stats_pass1["filtered_by_confirmation"] + stats_pass2["filtered_by_confirmation"],
-                    "accepted_by_super_match": stats_pass1["accepted_by_super_match"] + stats_pass2["accepted_by_super_match"],
-                    "accepted_by_confirmation": stats_pass1["accepted_by_confirmation"] + stats_pass2["accepted_by_confirmation"]
-                }
-                logger.info(
-                    f"[MATCH_STATS] candidates_pass1={n_candidates_faiss} candidates_pass2={n_candidates_faiss_pass2} final={len(all_results)} "
-                    f"filtered_by_det_score={total_stats['filtered_by_det_score']} filtered_by_score={total_stats['filtered_by_score']} "
-                    f"elapsed_ms={elapsed_ms:.1f}"
+            else:
+                logger.info(f"[MATCH_PASS2] Skipped (pass1 results >= {target_min_results})")
+
+            # Union (dedupe) mantenendo best score
+            merged: Dict[str, Dict[str, Any]] = {}
+            for r in results_pass1 + results_pass2:
+                k = r["r2_key"]
+                if k not in merged or r["score"] > merged[k]["score"]:
+                    merged[k] = r
+
+            all_results = list(merged.values())
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+            if len(all_results) > 80:
+                all_results = all_results[:80]
+
+            elapsed_ms = (time.time() - start_time) * 1000
+            total_filtered_by_det = stats_pass1["filtered_by_det_score"] + stats_pass2["filtered_by_det_score"]
+            total_filtered_by_score = stats_pass1["filtered_by_score"] + stats_pass2["filtered_by_score"]
+            logger.info(
+                f"[MATCH_STATS] candidates_pass1={face_hits_pass1} candidates_pass2={face_hits_pass2} final={len(all_results)} "
+                f"filtered_by_det_score={total_filtered_by_det} filtered_by_score={total_filtered_by_score} "
+                f"elapsed_ms={elapsed_ms:.1f}"
+            )
+
+            # Log top rejected (merge pass1+pass2 reasons)
+            all_rejected = {**top_rejected_pass1, **top_rejected_pass2}
+            if all_rejected:
+                # ordina usando best_score dai candidates (se presente)
+                sorted_rejected = sorted(
+                    all_rejected.items(),
+                    key=lambda x: float(candidates.get(x[0], {}).get("best_score", 0.0)),
+                    reverse=True
                 )
-                
-                # Log top rejected
-                all_rejected = {**top_rejected_pass1, **top_rejected_pass2}
-                if all_rejected:
-                    sorted_rejected = sorted(
-                        all_rejected.items(),
-                        key=lambda x: photo_scores_pass1.get(x[0], photo_scores_pass2.get(x[0], (0.0, 0, 0)))[0],
-                        reverse=True
-                    )
-                    logger.info(f"[MATCH_REJECTED] Top 10: {sorted_rejected[:10]}")
+                logger.info(f"[MATCH_REJECTED] Top 10: {sorted_rejected[:10]}")
             
             filtered_results = all_results
             
