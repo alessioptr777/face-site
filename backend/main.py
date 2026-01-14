@@ -204,7 +204,7 @@ logger.info(
 # Configurazione Cloudflare R2 (S3 compatible) - dopo logger
 # Variabili standardizzate: R2_ENDPOINT_URL, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
-R2_PUBLIC_BASE_URL = os.getenv("R2_PUBLIC_BASE_URL", "").strip()  # URL pubblico R2 (es: https://pub-xxxxx.r2.dev o cdn.metaproos.com)
+R2_PUBLIC_BASE_URL = os.getenv("R2_PUBLIC_BASE_URL", "").strip()  # URL pubblico R2 (es: https://pub-xxxxx.r2.dev o cdn.metaproos.com) - OBBLIGATORIO in produzione
 # Supporto per variabili legacy (alias)
 if not R2_ENDPOINT_URL:
     R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT", "").strip()
@@ -218,10 +218,10 @@ R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
 # Photo assets configuration (thumb and watermarked preview)
 THUMB_PREFIX = "thumbs/"
 WM_PREFIX = "wm/"
-THUMB_MAX_SIDE = 400  # Ridotto per performance
-THUMB_QUALITY = 65
-WM_MAX_SIDE = 1600
-WM_QUALITY = 75
+THUMB_MAX_SIDE = 600  # Lato lungo per thumbnail (griglia)
+THUMB_QUALITY = 70  # JPEG quality 65-75
+WM_MAX_SIDE = 2000  # Lato lungo per watermarked preview (zoom) - 2000px per zoom più bello
+WM_QUALITY = 75  # JPEG quality 70-80
 
 # Flag per abilitare generazione runtime (solo per debug/emergenze)
 ENABLE_RUNTIME_PREVIEW_GENERATION = os.getenv("ENABLE_RUNTIME_PREVIEW_GENERATION", "0") == "1"
@@ -1214,6 +1214,109 @@ def _normalize(v: np.ndarray) -> np.ndarray:
         return v
     return v / n
 
+def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int = 5) -> List[np.ndarray]:
+    """
+    Genera multipli embeddings da un'immagine con augmentazioni leggere.
+    
+    Args:
+        img: Immagine OpenCV BGR
+        num_embeddings: Numero di embeddings da generare (default 5)
+    
+    Returns:
+        Lista di embeddings normalizzati
+    """
+    assert face_app is not None
+    embeddings = []
+    
+    # Detection iniziale del volto
+    faces = face_app.get(img)
+    if not faces:
+        return []
+    
+    # Prendi il volto più grande
+    faces_sorted = sorted(
+        faces,
+        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+        reverse=True
+    )
+    if not faces_sorted:
+        return []
+    
+    main_face = faces_sorted[0]
+    bbox = main_face.bbox  # [x1, y1, x2, y2]
+    
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+    
+    # Padding e rotazioni leggere
+    augment_configs = [
+        {"padding": 0.05, "rotation": 0},      # Originale con padding
+        {"padding": 0.10, "rotation": 0},      # Più padding
+        {"padding": 0.05, "rotation": -2},      # Rotazione leggera sinistra
+        {"padding": 0.05, "rotation": 2},       # Rotazione leggera destra
+        {"padding": 0.08, "rotation": 0},      # Padding medio
+    ]
+    
+    # Limita al numero richiesto
+    augment_configs = augment_configs[:num_embeddings]
+    
+    for aug_config in augment_configs:
+        try:
+            # Calcola crop con padding
+            face_w = x2 - x1
+            face_h = y2 - y1
+            padding_w = int(face_w * aug_config["padding"])
+            padding_h = int(face_h * aug_config["padding"])
+            
+            crop_x1 = max(0, x1 - padding_w)
+            crop_y1 = max(0, y1 - padding_h)
+            crop_x2 = min(w, x2 + padding_w)
+            crop_y2 = min(h, y2 + padding_h)
+            
+            # Estrai crop
+            crop = img[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+            
+            # Applica rotazione leggera se necessario
+            if aug_config["rotation"] != 0:
+                center = (crop.shape[1] // 2, crop.shape[0] // 2)
+                M = cv2.getRotationMatrix2D(center, aug_config["rotation"], 1.0)
+                crop = cv2.warpAffine(crop, M, (crop.shape[1], crop.shape[0]), 
+                                     flags=cv2.INTER_LINEAR, 
+                                     borderMode=cv2.BORDER_REPLICATE)
+            
+            # Estrai embedding dal crop
+            faces_crop = face_app.get(crop)
+            if faces_crop:
+                # Prendi il volto più grande nel crop
+                faces_crop_sorted = sorted(
+                    faces_crop,
+                    key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                    reverse=True
+                )
+                if faces_crop_sorted:
+                    embedding = faces_crop_sorted[0].embedding.astype(np.float32)
+                    embedding = _normalize(embedding)
+                    embeddings.append(embedding)
+        except Exception as e:
+            logger.debug(f"[MULTI_EMB] Error generating augmented embedding: {e}")
+            continue
+    
+    # Se non abbiamo abbastanza embeddings, usa quello originale più volte
+    if len(embeddings) == 0:
+        # Fallback: usa embedding originale
+        embedding = main_face.embedding.astype(np.float32)
+        embedding = _normalize(embedding)
+        embeddings.append(embedding)
+    elif len(embeddings) < num_embeddings:
+        # Completa con embedding originale
+        embedding = main_face.embedding.astype(np.float32)
+        embedding = _normalize(embedding)
+        while len(embeddings) < num_embeddings:
+            embeddings.append(embedding)
+    
+    logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings from image")
+    return embeddings
+
 def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
     """Carica i metadata dal file JSONL"""
     rows = []
@@ -1948,7 +2051,7 @@ def _add_watermark_from_bytes(image_bytes: bytes) -> bytes:
         return image_bytes
 
 def _generate_thumb(image_bytes: bytes) -> bytes:
-    """Genera thumbnail JPEG da bytes (max 600px lato lungo, qualità 55-65)"""
+    """Genera thumbnail JPEG da bytes (max 600px lato lungo, qualità 70)"""
     try:
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode != 'RGB':
@@ -1977,7 +2080,7 @@ def _generate_thumb(image_bytes: bytes) -> bytes:
         raise
 
 def _generate_wm_preview(image_bytes: bytes) -> bytes:
-    """Genera versione watermarked precomputata (max 2000px, qualità 75-85)"""
+    """Genera versione watermarked precomputata (max 2000px lato lungo, qualità 75)"""
     try:
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode != 'RGB':
@@ -2038,7 +2141,7 @@ async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
     Assicura che thumb e wm preview esistano per una foto.
     
     Args:
-        r2_key: Chiave R2 completa della foto (es. "photos/2024-01-12/tour123/MIT00071.jpg")
+        r2_key: Chiave R2 della foto (filename semplice, es. "IMG_1016.jpg")
     
     Returns:
         (thumb_created, wm_created): True se creato in questa chiamata, False se già esisteva
@@ -2050,55 +2153,65 @@ async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
     if not USE_R2 or r2_client is None:
         return False, False
     
-    # Costruisci chiavi thumb/wm mantenendo la struttura del path
-    # Esempio: photos/2024-01-12/tour123/file.jpg -> thumbs/2024-01-12/tour123/file.jpg
-    if r2_key.startswith("photos/"):
-        thumb_key = r2_key.replace("photos/", f"{THUMB_PREFIX}", 1)
-        wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
-    else:
-        # Fallback per chiavi senza prefisso photos/ (retrocompatibilità)
-        thumb_key = f"{THUMB_PREFIX}{r2_key}"
-        wm_key = f"{WM_PREFIX}{r2_key}"
+    # Estrai filename base (rimuovi eventuali path)
+    from pathlib import Path
+    filename = Path(r2_key).name
+    
+    # Costruisci chiavi thumb/wm semplici
+    thumb_key = f"{THUMB_PREFIX}{filename}"
+    wm_key = f"{WM_PREFIX}{filename}"
     thumb_created = False
     wm_created = False
     original_bytes = None
     
-    # Verifica thumb
+    # Verifica thumb (skip intelligente)
     try:
         r2_client.head_object(Bucket=R2_BUCKET, Key=thumb_key)
-        # Esiste già
-    except:
-        # Non esiste, genera
-        try:
-            # Scarica originale
-            original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
-            # Genera thumb
-            thumb_bytes = _generate_thumb(original_bytes)
-            # Upload su R2
-            r2_client.put_object(Bucket=R2_BUCKET, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
-            thumb_created = True
-            logger.info(f"[PREVIEW] Generated thumb: {thumb_key}")
-        except Exception as e:
-            logger.error(f"[PREVIEW] Error generating thumb for {r2_key}: {e}")
+        # Esiste già, skip
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        if error_code in ('404', 'NoSuchKey'):
+            # Non esiste, genera
+            try:
+                # Scarica originale
+                original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+                # Genera thumb
+                thumb_bytes = _generate_thumb(original_bytes)
+                # Upload su R2
+                r2_client.put_object(Bucket=R2_BUCKET, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
+                thumb_created = True
+                logger.info(f"[PREVIEW] Generated thumb: {thumb_key}")
+            except Exception as e:
+                logger.error(f"[PREVIEW] Error generating thumb for {r2_key}: {e}")
+        else:
+            logger.error(f"[PREVIEW] R2 error checking thumb {thumb_key}: {e}")
+    except Exception as e:
+        logger.error(f"[PREVIEW] Unexpected error checking thumb {thumb_key}: {e}")
     
-    # Verifica wm
+    # Verifica wm (skip intelligente)
     try:
         r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
-        # Esiste già
-    except:
-        # Non esiste, genera
-        try:
-            # Scarica originale se non già scaricato
-            if original_bytes is None:
-                original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
-            # Genera wm
-            wm_bytes = _generate_wm_preview(original_bytes)
-            # Upload su R2
-            r2_client.put_object(Bucket=R2_BUCKET, Key=wm_key, Body=wm_bytes, ContentType='image/jpeg')
-            wm_created = True
-            logger.info(f"[PREVIEW] Generated wm preview: {wm_key}")
-        except Exception as e:
-            logger.error(f"[PREVIEW] Error generating wm preview for {r2_key}: {e}")
+        # Esiste già, skip
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        if error_code in ('404', 'NoSuchKey'):
+            # Non esiste, genera
+            try:
+                # Scarica originale se non già scaricato
+                if original_bytes is None:
+                    original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+                # Genera wm
+                wm_bytes = _generate_wm_preview(original_bytes)
+                # Upload su R2
+                r2_client.put_object(Bucket=R2_BUCKET, Key=wm_key, Body=wm_bytes, ContentType='image/jpeg')
+                wm_created = True
+                logger.info(f"[PREVIEW] Generated wm: {wm_key}")
+            except Exception as e:
+                logger.error(f"[PREVIEW] Error generating wm for {r2_key}: {e}")
+        else:
+            logger.error(f"[PREVIEW] R2 error checking wm {wm_key}: {e}")
+    except Exception as e:
+        logger.error(f"[PREVIEW] Unexpected error checking wm {wm_key}: {e}")
     
     return thumb_created, wm_created
 
@@ -2844,7 +2957,7 @@ async def sync_index_with_r2_incremental():
             # Log totale keys e sample
             logger.info(f"[INDEXING] list total keys={len(all_keys)} sample={all_keys[:20]}")
             
-            # Filtra per originali
+            # Filtra per originali (solo filename, non path complessi)
             r2_originals_keys = set()
             for key in all_keys:
                 # Escludi file di sistema
@@ -2853,17 +2966,14 @@ async def sync_index_with_r2_incremental():
                 # Escludi preview (wm/ e thumbs/)
                 if key.startswith("wm/") or key.startswith("thumbs/"):
                     continue
-                # Include solo immagini originali
-                # Se R2_PHOTOS_PREFIX è impostato, accetta solo keys che iniziano con quel prefix
-                if R2_PHOTOS_PREFIX:
-                    if not key.startswith(R2_PHOTOS_PREFIX):
-                        continue
-                # Se R2_PHOTOS_PREFIX è vuoto, accetta qualsiasi path (già esclusi wm/ e thumbs/)
-                
+                # Include solo immagini originali (estensioni case-insensitive)
                 if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic']):
                     continue
                 
-                r2_originals_keys.add(key)
+                # Estrai solo filename (basename) come r2_key
+                from pathlib import Path
+                filename = Path(key).name
+                r2_originals_keys.add(filename)
             
             # Log keys dopo filtro originali
             r2_originals_list = sorted(list(r2_originals_keys))
@@ -2925,14 +3035,24 @@ async def sync_index_with_r2_incremental():
             new_faces_count = 0
             previews_generated_count = 0
             
-            for r2_key in to_add:
+            for filename in to_add:
                 try:
-                    # Estrai display_name (basename)
-                    from pathlib import Path
-                    display_name = Path(r2_key).name
+                    # filename è già il basename (es. "IMG_1016.jpg")
+                    # Cerca la foto in R2 (potrebbe essere in qualsiasi posizione nel bucket)
+                    # Prima prova con filename diretto
+                    r2_key_to_download = filename
+                    photo_bytes = None
+                    
+                    # Se non trovata, cerca in tutte le keys
+                    if filename not in all_keys:
+                        # Cerca una key che finisce con questo filename
+                        for key in all_keys:
+                            if key.endswith(f"/{filename}") or key == filename:
+                                r2_key_to_download = key
+                                break
                     
                     # Scarica foto da R2
-                    photo_bytes = await _r2_get_object_bytes(r2_key)
+                    photo_bytes = await _r2_get_object_bytes(r2_key_to_download)
                     
                     # Decodifica immagine
                     nparr = np.frombuffer(photo_bytes, np.uint8)
@@ -2956,28 +3076,27 @@ async def sync_index_with_r2_incremental():
                         embedding_reshaped = embedding.reshape(1, -1)
                         new_faiss_index.add(embedding_reshaped)
                         
-                        # Metadata con r2_key e display_name
+                        # Metadata con r2_key = filename (semplice)
                         bbox = face.bbox
                         new_meta_rows.append({
-                            "r2_key": r2_key,  # Chiave R2 completa
-                            "display_name": display_name,  # Solo nome file
-                            "photo_id": r2_key,  # Compatibilità retroattiva
+                            "r2_key": filename,  # Solo filename (es. "IMG_1016.jpg")
+                            "display_name": filename,  # Stesso del r2_key
+                            "photo_id": filename,  # Compatibilità retroattiva
                             "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
                             "det_score": float(face.det_score)
                         })
                         new_faces_count += 1
                         faces_total += 1
                     
-                    # Genera preview per le nuove foto (rate limited: max 3)
-                    if previews_generated_count < 3:
-                        thumb_created, wm_created = await ensure_previews_for_photo(r2_key)
-                        if thumb_created:
-                            previews_generated_count += 1
-                        if wm_created:
-                            previews_generated_count += 1
+                    # Genera preview per OGNI nuova foto (skip intelligente: controlla esistenza prima)
+                    thumb_created, wm_created = await ensure_previews_for_photo(filename)
+                    if thumb_created:
+                        previews_generated_count += 1
+                    if wm_created:
+                        previews_generated_count += 1
                     
                 except Exception as e:
-                    logger.error(f"[INDEXING] Error processing new photo {r2_key}: {e}")
+                    logger.error(f"[INDEXING] Error processing new photo {filename}: {e}")
                     continue
             
             # ========== STEP 6: Swap atomico ==========
@@ -3347,45 +3466,19 @@ async def fix_paid_photos(email: str = Query(..., description="Email utente")):
 
 @app.get("/thumb/{photo_id:path}")
 async def serve_thumb(photo_id: str):
-    """Endpoint per servire thumbnail precomputati (solo bytes da R2, no processing)"""
-    if not USE_R2 or not r2_client:
-        raise HTTPException(status_code=503, detail="R2 storage not available")
-    
-    thumb_key = f"{THUMB_PREFIX}{photo_id}"
-    
-    try:
-        photo_bytes = await _r2_get_object_bytes(thumb_key)
-        return Response(
-            content=photo_bytes,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "public, max-age=31536000, immutable"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error serving thumb {photo_id}: {e}")
-        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    """Endpoint per servire thumbnail: redirect a R2 pubblico (deprecato, usa /photo?variant=thumb)"""
+    # Redirect a /photo con variant=thumb
+    from urllib.parse import quote
+    photo_id_encoded = quote(photo_id, safe='')
+    return RedirectResponse(url=f"/photo/{photo_id_encoded}?variant=thumb", status_code=302)
 
 @app.get("/wm/{photo_id:path}")
 async def serve_wm(photo_id: str):
-    """Endpoint per servire preview watermarked precomputati (solo bytes da R2, no processing)"""
-    if not USE_R2 or not r2_client:
-        raise HTTPException(status_code=503, detail="R2 storage not available")
-    
-    wm_key = f"{WM_PREFIX}{photo_id}"
-    
-    try:
-        photo_bytes = await _r2_get_object_bytes(wm_key)
-        return Response(
-            content=photo_bytes,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "public, max-age=31536000, immutable"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error serving wm {photo_id}: {e}")
-        raise HTTPException(status_code=404, detail="Watermarked preview not found")
+    """Endpoint per servire preview watermarked: redirect a R2 pubblico (deprecato, usa /photo?variant=wm)"""
+    # Redirect a /photo con variant=wm
+    from urllib.parse import quote
+    photo_id_encoded = quote(photo_id, safe='')
+    return RedirectResponse(url=f"/photo/{photo_id_encoded}?variant=wm", status_code=302)
 
 @app.get("/photo/{filename:path}")
 async def serve_photo(
@@ -3403,7 +3496,7 @@ async def serve_photo(
     logger.info(f"Filename parameter: {filename}, variant: {variant}")
     logger.info(f"Paid: {paid}, Token: {token is not None}, Email: {email is not None}")
     
-    # Decodifica il filename (potrebbe essere URL encoded r2_key completo)
+    # Decodifica il filename (potrebbe essere URL encoded)
     try:
         from urllib.parse import unquote
         decoded_filename = unquote(filename)
@@ -3413,103 +3506,45 @@ async def serve_photo(
         decoded_filename = filename
     
     # Rimuovi prefissi wm/ e thumbs/ se presenti (per retrocompatibilità)
-    r2_key = decoded_filename.strip().lstrip("/")
+    original_key = decoded_filename.strip().lstrip("/")
     while True:
-        if r2_key.startswith("wm/"):
-            r2_key = r2_key[3:]
+        if original_key.startswith("wm/"):
+            original_key = original_key[3:]
             continue
-        if r2_key.startswith("thumbs/"):
-            r2_key = r2_key[7:]
+        if original_key.startswith("thumbs/"):
+            original_key = original_key[7:]
+            continue
+        # Rimuovi anche "photos/" se presente (retrocompatibilità)
+        if original_key.startswith("photos/"):
+            from pathlib import Path
+            original_key = Path(original_key).name
             continue
         break
     
-    # Validazione: r2_key deve essere non vuoto
-    if not r2_key:
-        logger.error(f"Invalid photo key: original={decoded_filename}, r2_key={r2_key}")
+    # Validazione: original_key deve essere non vuoto
+    if not original_key:
+        logger.error(f"Invalid photo key: original={decoded_filename}, original_key={original_key}")
         raise HTTPException(status_code=400, detail="Invalid photo key")
     
-    logger.info(f"[PHOTO] r2_key={r2_key} variant={variant}")
+    logger.info(f"[PHOTO] original_key={original_key} variant={variant}")
     
-    # Gestisci variant=thumb e variant=wm (priorità su tutto)
-    # Costruisci chiavi thumb/wm mantenendo la struttura del path
+    # Verifica R2 configurato
+    if not USE_R2 or r2_client is None:
+        logger.error("R2 storage not configured. Cannot serve photos.")
+        raise HTTPException(status_code=503, detail="Photo storage not available")
+    
+    # Determina object_key in base a variant
     if variant == "thumb":
-        if r2_key.startswith("photos/"):
-            object_key = r2_key.replace("photos/", f"{THUMB_PREFIX}", 1)
-        else:
-            object_key = f"{THUMB_PREFIX}{r2_key}"
-        
-        # Verifica esistenza su R2 con head_object
-        try:
-            r2_client.head_object(Bucket=R2_BUCKET, Key=object_key)
-            # Esiste: redirect a URL pubblico R2
-            if not R2_PUBLIC_BASE_URL:
-                raise HTTPException(status_code=503, detail="R2_PUBLIC_BASE_URL not configured")
-            public_url = _get_r2_public_url(object_key)
-            logger.info(f"[PHOTO] Redirecting thumb to R2: {object_key}")
-            return RedirectResponse(
-                url=public_url,
-                status_code=302,
-                headers={"Cache-Control": "public, max-age=31536000, immutable"}
-            )
-        except Exception as e:
-            # Gestisci errori boto3/botocore
-            error_code = None
-            if hasattr(e, 'response') and e.response:
-                error_code = e.response.get('Error', {}).get('Code', '')
-            elif hasattr(e, 'error_code'):
-                error_code = e.error_code
-            
-            if error_code in ('404', 'NoSuchKey'):
-                logger.warning(f"[PHOTO] Missing object in R2: {object_key}")
-                raise HTTPException(status_code=404, detail="Thumbnail not found")
-            else:
-                logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
-                raise HTTPException(status_code=503, detail="R2 storage error")
-    
-    if variant == "wm":
-        if r2_key.startswith("photos/"):
-            object_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
-        else:
-            object_key = f"{WM_PREFIX}{r2_key}"
-        
-        # Verifica esistenza su R2 con head_object
-        try:
-            r2_client.head_object(Bucket=R2_BUCKET, Key=object_key)
-            # Esiste: redirect a URL pubblico R2
-            if not R2_PUBLIC_BASE_URL:
-                raise HTTPException(status_code=503, detail="R2_PUBLIC_BASE_URL not configured")
-            public_url = _get_r2_public_url(object_key)
-            logger.info(f"[PHOTO] Redirecting wm to R2: {object_key}")
-            return RedirectResponse(
-                url=public_url,
-                status_code=302,
-                headers={"Cache-Control": "public, max-age=31536000, immutable"}
-            )
-        except Exception as e:
-            # Gestisci errori boto3/botocore
-            error_code = None
-            if hasattr(e, 'response') and e.response:
-                error_code = e.response.get('Error', {}).get('Code', '')
-            elif hasattr(e, 'error_code'):
-                error_code = e.error_code
-            
-            if error_code in ('404', 'NoSuchKey'):
-                logger.warning(f"[PHOTO] Missing object in R2: {object_key}")
-                raise HTTPException(status_code=404, detail="Watermarked preview not found")
-            else:
-                logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
-                raise HTTPException(status_code=503, detail="R2 storage error")
-    
-    # Usa r2_key per i check pagamento
-    filename_check = r2_key
+        object_key = f"{THUMB_PREFIX}{original_key}"
+    elif variant == "wm":
+        object_key = f"{WM_PREFIX}{original_key}"
+    else:
+        # Original variant: verifica pagamento
+        filename_check = original_key
     
     # Verifica se la foto è pagata usando token o email
-    # IMPORTANTE: NON fidarsi mai del query param `paid=true` da solo.
-    # `paid=true` serve solo come segnale UI, ma l'autorizzazione reale arriva da token/email.
-    # Inizializza sempre a False e verifica solo tramite token/email validi.
     is_paid = False
     
-    # Se il client passa paid=true, logga che viene ignorato (verifica server-side solo)
     if paid:
         logger.info("Ignoring client paid flag; server-side verification only")
 
@@ -3523,18 +3558,17 @@ async def serve_photo(
                     expires_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
                     now = datetime.now(timezone.utc)
                     if now > expires_date:
-                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, r2_key={r2_key}")
+                        logger.info(f"Token expired, forcing watermark: {token[:8]}... expires_at={expires_at}, original_key={original_key}")
                         is_paid = False
                     else:
                         is_paid = True
-                        logger.info(f"Photo verified as paid via token: r2_key={r2_key}")
+                        logger.info(f"Photo verified as paid via token: original_key={original_key}")
                 except Exception as e:
                     logger.error(f"Error parsing expires_at for token validation: {e}")
                     is_paid = False
             else:
-                # Nessuna scadenza, valido
                 is_paid = True
-                logger.info(f"Photo verified as paid via token (no expiry): r2_key={r2_key}")
+                logger.info(f"Photo verified as paid via token (no expiry): original_key={original_key}")
 
     # Fallback: verifica per email (solo se non già pagata via token)
     if (not is_paid) and email:
@@ -3542,72 +3576,81 @@ async def serve_photo(
             paid_photos = await _get_user_paid_photos(email)
             if filename_check in paid_photos:
                 is_paid = True
-                logger.info(f"Photo verified as paid via email: r2_key={r2_key}")
+                logger.info(f"Photo verified as paid via email: original_key={original_key}")
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
-    
-    # Servire da R2 (unico storage supportato)
-    if not USE_R2 or r2_client is None:
-        logger.error("R2 storage not configured. Cannot serve photos.")
-        raise HTTPException(status_code=503, detail="Photo storage not available")
-    
-    # Determina quale key usare su R2 in base a is_paid
-    if is_paid:
-        # Foto pagata: serve originale (key = r2_key completo, senza prefix)
-        object_key = r2_key
-        logger.info(f"[PHOTO] Redirecting ORIGINAL to R2: key={object_key} (paid=true)")
-    else:
-        # Foto non pagata: serve watermarked (mantiene struttura path)
-        if r2_key.startswith("photos/"):
-            object_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
+        # Determina quale key usare su R2 in base a is_paid
+        if is_paid:
+            object_key = original_key
+            logger.info(f"[PHOTO] Redirecting ORIGINAL to R2: key={object_key} (paid=true)")
         else:
-            object_key = f"{WM_PREFIX}{r2_key}"
-        logger.info(f"[PHOTO] Redirecting WM to R2: key={object_key} (paid=false)")
+            object_key = f"{WM_PREFIX}{original_key}"
+            logger.info(f"[PHOTO] Redirecting WM to R2: key={object_key} (paid=false)")
     
-    # Verifica esistenza su R2 con head_object
-    try:
-        r2_client.head_object(Bucket=R2_BUCKET, Key=object_key)
-        # Esiste: redirect a URL pubblico R2
-        if not R2_PUBLIC_BASE_URL:
-            raise HTTPException(status_code=503, detail="R2_PUBLIC_BASE_URL not configured")
+    # Se R2_PUBLIC_BASE_URL è configurato, usa redirect (produzione)
+    if R2_PUBLIC_BASE_URL:
+        # Costruisci URL pubblico R2 e redirect (senza verificare esistenza - Cloudflare gestirà 404)
         public_url = _get_r2_public_url(object_key)
         
-        # Track download se pagato
-        if is_paid:
+        # Track download se pagato (solo per original)
+        if variant is None and is_paid:
             from pathlib import Path
-            base = Path(r2_key).name
+            base = Path(original_key).name
             _track_download(base)
         
-        # Se download=true, aggiungi header Content-Disposition (il CDN potrebbe ignorarlo, ma proviamo)
+        # Headers con Cache-Control aggressivo
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         if download:
             from pathlib import Path
-            headers["Content-Disposition"] = f'attachment; filename="{Path(r2_key).name}"'
+            headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
         
+        logger.info(f"[PHOTO] Redirecting to R2: {object_key}")
         return RedirectResponse(
             url=public_url,
             status_code=302,
             headers=headers
         )
-        
-    except Exception as e:
-        # Gestisci errori boto3/botocore
-        error_code = None
-        if hasattr(e, 'response') and e.response:
+    else:
+        # Fallback locale: scarica da R2 e servi bytes (solo per sviluppo)
+        logger.warning(f"[PHOTO] R2_PUBLIC_BASE_URL not configured, using fallback (local dev mode)")
+        try:
+            photo_bytes = await _r2_get_object_bytes(object_key)
+            
+            # Track download se pagato (solo per original)
+            if variant is None and is_paid:
+                from pathlib import Path
+                base = Path(original_key).name
+                _track_download(base)
+            
+            # Headers
+            headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+            if download:
+                from pathlib import Path
+                headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
+            
+            logger.info(f"[PHOTO] Serving from R2 (fallback mode): {object_key}")
+            return Response(
+                content=photo_bytes,
+                media_type="image/jpeg",
+                headers=headers
+            )
+        except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
-        elif hasattr(e, 'error_code'):
-            error_code = e.error_code
-        
-        if error_code in ('404', 'NoSuchKey'):
-            logger.warning(f"[PHOTO] Missing object in R2: {object_key}")
-            raise HTTPException(status_code=404, detail="Photo not found")
-        else:
-            logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
-            raise HTTPException(status_code=503, detail="R2 storage error")
-    except Exception as e:
-        logger.error(f"Unexpected error serving photo from R2: {type(e).__name__}: {e}, key={r2_key}")
-        raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
+            if error_code in ('404', 'NoSuchKey'):
+                logger.warning(f"[PHOTO] Missing R2 object: {object_key}")
+                if variant == "thumb":
+                    raise HTTPException(status_code=404, detail="Thumbnail not found")
+                elif variant == "wm":
+                    raise HTTPException(status_code=404, detail="Watermarked preview not found")
+                else:
+                    raise HTTPException(status_code=404, detail="Photo not found")
+            else:
+                logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
+                raise HTTPException(status_code=503, detail="R2 storage error")
+        except Exception as e:
+            logger.error(f"[PHOTO] Unexpected error serving photo: {type(e).__name__}: {e}, key={object_key}")
+            raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
 
 # ========== ENDPOINT UTENTI ==========
 
@@ -5120,16 +5163,13 @@ async def _filter_photos_by_rules(
 
         verified_photo_scores[r2_key] = (best_score, second_best_score, best_idx)
     
-    # 3) Filtra per esistenza su R2 (wm/<r2_key> mantenendo struttura path)
+    # 3) Filtra per esistenza su R2 (wm/<filename>)
     r2_verified_scores: Dict[str, Tuple[float, Optional[float], int]] = {}
     
     if USE_R2 and r2_client:
         for r2_key, score_data in verified_photo_scores.items():
-            # Costruisci wm_key mantenendo struttura path
-            if r2_key.startswith("photos/"):
-                wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
-            else:
-                wm_key = f"{WM_PREFIX}{r2_key}"
+            # Costruisci wm_key semplice (r2_key è già filename)
+            wm_key = f"{WM_PREFIX}{r2_key}"
             try:
                 # Verifica esistenza senza scaricare (head_object è veloce)
                 r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
@@ -5179,21 +5219,143 @@ async def _filter_photos_by_rules(
 
 # ========== ENDPOINT ESISTENTI ==========
 
+def _extract_frames_from_video(video_bytes: bytes, max_frames: int = 5) -> List[np.ndarray]:
+    """
+    Estrae N frame chiave da un video (mp4/mov).
+    
+    Args:
+        video_bytes: Bytes del video
+        max_frames: Numero massimo di frame da estrarre (default 5)
+    
+    Returns:
+        Lista di frame (immagini OpenCV BGR) ridimensionate a max 720px lato lungo
+    """
+    import tempfile
+    import os
+    
+    frames = []
+    
+    # Salva video in file temporaneo
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+        tmp_path = tmp_file.name
+        tmp_file.write(video_bytes)
+    
+    try:
+        # Apri video con OpenCV
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            logger.warning("[VIDEO] Failed to open video file")
+            return frames
+        
+        # Ottieni FPS e frame count
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        if frame_count == 0 or fps <= 0:
+            logger.warning("[VIDEO] Video has zero frames or invalid FPS")
+            cap.release()
+            return frames
+        
+        # Calcola frame target per percentuali: 10%, 30%, 50%, 70%, 90%
+        percentages = [0.1, 0.3, 0.5, 0.7, 0.9]
+        frame_targets = [int(frame_count * p) for p in percentages[:max_frames]]
+        
+        for target_frame in frame_targets:
+            # Vai al frame corrispondente
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+            
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            
+            # Ridimensiona a max 720px lato lungo
+            h, w = frame.shape[:2]
+            max_dim = max(h, w)
+            if max_dim > 720:
+                scale = 720.0 / max_dim
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            
+            frames.append(frame)
+        
+        cap.release()
+        duration = frame_count / fps if fps > 0 else 0
+        logger.info(f"[VIDEO] Extracted {len(frames)} frames from video (frames={frame_count} fps={fps:.1f} duration={duration:.2f}s)")
+        
+    except Exception as e:
+        logger.error(f"[VIDEO] Error extracting frames: {e}")
+    finally:
+        # Rimuovi file temporaneo
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+    
+    return frames
+
+def _extract_embeddings_from_frames(frames: List[np.ndarray]) -> List[np.ndarray]:
+    """
+    Estrae embedding da una lista di frame.
+    
+    Args:
+        frames: Lista di frame (immagini OpenCV BGR)
+    
+    Returns:
+        Lista di embeddings normalizzati (uno per frame)
+    """
+    assert face_app is not None
+    embeddings = []
+    
+    for idx, frame in enumerate(frames):
+        faces = face_app.get(frame)
+        if faces:
+            # Prendi il volto più grande
+            faces_sorted = sorted(
+                faces,
+                key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                reverse=True
+            )
+            if faces_sorted:
+                embedding = faces_sorted[0].embedding.astype(np.float32)
+                embedding = _normalize(embedding)
+                embeddings.append(embedding)
+                logger.debug(f"[VIDEO] Frame {idx+1}: face detected")
+    
+    return embeddings
+
 @app.post("/match_selfie")
 async def match_selfie(
     selfie: UploadFile = File(...),
     email: Optional[str] = Query(None, description="Email utente (opzionale, per salvare foto trovate)"),
-    top_k_faces: int = Query(120),
-    min_score: float = Query(0.35, description="Soglia minima di similarità (0.0-1.0). Più alta = meno falsi positivi")
+    top_k_faces: int = Query(300, description="Numero massimo di volti da cercare (default 300 per 'tutte le foto')"),
+    min_score: float = Query(0.25, description="Soglia minima di similarità (default 0.25)"),
+    # Parametri per two-pass query expansion
+    strict_min_score: float = Query(0.35, description="Soglia strict per Pass 1 (default 0.35)"),
+    soft_min_score: float = Query(0.30, description="Soglia soft per Pass 2 (default 0.30)"),
+    det_min_score: float = Query(0.65, description="Soglia det_score per Pass 1 (default 0.65)"),
+    det_min_score_soft: float = Query(0.55, description="Soglia det_score per Pass 2 (default 0.55, più permissiva)"),
+    top_k_pass1: int = Query(200, description="Top K per Pass 1 (default 200)"),
+    top_k_pass2: int = Query(400, description="Top K per Pass 2 (default 400)"),
+    target_min_results: int = Query(15, description="Minimo risultati Pass 1 per saltare Pass 2 (default 15)")
 ):
     """
-    Endpoint per il face matching usando pipeline STRICT + RESCUE (consensus):
-    - FASE STRICT: usa embedding robusto (media) con min_score >= 0.35, det_score >= 0.80
-    - FASE RESCUE: usa 7 embeddings varianti, richiede almeno 3 hits, min_score >= 0.30, det_score >= 0.75
-    - Nessun altro percorso di matching
+    Endpoint per face matching con Two-Pass Query Expansion:
+    - Accetta selfie (immagine) o mini-video (mp4/mov, 2-3 secondi)
+    - Se video: estrae 5 frame chiave e crea embedding medio
+    - Pass 1: ricerca strict (soglie 0.35/0.65), se risultati >= target_min ritorna
+    - Pass 2: query expansion con anchor embedding (soglie 0.30/0.60), unisce con Pass 1
+    - Nessun check R2 durante match (solo embedding + FAISS + metadata)
+    - Ritorna fino a 80 foto ordinate per score
+    - Logging dettagliato per debug
     """
     global meta_rows
     _ensure_ready()
+    
+    start_time = time.time()
+    
+    # Salva meta_rows originale per ripristino (prima di qualsiasi return)
+    old_meta_rows = meta_rows
     
     try:
         # Gestisci indice vuoto o metadata mancanti
@@ -5208,20 +5370,15 @@ async def match_selfie(
                 "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
             }
         
-        # RICARICA SEMPRE I METADATA DAI FILE JSON (come /admin/photos-by-date)
-        # Questo assicura che i dati siano sempre aggiornati, anche dopo cancellazioni/aggiunte
+        # RICARICA SEMPRE I METADATA DAI FILE JSON
         current_meta_rows = []
         if R2_ONLY_MODE:
-            # In R2_ONLY_MODE usa meta_rows già caricati
             current_meta_rows = meta_rows
         elif META_PATH.exists():
             current_meta_rows = _load_meta_jsonl(META_PATH)
-            logger.info(f"Reloaded {len(current_meta_rows)} photo metadata from {META_PATH}")
         else:
-            logger.warning(f"Metadata file not found: {META_PATH}")
             current_meta_rows = []
         
-        # Se non ci sono metadata, non ci sono foto da cercare
         if len(current_meta_rows) == 0:
             logger.info("No photos in metadata - returning empty result")
             return {
@@ -5233,420 +5390,407 @@ async def match_selfie(
                 "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
             }
         
-        # Leggi l'immagine dal selfie
+        # Leggi file (può essere immagine o video)
         file_bytes = await selfie.read()
-        img = _read_image_from_bytes(file_bytes)
+        content_type = selfie.content_type or ""
+        filename = selfie.filename or ""
         
-        # Rileva i volti nel selfie
-        assert face_app is not None
-        faces = face_app.get(img)
+        # Log upload
+        import hashlib
+        sha1_hash = hashlib.sha1(file_bytes).hexdigest()[:8]
+        logger.info(f"[UPLOAD] content_type={content_type} size={len(file_bytes)} sha1={sha1_hash}")
         
-        matched_results: List[Dict[str, Any]] = []
+        # Determina se è video o immagine
+        is_video = (
+            content_type.startswith("video/") or
+            filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")) or
+            (len(file_bytes) > 12 and file_bytes[4:8] in [b"ftyp", b"moov"])  # Magic bytes per MP4/MOV
+        )
         
-        if faces:
-            # Genera embedding robusto (media) per fase STRICT
-            selfie_embedding = _generate_robust_selfie_embedding(img)
-            
-            if selfie_embedding is None:
-                logger.warning("No face detected in selfie variants")
+        ref_embeddings: List[np.ndarray] = []
+        
+        if is_video:
+            # Estrai frame da video
+            frames = _extract_frames_from_video(file_bytes, max_frames=5)
+            if not frames:
                 return {
                     "ok": True,
                     "count": 0,
                     "matches": [],
                     "results": [],
                     "matched_count": 0,
-                    "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
+                    "message": "Nessun frame valido estratto dal video. Assicurati che il video contenga volti visibili."
                 }
             
-            # Genera anche i 7 embeddings varianti per fase RESCUE
-            variant_embeddings = _generate_selfie_embeddings_variants(img)
+            # Estrai embedding da ogni frame
+            frame_embeddings = _extract_embeddings_from_frames(frames)
             
-            if not variant_embeddings:
-                logger.warning("No variant embeddings generated")
+            if len(frame_embeddings) < 2:
                 return {
                     "ok": True,
                     "count": 0,
                     "matches": [],
                     "results": [],
                     "matched_count": 0,
-                    "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
+                    "message": "Volti rilevati insufficienti nel video. Assicurati che almeno 2 frame contengano volti visibili."
                 }
             
-            # Stateless mode: non salvare embedding nel DB
-            # BLOCCA min_score a minimo 0.35 (ignora valori più bassi dal frontend)
-            min_score_received = float(min_score) if min_score is not None else 0.35
-            min_score_effective = max(min_score_received, 0.35)
-            logger.info(f"[PARAMS] min_score_received={min_score_received} min_score_effective={min_score_effective} top_k_faces={top_k_faces}")
-            
-            # AGGIORNA TEMPORANEAMENTE LE VARIABILI GLOBALI CON I METADATA FRESCHI
-            old_meta_rows = meta_rows
-            meta_rows = current_meta_rows
-            
-            try:
-                # ========== FASE 1: STRICT (zero falsi positivi) ==========
-                min_score_strict = max(min_score_effective, 0.40)  # FISSO a 0.40 per STRICT
-                strict_results = await _filter_photos_by_rules(
-                    selfie_embedding,
-                    email=email,
-                    min_score=min_score_strict,
-                    tour_date=None
-                )
-                
-                logger.info(f"[STRICT] final={len(strict_results)}")
-                
-                # Set di photo_id già inclusi in strict
-                strict_photo_ids = set(r["photo_id"] for r in strict_results if r.get("photo_id"))
-                
-                # ========== FASE 2: RESCUE CONSENSUS (profilo/bacio) ==========
-                rescue_results: List[Dict[str, Any]] = []
-                
-                if faiss_index is not None and len(meta_rows) > 0:
-                    # Parametri rescue
-                    min_score_soft = 0.32
-                    min_hits = 4  # Almeno 4 varianti su 7 devono matchare
-                    det_score_soft = 0.75
-                    top_k_rescue = 80
-                    
-                    # Accumula hits per photo_id: photo_id -> (hits_count, best_score_soft, best_idx_soft)
-                    rescue_hits: Dict[str, Tuple[int, float, int]] = {}
-                    
-                    # Per ogni variante, cerca foto
-                    for variant_idx, variant_emb in enumerate(variant_embeddings):
-                        variant_emb_reshaped = variant_emb.reshape(1, -1)
-                        D, I = faiss_index.search(variant_emb_reshaped, top_k_rescue)
-                        
-                        for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                            if idx < 0 or idx >= len(meta_rows):
-                                continue
-                            if score < min_score_soft:
-                                continue
-                            
-                            row = meta_rows[idx]
-                            # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
-                            r2_key = row.get("r2_key") or row.get("photo_id")
-                            if not r2_key:
-                                continue
-                            
-                            # NON normalizzare: r2_key deve essere la chiave completa
-                            
-                            # Salta se già incluso in strict
-                            if r2_key in strict_photo_ids:
-                                continue
-                            
-                            # Accumula hit
-                            s = float(score)
-                            if r2_key not in rescue_hits:
-                                rescue_hits[r2_key] = (1, s, idx)
-                            else:
-                                hits, best_score, best_idx = rescue_hits[r2_key]
-                                rescue_hits[r2_key] = (hits + 1, max(best_score, s), idx if s > best_score else best_idx)
-                    
-                    # Filtra rescue: include solo se hits_count >= min_hits, best_score >= min_score_soft, det_score >= det_score_soft
-                    for r2_key, (hits_count, best_score_soft, best_idx_soft) in rescue_hits.items():
-                        if hits_count < min_hits:
-                            continue
-                        if best_score_soft < min_score_soft:
-                            continue
-                        
-                        # Verifica det_score
-                        if best_idx_soft >= 0 and best_idx_soft < len(meta_rows):
-                            row = meta_rows[best_idx_soft]
-                            det_score = row.get("det_score") or row.get("score")
-                            if det_score is not None:
-                                det_score_float = float(det_score)
-                                if det_score_float < det_score_soft:
-                                    continue
-                        
-                        # Verifica esistenza su R2 (wm/<r2_key> mantenendo struttura path)
-                        include_in_rescue = True
-                        if USE_R2 and r2_client:
-                            if r2_key.startswith("photos/"):
-                                wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
-                            else:
-                                wm_key = f"{WM_PREFIX}{r2_key}"
-                            try:
-                                r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
-                            except Exception:
-                                include_in_rescue = False
-                                logger.info(f"[RESCUE] R2 missing wm for r2_key={r2_key}, filtered out")
-                        
-                        if include_in_rescue:
-                            # Resolve the metadata row for the best soft match
-                            if best_idx_soft is None or best_idx_soft < 0 or best_idx_soft >= len(meta_rows):
-                                continue
-                            row_soft = meta_rows[best_idx_soft]
-
-                            det_score_val = row_soft.get("det_score")
-                            if det_score_val is None:
-                                # Some rows may use alternate keys
-                                det_score_val = row_soft.get("score")
-                            try:
-                                det_score_val = float(det_score_val) if det_score_val is not None else 1.0
-                            except Exception:
-                                det_score_val = 1.0
-                            
-                            # Estrai display_name
-                            from pathlib import Path
-                            display_name = Path(r2_key).name
-                            from urllib.parse import quote
-                            r2_key_encoded = quote(r2_key, safe='')
-                            
-                            rescue_results.append({
-                                "r2_key": r2_key,  # Chiave R2 completa
-                                "display_name": display_name,  # Solo nome file
-                                "photo_id": r2_key,  # Retrocompatibilità
-                                "score": best_score_soft,
-                                "has_face": True,
-                                "has_selfie": True,
-                                "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
-                                "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
-                            })
-                            
-                            logger.info(f"[RESCUE_ACCEPT] r2_key={r2_key} hits={hits_count} best_score_soft={best_score_soft:.3f} det_score={det_score_val:.3f}")
-                    
-                    logger.info(f"[RESCUE] final={len(rescue_results)} (min_hits=4, min_score=0.32)")
-                else:
-                    logger.info(f"[RESCUE] Skipped (faiss_index or meta_rows empty)")
-                
-                # Set di r2_key già inclusi in strict+rescue
-                rescue_photo_ids = set(r.get("r2_key") or r.get("photo_id") for r in rescue_results if r.get("r2_key") or r.get("photo_id"))
-                strict_rescue_photo_ids = strict_photo_ids | rescue_photo_ids
-                
-                # ========== FASE 3: OCCLUSION RESCUE (cappelli/occhiali/ombra) ==========
-                occlusion_results: List[Dict[str, Any]] = []
-                
-                if faiss_index is not None and len(meta_rows) > 0:
-                    # Genera varianti occlusion
-                    occlusion_embeddings = _generate_occlusion_variants(img)
-                    
-                    if occlusion_embeddings:
-                        # Parametri occlusion
-                        min_score_occ = 0.30
-                        min_hits_occ = 4  # Almeno 4 varianti su 5 devono matchare (consenso ALTISSIMO)
-                        det_score_occ = 0.70
-                        top_k_occ = 60
-                        
-                        # Accumula hits per photo_id: photo_id -> (hits_count, best_score_occ, best_idx_occ)
-                        occlusion_hits: Dict[str, Tuple[int, float, int]] = {}
-                        
-                        # Per ogni variante occlusion, cerca foto
-                        for occ_idx, occ_emb in enumerate(occlusion_embeddings):
-                            occ_emb_reshaped = occ_emb.reshape(1, -1)
-                            D, I = faiss_index.search(occ_emb_reshaped, top_k_occ)
-                            
-                            for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                                if idx < 0 or idx >= len(meta_rows):
-                                    continue
-                                if score < min_score_occ:
-                                    continue
-                                
-                                row = meta_rows[idx]
-                                # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
-                                r2_key = row.get("r2_key") or row.get("photo_id")
-                                if not r2_key:
-                                    continue
-                                
-                                # NON normalizzare: r2_key deve essere la chiave completa
-                                
-                                # Salta se già incluso in strict/rescue
-                                if r2_key in strict_rescue_photo_ids:
-                                    continue
-                                
-                                # Accumula hit
-                                s = float(score)
-                                if r2_key not in occlusion_hits:
-                                    occlusion_hits[r2_key] = (1, s, idx)
-                                else:
-                                    hits, best_score, best_idx = occlusion_hits[r2_key]
-                                    occlusion_hits[r2_key] = (hits + 1, max(best_score, s), idx if s > best_score else best_idx)
-                        
-                        # Filtra occlusion: include solo se hits_count >= min_hits_occ, best_score >= min_score_occ, det_score >= det_score_occ
-                        for r2_key, (hits_count, best_score_occ, best_idx_occ) in occlusion_hits.items():
-                            if hits_count < min_hits_occ:
-                                continue
-                            if best_score_occ < min_score_occ:
-                                continue
-                            
-                            # Verifica det_score
-                            if best_idx_occ >= 0 and best_idx_occ < len(meta_rows):
-                                row_occ = meta_rows[best_idx_occ]
-                                det_score = row_occ.get("det_score") or row_occ.get("score")
-                                if det_score is not None:
-                                    det_score_float = float(det_score)
-                                    if det_score_float < det_score_occ:
-                                        continue
-                                else:
-                                    continue
-                            else:
-                                continue
-                            
-                            # Verifica esistenza su R2 (wm/<r2_key> mantenendo struttura path)
-                            include_in_occ = True
-                            if USE_R2 and r2_client:
-                                if r2_key.startswith("photos/"):
-                                    wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
-                                else:
-                                    wm_key = f"{WM_PREFIX}{r2_key}"
-                                try:
-                                    r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
-                                except Exception:
-                                    include_in_occ = False
-                                    logger.info(f"[OCCLUSION] R2 missing wm for r2_key={r2_key}, filtered out")
-                            
-                            if include_in_occ:
-                                # Estrai display_name
-                                from pathlib import Path
-                                display_name = Path(r2_key).name
-                                from urllib.parse import quote
-                                r2_key_encoded = quote(r2_key, safe='')
-                                
-                                occlusion_results.append({
-                                    "r2_key": r2_key,  # Chiave R2 completa
-                                    "display_name": display_name,  # Solo nome file
-                                    "photo_id": r2_key,  # Retrocompatibilità
-                                    "score": best_score_occ,
-                                    "has_face": True,
-                                    "has_selfie": True,
-                                    "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
-                                    "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
-                                })
-                        
-                        logger.info(f"[OCCLUSION] final={len(occlusion_results)} (min_hits=4/5, min_score=0.30)")
-                    else:
-                        logger.info(f"[OCCLUSION] Skipped (no occlusion embeddings generated)")
-                else:
-                    logger.info(f"[OCCLUSION] Skipped (faiss_index or meta_rows empty)")
-                
-                # ========== UNISCI RISULTATI ==========
-                matched_results = strict_results + rescue_results + occlusion_results
-                
-                # Ordina per score decrescente (strict score > rescue score > occ score)
-                matched_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-                
-                # Limita a 60 risultati migliori
-                if len(matched_results) > 60:
-                    logger.info(f"Limiting results from {len(matched_results)} to 60 best matches")
-                    matched_results = matched_results[:60]
-                
-                logger.info(f"[FINAL] total={len(matched_results)}")
-                
-            finally:
-                # Ripristina le variabili globali originali
-                meta_rows = old_meta_rows
-            
-            # Limita a 50 risultati migliori per evitare troppi falsi positivi (già fatto sopra a 60)
-            # Set per evitare duplicati
-            seen_photos = set(r["photo_id"] for r in matched_results if r.get("photo_id"))
+            # Usa tutti gli embeddings dei frame come reference embeddings
+            ref_embeddings = frame_embeddings
+            logger.info(f"[VIDEO] frames_ok={len(frames)} ref_embeddings={len(ref_embeddings)}")
         else:
-            # Se non ci sono faces, inizializza seen_photos vuoto
-            seen_photos = set()
-            matched_results = []
-        
-        # Stateless mode: non salvare foto nel database
-        
-        # Risultati finali: SOLO matched_results (no back_photos)
-        all_results = matched_results
-        
-        # Filtra foto che non esistono più su R2 (VERIFICA OBBLIGATORIA - solo R2)
-        if not USE_R2 or r2_client is None:
-            logger.error("R2 not configured - cannot verify photo existence")
-            return {
-                "ok": False,
-                "error": "Photo storage (R2) not configured. Please contact administrator.",
-                "count": 0,
-                "matches": [],
-                "results": []
-            }
-        
-        # VERIFICA OBBLIGATORIA: ogni foto deve esistere su R2
-        filtered_results = []
-        for result in all_results:
-            # Usa r2_key se disponibile, altrimenti photo_id (retrocompatibilità)
-            r2_key = result.get("r2_key") or result.get("photo_id")
-            if not r2_key:
-                continue
+            # Immagine: genera multipli embeddings con augmentazioni
+            img = _read_image_from_bytes(file_bytes)
+            assert face_app is not None
+            faces = face_app.get(img)
             
-            # NON normalizzare: r2_key deve essere la chiave completa
+            if not faces:
+                return {
+                    "ok": True,
+                    "count": 0,
+                    "matches": [],
+                    "results": [],
+                    "matched_count": 0,
+                    "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
+                }
             
-            # Aggiorna il risultato con r2_key
-            result["r2_key"] = r2_key
-            result["photo_id"] = r2_key  # Retrocompatibilità
+            # Genera multipli embeddings con augmentazioni leggere
+            ref_embeddings = _generate_multi_embeddings_from_image(img, num_embeddings=5)
             
-            try:
-                # Verifica rapida se la preview wm/ esiste su R2 (per la griglia)
-                # Mantiene struttura path: photos/... -> wm/...
-                if r2_key.startswith("photos/"):
-                    wm_key = r2_key.replace("photos/", f"{WM_PREFIX}", 1)
-                else:
-                    wm_key = f"{WM_PREFIX}{r2_key}"
-                r2_client.head_object(Bucket=R2_BUCKET, Key=wm_key)
-                filtered_results.append(result)
-            except ClientError as e:
-                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-                if error_code == 'NoSuchKey':
-                    logger.info(f"[FILTER] R2 missing wm for r2_key={r2_key}, filtered out")
-                    continue
-                # Per altri errori, escludi comunque (non vogliamo foto che non possiamo servire)
-                logger.warning(f"R2 error for photo {r2_key}: {error_code}, filtering out")
-                continue
-            except Exception as e:
-                logger.warning(f"Error checking photo existence in R2: {e}, filtering out: {r2_key}")
-                continue
+            if len(ref_embeddings) == 0:
+                return {
+                    "ok": True,
+                    "count": 0,
+                    "matches": [],
+                    "results": [],
+                    "matched_count": 0,
+                    "message": "Impossibile estrarre embedding dal selfie."
+                }
+            
+            logger.info(f"[IMAGE] ref_embeddings={len(ref_embeddings)}")
         
-        if len(filtered_results) < len(all_results):
-            logger.info(f"Filtered out {len(all_results) - len(filtered_results)} photos that don't exist in R2")
-        
-        all_results = filtered_results
-        
-        # Se dopo il filtro R2 non ci sono foto, restituisci messaggio chiaro
-        if len(all_results) == 0:
-            logger.info("No photos found after R2 verification")
+        if len(ref_embeddings) == 0:
             return {
                 "ok": True,
                 "count": 0,
                 "matches": [],
                 "results": [],
                 "matched_count": 0,
-                "message": "Nessuna foto trovata. Le foto potrebbero essere state rimosse o non sono ancora state caricate su R2."
+                "message": "Impossibile estrarre embedding dal selfie."
             }
         
-        # Log finale
-        logger.info(f"Match completed: {len(matched_results)} matched photos")
-        if all_results:
-            logger.info(f"First 3 photo_ids: {[r['photo_id'] for r in all_results[:3]]}")
+        # Aggiorna temporaneamente meta_rows
+        meta_rows = current_meta_rows
         
-        # Aggiungi thumb_url e wm_url a ogni risultato (URL relativi)
-        # IMPORTANTE: normalizza photo_id rimuovendo eventuali prefissi (thumbs/, wm/)
-        for result in all_results:
-            photo_id = result.get("photo_id")
-            if photo_id:
-                # Normalizza usando la funzione helper
-                normalized_id = _normalize_photo_key(photo_id)
+        # ========== TWO-PASS QUERY EXPANSION ==========
+        n_faces_index = faiss_index.ntotal
+        n_meta_rows = len(meta_rows)
+        
+        logger.info(f"[MATCH] Starting two-pass: n_faces_index={n_faces_index} meta_rows={n_meta_rows} ref_embeddings={len(ref_embeddings)}")
+        
+        # Parametri per regole di conferma
+        super_match_score = 0.50  # Soglia per super match (bypass regola 2-su-N)
+        margin_delta = 0.03  # Margine minimo tra best e second best
+        
+        def _apply_filters_with_confirmation(
+            photo_scores: Dict[str, Tuple[float, int, float, int]], 
+            min_score_threshold: float, 
+            det_score_threshold: float,
+            ref_embeddings: List[np.ndarray],
+            super_match_score: float = 0.50,
+            margin_delta: float = 0.03
+        ) -> tuple[List[Dict], Dict[str, str], Dict[str, int]]:
+            """
+            Applica filtri con regole di conferma e margine.
+            
+            Args:
+                photo_scores: Dict[r2_key -> (best_score, best_idx, second_best_score, num_above_threshold)]
+                min_score_threshold: Soglia minima per best_score
+                det_score_threshold: Soglia minima per det_score
+                ref_embeddings: Lista di reference embeddings
+            
+            Returns:
+                (filtered_results, top_rejected_dict, stats)
+            """
+            filtered_results = []
+            top_rejected: List[Dict[str, Any]] = []
+            stats = {
+                "filtered_by_score": 0,
+                "filtered_by_det_score": 0,
+                "filtered_by_confirmation": 0,
+                "filtered_by_margin": 0,
+                "accepted_by_super_match": 0,
+                "accepted_by_confirmation": 0
+            }
+            
+            candidates_list = []
+            for r2_key, (best_score, best_idx, second_best_score, num_above_threshold) in photo_scores.items():
+                det_score_val = None
+                if best_idx >= 0 and best_idx < len(meta_rows):
+                    row = meta_rows[best_idx]
+                    det_score_val = row.get("det_score") or row.get("score")
+                    if det_score_val is not None:
+                        det_score_val = float(det_score_val)
                 
-                # Filtra via elementi che dopo normalizzazione risultano vuoti o contengono "/"
-                if not normalized_id or "/" in normalized_id:
-                    logger.warning(f"[MATCH_SELFIE] Filtering out invalid photo_id: original={photo_id}, normalized={normalized_id}")
-                    # Rimuovi questo risultato (non possiamo modificare la lista durante l'iterazione, quindi lo segniamo)
-                    result["_filtered"] = True
+                reject_reason = None
+                
+                # Filtro 1: best_score >= min_score_threshold
+                if best_score < min_score_threshold:
+                    stats["filtered_by_score"] += 1
+                    reject_reason = f"score={best_score:.3f}<{min_score_threshold:.2f}"
+                # Filtro 2: det_score >= det_score_threshold
+                elif det_score_val is None or det_score_val < det_score_threshold:
+                    stats["filtered_by_det_score"] += 1
+                    reject_reason = f"det_score={det_score_val or 'None'}<{det_score_threshold:.2f}"
+                # Filtro 3: Regola di conferma
+                elif best_score < super_match_score:
+                    # Deve avere almeno 2 ref_embeddings con score >= min_score_threshold
+                    if num_above_threshold < 2:
+                        stats["filtered_by_confirmation"] += 1
+                        reject_reason = f"confirmation_failed: {num_above_threshold}/2 ref_embeddings above {min_score_threshold:.2f}"
+                    # Filtro 4: Margine
+                    elif best_score - second_best_score < margin_delta:
+                        stats["filtered_by_margin"] += 1
+                        reject_reason = f"margin_insufficient: {best_score:.3f}-{second_best_score:.3f}={best_score-second_best_score:.3f}<{margin_delta:.2f}"
+                    else:
+                        # Accettato per conferma
+                        stats["accepted_by_confirmation"] += 1
+                        reject_reason = None
+                else:
+                    # Super match: bypass regole di conferma
+                    stats["accepted_by_super_match"] += 1
+                    reject_reason = None
+                
+                if reject_reason is None:
+                    # Accettato
+                    from pathlib import Path
+                    display_name = Path(r2_key).name
+                    from urllib.parse import quote
+                    r2_key_encoded = quote(r2_key, safe='')
+                    
+                    filtered_results.append({
+                        "r2_key": r2_key,
+                        "display_name": display_name,
+                        "photo_id": r2_key,
+                        "score": best_score,
+                        "has_face": True,
+                        "has_selfie": True,
+                        "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
+                        "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
+                    })
+                
+                # Aggiungi a candidati per top rejected
+                candidates_list.append({
+                    "r2_key": r2_key,
+                    "best_score": best_score,
+                    "det_score": det_score_val,
+                    "reject_reason": reject_reason
+                })
+            
+            # Top 20 scartati ordinati per score
+            rejected = [c for c in candidates_list if c["reject_reason"]]
+            rejected.sort(key=lambda x: x["best_score"], reverse=True)
+            top_rejected_dict = {c["r2_key"]: c["reject_reason"] for c in rejected[:20]}
+            
+            return filtered_results, top_rejected_dict, stats
+        
+        try:
+            # ========== PASS 1: Ricerca strict con multi-embedding ==========
+            logger.info(f"[MATCH_PASS1] strict_min_score={strict_min_score} det_min_score={det_min_score} top_k={top_k_pass1}")
+            
+            # Cerca con tutti i ref_embeddings
+            all_candidates: Dict[int, List[float]] = {}  # idx -> [scores da tutti i ref_embeddings]
+            
+            for ref_idx, ref_emb in enumerate(ref_embeddings):
+                ref_emb_reshaped = ref_emb.reshape(1, -1)
+                D, I = faiss_index.search(ref_emb_reshaped, top_k_pass1)
+                
+                for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                    if idx < 0 or idx >= len(meta_rows):
+                        continue
+                    if idx not in all_candidates:
+                        all_candidates[idx] = []
+                    all_candidates[idx].append(float(score))
+            
+            # Per ogni face indicizzata, calcola best_score = max(similarities) e second_best
+            # Raggruppa per photo_id/r2_key
+            photo_scores_pass1: Dict[str, Tuple[float, int, float, int]] = {}  # r2_key -> (best_score, best_idx, second_best_score, num_above_threshold)
+            
+            for idx, similarities in all_candidates.items():
+                if idx < 0 or idx >= len(meta_rows):
                     continue
                 
-                # Usa il photo_id normalizzato per costruire URL
-                result["photo_id"] = normalized_id  # Aggiorna anche il photo_id nel risultato
-                result["thumb_url"] = f"/photo/{normalized_id}?variant=thumb"
-                result["wm_url"] = f"/photo/{normalized_id}?variant=wm"
-                # Mantieni paid_url se già presente, altrimenti crealo
-                if "paid_url" not in result:
-                    result["paid_url"] = f"/photo/{normalized_id}?paid=true"
+                row = meta_rows[idx]
+                r2_key = row.get("r2_key") or row.get("photo_id")
+                if not r2_key:
+                    continue
+                
+                # Calcola best_score, second_best_score, num_above_threshold usando tutti i ref_embeddings
+                # Per ogni face indicizzata, calcola similarity contro tutti i ref_embeddings
+                indexed_embedding = None
+                # Recupera embedding dall'indice FAISS (non salvato in meta_rows, dobbiamo ricostruirlo)
+                # Per ora usiamo il primo ref_embedding come proxy (in futuro possiamo salvare gli embeddings)
+                # Calcoliamo similarity usando i scores già ottenuti
+                similarities_sorted = sorted(similarities, reverse=True)
+                best_score = similarities_sorted[0] if similarities_sorted else 0.0
+                second_best_score = similarities_sorted[1] if len(similarities_sorted) > 1 else 0.0
+                num_above_threshold = sum(1 for s in similarities if s >= strict_min_score)
+                
+                if best_score < strict_min_score:
+                    continue
+                
+                if r2_key not in photo_scores_pass1:
+                    photo_scores_pass1[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                else:
+                    current_best, current_idx, current_second, current_num = photo_scores_pass1[r2_key]
+                    if best_score > current_best:
+                        photo_scores_pass1[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+            
+            n_candidates_faiss = len([s for s in all_candidates.values() if max(s) >= strict_min_score])
+            logger.info(f"[MATCH_PASS1] FAISS candidates above {strict_min_score}: {n_candidates_faiss}")
+            logger.info(f"[MATCH_PASS1] Grouped: {len(photo_scores_pass1)} unique photos")
+            
+            # Applica filtri strict con conferma
+            results_pass1, top_rejected_pass1, stats_pass1 = _apply_filters_with_confirmation(
+                photo_scores_pass1, strict_min_score, det_min_score, ref_embeddings, super_match_score, margin_delta
+            )
+            
+            logger.info(f"[MATCH_PASS1] After filters: final={len(results_pass1)} stats={stats_pass1}")
+            
+            # Se Pass 1 produce abbastanza risultati, ritorna
+            if len(results_pass1) >= target_min_results:
+                results_pass1.sort(key=lambda x: x["score"], reverse=True)
+                if len(results_pass1) > 80:
+                    results_pass1 = results_pass1[:80]
+                
+                elapsed_ms = (time.time() - start_time) * 1000
+                logger.info(f"[MATCH_STATS] candidates={n_candidates_faiss} final={len(results_pass1)} stats={stats_pass1} elapsed_ms={elapsed_ms:.1f}")
+                
+                # Log top rejected
+                if top_rejected_pass1:
+                    logger.info(f"[MATCH_REJECTED] Top 10: {list(top_rejected_pass1.items())[:10]}")
+                
+                all_results = results_pass1
+            else:
+                # ========== PASS 2: Ricerca soft con multi-embedding (solo det_score più basso) ==========
+                logger.info(f"[MATCH_PASS2] Pass 1 found {len(results_pass1)} < {target_min_results}, running Pass 2")
+                logger.info(f"[MATCH_PASS2] strict_min_score={strict_min_score} (invariato) det_min_score_soft={det_min_score_soft} top_k={top_k_pass2}")
+                
+                # Usa gli stessi ref_embeddings, ma con det_score più basso
+                all_candidates_pass2: Dict[int, List[float]] = {}
+                
+                for ref_idx, ref_emb in enumerate(ref_embeddings):
+                    ref_emb_reshaped = ref_emb.reshape(1, -1)
+                    D, I = faiss_index.search(ref_emb_reshaped, top_k_pass2)
+                    
+                    for score, idx in zip(D[0].tolist(), I[0].tolist()):
+                        if idx < 0 or idx >= len(meta_rows):
+                            continue
+                        if idx not in all_candidates_pass2:
+                            all_candidates_pass2[idx] = []
+                        all_candidates_pass2[idx].append(float(score))
+                
+                # Raggruppa per photo_id/r2_key (stessa logica del Pass 1)
+                photo_scores_pass2: Dict[str, Tuple[float, int, float, int]] = {}
+                
+                for idx, similarities in all_candidates_pass2.items():
+                    if idx < 0 or idx >= len(meta_rows):
+                        continue
+                    
+                    row = meta_rows[idx]
+                    r2_key = row.get("r2_key") or row.get("photo_id")
+                    if not r2_key:
+                        continue
+                    
+                    similarities_sorted = sorted(similarities, reverse=True)
+                    best_score = similarities_sorted[0] if similarities_sorted else 0.0
+                    second_best_score = similarities_sorted[1] if len(similarities_sorted) > 1 else 0.0
+                    num_above_threshold = sum(1 for s in similarities if s >= strict_min_score)
+                    
+                    if best_score < strict_min_score:  # Mantieni strict_min_score invariato
+                        continue
+                    
+                    if r2_key not in photo_scores_pass2:
+                        photo_scores_pass2[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                    else:
+                        current_best, current_idx, current_second, current_num = photo_scores_pass2[r2_key]
+                        if best_score > current_best:
+                            photo_scores_pass2[r2_key] = (best_score, idx, second_best_score, num_above_threshold)
+                
+                n_candidates_faiss_pass2 = len([s for s in all_candidates_pass2.values() if max(s) >= strict_min_score])
+                logger.info(f"[MATCH_PASS2] FAISS candidates above {strict_min_score}: {n_candidates_faiss_pass2}")
+                logger.info(f"[MATCH_PASS2] Grouped: {len(photo_scores_pass2)} unique photos")
+                
+                # Applica filtri soft (solo det_score più basso, strict_min_score invariato)
+                results_pass2, top_rejected_pass2, stats_pass2 = _apply_filters_with_confirmation(
+                    photo_scores_pass2, strict_min_score, det_min_score_soft, ref_embeddings, super_match_score, margin_delta
+                )
+                
+                logger.info(f"[MATCH_PASS2] After filters: final={len(results_pass2)} stats={stats_pass2}")
+                
+                # Unisci Pass1 + Pass2, dedup per r2_key, mantieni best_score
+                all_photo_scores: Dict[str, Dict] = {}
+                for r in results_pass1:
+                    r2_key = r["r2_key"]
+                    all_photo_scores[r2_key] = r
+                
+                for r in results_pass2:
+                    r2_key = r["r2_key"]
+                    if r2_key not in all_photo_scores:
+                        all_photo_scores[r2_key] = r
+                    else:
+                        # Mantieni quello con score più alto
+                        if r["score"] > all_photo_scores[r2_key]["score"]:
+                            all_photo_scores[r2_key] = r
+                
+                all_results = list(all_photo_scores.values())
+                all_results.sort(key=lambda x: x["score"], reverse=True)
+                
+                if len(all_results) > 80:
+                    all_results = all_results[:80]
+                
+                elapsed_ms = (time.time() - start_time) * 1000
+                total_stats = {
+                    "filtered_by_score": stats_pass1["filtered_by_score"] + stats_pass2["filtered_by_score"],
+                    "filtered_by_det_score": stats_pass1["filtered_by_det_score"] + stats_pass2["filtered_by_det_score"],
+                    "filtered_by_confirmation": stats_pass1["filtered_by_confirmation"] + stats_pass2["filtered_by_confirmation"],
+                    "filtered_by_margin": stats_pass1["filtered_by_margin"] + stats_pass2["filtered_by_margin"],
+                    "accepted_by_super_match": stats_pass1["accepted_by_super_match"] + stats_pass2["accepted_by_super_match"],
+                    "accepted_by_confirmation": stats_pass1["accepted_by_confirmation"] + stats_pass2["accepted_by_confirmation"]
+                }
+                logger.info(f"[MATCH_STATS] candidates_pass1={n_candidates_faiss} candidates_pass2={n_candidates_faiss_pass2} final={len(all_results)} total_stats={total_stats} elapsed_ms={elapsed_ms:.1f}")
+                
+                # Log top rejected
+                all_rejected = {**top_rejected_pass1, **top_rejected_pass2}
+                if all_rejected:
+                    sorted_rejected = sorted(all_rejected.items(), key=lambda x: photo_scores_pass1.get(x[0], photo_scores_pass2.get(x[0], (0, 0, 0, 0)))[0], reverse=True)
+                    logger.info(f"[MATCH_REJECTED] Top 10: {sorted_rejected[:10]}")
+            
+            filtered_results = all_results
+            
+        finally:
+            # Ripristina meta_rows
+            meta_rows = old_meta_rows
         
-        # Rimuovi risultati filtrati
-        all_results = [r for r in all_results if not r.get("_filtered", False)]
+        all_results = filtered_results
+        
+        # Se non ci sono risultati
+        if len(all_results) == 0:
+            return {
+                "ok": True,
+                "count": 0,
+                "matches": [],
+                "results": [],
+                "matched_count": 0,
+                "message": "Nessuna foto trovata."
+            }
         
         return {
             "ok": True,
             "count": len(all_results),
-            "matches": all_results,  # Per compatibilità
-            "results": all_results,    # Per compatibilità con frontend
-            "matched_count": len(matched_results),
+            "matches": all_results,
+            "results": all_results,
+            "matched_count": len(all_results),
         }
         
     except HTTPException:
@@ -5684,8 +5828,8 @@ async def _match_member_photos(selfie_embedding: np.ndarray, email: str, member_
         if idx < 0 or idx >= len(meta_rows):
             continue
         if float(score) < min_score:
-            continue
-        
+                continue
+            
         primary_face_indices.add(idx)
         row = meta_rows[idx]
         photo_id = row.get("photo_id") or row.get("filename") or row.get("id")
@@ -5699,13 +5843,13 @@ async def _match_member_photos(selfie_embedding: np.ndarray, email: str, member_
     for photo_id, face_indices in photo_faces.items():
         has_primary = bool(face_indices.intersection(primary_face_indices))
         if not has_primary:
-            continue
+                    continue
         
         # Verifica che non ci siano facce "estranee"
         external_faces = face_indices - primary_face_indices
         if external_faces:
             # Contiene facce estranee -> escludi
-            continue
+                continue
         
         # Foto valida: contiene almeno primary e nessuna faccia esterna
         matched_photo_ids.append(photo_id)
