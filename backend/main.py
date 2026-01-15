@@ -1223,36 +1223,52 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
     """
     Genera SEMPRE e SOLO 2 embeddings di riferimento:
     - emb0: originale
-    - emb1: flip orizzontale (se possibile)
-    Se il flip fallisce, duplica emb0 e logga WARNING.
+    - emb1: flip orizzontale
+    Usa UNA sola detection: crop dal bbox + (se disponibile) alignment con landmarks.
     """
     assert face_app is not None
-    def _largest_face_embedding(bgr: np.ndarray) -> Optional[np.ndarray]:
-        faces = face_app.get(bgr)
-        if not faces:
-            return None
-        faces_sorted = sorted(
-            faces,
-            key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-            reverse=True
-        )
-        if not faces_sorted:
-            return None
-        emb = faces_sorted[0].embedding.astype(np.float32)
-        return _normalize(emb)
 
-    # 1) Originale
-    emb0 = _largest_face_embedding(img)
-    if emb0 is None:
+    faces = face_app.get(img)
+    if not faces:
         return []
+    faces_sorted = sorted(
+        faces,
+        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+        reverse=True
+    )
+    if not faces_sorted:
+        return []
+    main_face = faces_sorted[0]
 
-    # 2) Flip orizzontale
+    # Prova a usare alignment con kps se disponibile
+    aligned = None
     try:
-        img_flip = cv2.flip(img, 1)
+        from insightface.utils import face_align
+        if hasattr(main_face, "kps") and main_face.kps is not None:
+            aligned = face_align.norm_crop(img, main_face.kps)
     except Exception:
-        img_flip = None
+        aligned = None
 
-    emb1 = _largest_face_embedding(img_flip) if img_flip is not None else None
+    if aligned is None:
+        # Fallback: crop da bbox
+        h, w = img.shape[:2]
+        x1, y1, x2, y2 = main_face.bbox
+        x1 = max(0, int(x1)); y1 = max(0, int(y1))
+        x2 = min(w, int(x2)); y2 = min(h, int(y2))
+        aligned = img[y1:y2, x1:x2].copy()
+
+    # embedding originale: usa face.embedding (già calcolato nella detection)
+    emb0 = _normalize(main_face.embedding.astype(np.float32))
+
+    # embedding flip: usa recognition model se disponibile per evitare seconda detection
+    emb1 = None
+    try:
+        recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
+        if recog is not None:
+            flip_crop = cv2.flip(aligned, 1)
+            emb1 = _normalize(recog.get(flip_crop).astype(np.float32))
+    except Exception:
+        emb1 = None
 
     if emb1 is None:
         logger.warning("[MULTI_EMB] Flip failed, duplicating original embedding")
@@ -1410,6 +1426,47 @@ def _read_image_from_bytes(file_bytes: bytes):
             status_code=400, 
             detail=f"Formato immagine non supportato. Formati supportati: JPEG, PNG, HEIC (richiede pillow-heif). Errore: {str(e)}"
         )
+
+def _read_selfie_image_with_resize(file_bytes: bytes, max_side: int = 1024) -> np.ndarray:
+    """
+    Legge selfie con correzione EXIF (se possibile) e resize per velocità.
+    Logga dimensioni input e output.
+    """
+    from io import BytesIO
+    try:
+        from PIL import Image, ImageOps
+        pil_img = Image.open(BytesIO(file_bytes))
+        pil_img = ImageOps.exif_transpose(pil_img)
+        if pil_img.mode != 'RGB':
+            pil_img = pil_img.convert('RGB')
+        input_w, input_h = pil_img.size
+        resized_w, resized_h = input_w, input_h
+        if max(input_w, input_h) > max_side:
+            if input_w >= input_h:
+                resized_w = max_side
+                resized_h = int(input_h * (max_side / input_w))
+            else:
+                resized_h = max_side
+                resized_w = int(input_w * (max_side / input_h))
+            pil_img = pil_img.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
+        logger.info(f"[SELFIE] input_w={input_w} input_h={input_h} resized_w={resized_w} resized_h={resized_h}")
+        img_array = np.array(pil_img)
+        return cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    except Exception:
+        # Fallback OpenCV + resize (senza EXIF)
+        img = _read_image_from_bytes(file_bytes)
+        h, w = img.shape[:2]
+        resized_w, resized_h = w, h
+        if max(w, h) > max_side:
+            if w >= h:
+                resized_w = max_side
+                resized_h = int(h * (max_side / w))
+            else:
+                resized_h = max_side
+                resized_w = int(w * (max_side / h))
+            img = cv2.resize(img, (resized_w, resized_h), interpolation=cv2.INTER_AREA)
+        logger.info(f"[SELFIE] input_w={w} input_h={h} resized_w={resized_w} resized_h={resized_h}")
+        return img
 
 def _generate_robust_selfie_embedding(img: np.ndarray) -> np.ndarray:
     """
@@ -5372,7 +5429,7 @@ async def match_selfie(
             logger.info(f"[VIDEO] frames_ok={len(frames)} ref_embeddings={len(ref_embeddings)}")
         else:
             # Immagine: genera multipli embeddings con augmentazioni
-            img = _read_image_from_bytes(file_bytes)
+            img = _read_selfie_image_with_resize(file_bytes, max_side=1024)
             assert face_app is not None
             faces = face_app.get(img)
             
@@ -5449,7 +5506,7 @@ async def match_selfie(
             total_candidates = 0
 
             # Single-pass FAISS search (top_k)
-            for ref_emb in ref_embeddings:
+            for ref_idx, ref_emb in enumerate(ref_embeddings):
                 D, I = faiss_index.search(ref_emb.reshape(1, -1), top_k)
                 total_candidates += len(I[0])
                 for score, idx in zip(D[0].tolist(), I[0].tolist()):
@@ -5474,6 +5531,8 @@ async def match_selfie(
                             "area": area,
                             # face_scores: best score per face idx (across ref embeddings)
                             "face_scores": {idx: s},
+                            # ref_max: best score per ref embedding
+                            "ref_max": [0.0] * len(ref_embeddings),
                         }
                         candidates_by_photo[r2_key] = entry
                     else:
@@ -5487,6 +5546,9 @@ async def match_selfie(
                             det = row.get("det_score") or row.get("score")
                             entry["det_score"] = float(det) if det is not None else 0.0
                             entry["area"] = _compute_face_area(row)
+                    # aggiorna ref_max
+                    if ref_idx < len(entry["ref_max"]) and s > entry["ref_max"][ref_idx]:
+                        entry["ref_max"][ref_idx] = s
 
             results: List[Dict[str, Any]] = []
             rejected: List[Dict[str, Any]] = []
@@ -5506,20 +5568,32 @@ async def match_selfie(
 
                 min_score_dyn = _dynamic_min_score(det_score_val, area)
                 margin_min = _dynamic_margin_min(det_score_val, area)
+                hits_count = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn)
+                bucket = "large"
+                if area < 30000 or det_score_val < 0.75:
+                    bucket = "small"
+                elif area < 60000 or det_score_val < 0.85:
+                    bucket = "medium"
 
                 reject_reason = None
                 if best_score < min_score_dyn:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f}"
                 else:
-                    if margin is None:
-                        if best_score < (min_score_dyn + 0.02):
-                            stats["filtered_by_margin"] += 1
-                            reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
-                    else:
-                        if margin < margin_min:
-                            stats["filtered_by_margin"] += 1
-                            reject_reason = f"margin={margin:.3f}<{margin_min:.3f}"
+                    # Bucket speciale: small/medium det -> richiede 2/2 hits
+                    if 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
+                        if hits_count < 2:
+                            stats["filtered_by_score"] += 1
+                            reject_reason = f"hits={hits_count}/2 (bucket requires 2/2)"
+                    if reject_reason is None:
+                        if margin is None:
+                            if best_score < (min_score_dyn + 0.02):
+                                stats["filtered_by_margin"] += 1
+                                reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
+                        else:
+                            if margin < margin_min:
+                                stats["filtered_by_margin"] += 1
+                                reject_reason = f"margin={margin:.3f}<{margin_min:.3f}"
 
                 if reject_reason is None:
                     from pathlib import Path
@@ -5544,6 +5618,8 @@ async def match_selfie(
                         "min_score": min_score_dyn,
                         "margin": margin,
                         "margin_min": margin_min,
+                        "hits": hits_count,
+                        "bucket": bucket,
                         "reason": reject_reason,
                     })
 
@@ -5575,6 +5651,8 @@ async def match_selfie(
                             f"min_score={r['min_score']:.2f}",
                             f"margin={margin_str}",
                             f"margin_min={r['margin_min']:.3f}",
+                            f"hits={r['hits']}",
+                            f"bucket={r['bucket']}",
                             r["reason"],
                         )
                     )
