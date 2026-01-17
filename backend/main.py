@@ -101,7 +101,8 @@ R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
 
 # Configurazione indexing automatico
 INDEXING_ENABLED = os.getenv("INDEXING_ENABLED", "1") == "1"
-INDEXING_INTERVAL_SECONDS = int(os.getenv("INDEXING_INTERVAL_SECONDS", "300"))
+# Intervallo più breve (60s) per sync più reattivo - rileva cambiamenti R2 velocemente
+INDEXING_INTERVAL_SECONDS = int(os.getenv("INDEXING_INTERVAL_SECONDS", "60"))
 
 # Path per file index/tracking (disabilitati in R2_ONLY_MODE)
 INDEX_PATH = DATA_DIR / "faces.index"
@@ -1221,9 +1222,11 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int = 2) -> List[np.ndarray]:
     """
-    Genera SEMPRE e SOLO 2 embeddings di riferimento:
+    Genera 3-4 embeddings di riferimento per migliorare il riconoscimento di foto difficili:
     - emb0: originale
     - emb1: flip orizzontale
+    - emb2: rotazione leggera +5 gradi (per catturare profili)
+    - emb3: rotazione leggera -5 gradi (per catturare profili)
     Usa UNA sola detection: crop dal bbox + (se disponibile) alignment con landmarks.
     """
     assert face_app is not None
@@ -1257,10 +1260,13 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
         x2 = min(w, int(x2)); y2 = min(h, int(y2))
         aligned = img[y1:y2, x1:x2].copy()
 
+    embeddings = []
+    
     # embedding originale: usa face.embedding (già calcolato nella detection)
     emb0 = _normalize(main_face.embedding.astype(np.float32))
+    embeddings.append(emb0)
 
-    # embedding flip: usa recognition model se disponibile per evitare seconda detection
+    # embedding flip: prova prima con recognition model, poi fallback a seconda detection
     emb1 = None
     try:
         recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
@@ -1270,12 +1276,60 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
     except Exception:
         emb1 = None
 
+    # Fallback: se recog.get() fallisce, fai una seconda detection sull'immagine flippata
     if emb1 is None:
-        logger.warning("[MULTI_EMB] Flip failed, duplicating original embedding")
-        return [emb0, emb0]
+        try:
+            flip_img = cv2.flip(img, 1)
+            flip_faces = face_app.get(flip_img)
+            if flip_faces:
+                flip_faces_sorted = sorted(
+                    flip_faces,
+                    key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                    reverse=True
+                )
+                if flip_faces_sorted:
+                    flip_face = flip_faces_sorted[0]
+                    emb1 = _normalize(flip_face.embedding.astype(np.float32))
+        except Exception:
+            pass
 
-    logger.info("[MULTI_EMB] Generated 2 reference embeddings (original+flip)")
-    return [emb0, emb1]
+    if emb1 is None:
+        emb1 = emb0.copy()  # Duplica originale se flip fallisce
+    embeddings.append(emb1)
+
+    # Embeddings con rotazioni leggere per catturare profili (solo se abbiamo recog model)
+    try:
+        recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
+        if recog is not None:
+            # Rotazione +5 gradi (profilo sinistro)
+            center = (aligned.shape[1] // 2, aligned.shape[0] // 2)
+            M_rot_pos = cv2.getRotationMatrix2D(center, 5, 1.0)
+            rotated_pos = cv2.warpAffine(aligned, M_rot_pos, (aligned.shape[1], aligned.shape[0]))
+            try:
+                emb2 = _normalize(recog.get(rotated_pos).astype(np.float32))
+                embeddings.append(emb2)
+            except Exception:
+                pass
+
+            # Rotazione -5 gradi (profilo destro)
+            M_rot_neg = cv2.getRotationMatrix2D(center, -5, 1.0)
+            rotated_neg = cv2.warpAffine(aligned, M_rot_neg, (aligned.shape[1], aligned.shape[0]))
+            try:
+                emb3 = _normalize(recog.get(rotated_neg).astype(np.float32))
+                embeddings.append(emb3)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Se abbiamo meno di 2 embeddings, duplica l'originale
+    if len(embeddings) < 2:
+        logger.warning(f"[MULTI_EMB] Only {len(embeddings)} embeddings generated, duplicating original")
+        while len(embeddings) < 2:
+            embeddings.append(emb0.copy())
+
+    logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings (original+flip+rotations)")
+    return embeddings
 
 def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
     """Carica i metadata dal file JSONL"""
@@ -2663,19 +2717,30 @@ async def startup():
                 logger.error(f"Error in periodic tasks: {e}")
     
     async def indexing_task():
-        """Task periodico per indicizzazione automatica (check veloce + sync incrementale se necessario)"""
+        """Task periodico per indicizzazione automatica (check veloce + sync incrementale se necessario)
+        
+        Funziona in background senza bloccare l'app:
+        - Check ogni N secondi (default 60s) se R2 è cambiato
+        - Usa hash veloce per evitare sync inutili
+        - Sync incrementale solo quando necessario (add/remove foto)
+        - Completamente asincrono e non-blocking
+        """
         if not INDEXING_ENABLED:
             logger.info("[INDEXING] Periodic indexing task DISABLED (INDEXING_ENABLED=false)")
             return
         
-        logger.info(f"[INDEXING] Periodic indexing task ENABLED - interval={INDEXING_INTERVAL_SECONDS}s (auto-sync on changes)")
+        logger.info(f"[INDEXING] ✅ Auto-sync ENABLED - checking R2 every {INDEXING_INTERVAL_SECONDS}s")
+        logger.info(f"[INDEXING] 📸 Just upload/delete photos on R2 - sync happens automatically in background!")
         
         while True:
             try:
                 await asyncio.sleep(INDEXING_INTERVAL_SECONDS)
+                # Check veloce (non blocca, usa hash per evitare sync inutili)
                 await maybe_sync_index()
             except Exception as e:
                 logger.error(f"[INDEXING] Error in indexing task: {e}", exc_info=True)
+                # Continua anche in caso di errore (non bloccare il task)
+                await asyncio.sleep(10)  # Pausa breve prima di riprovare
     
     # Avvia task in background
     asyncio.create_task(periodic_tasks())
@@ -2850,10 +2915,13 @@ def health():
         "index_size": index_size
     }
 
+# Cache per hash delle keys (per check veloce)
+_r2_keys_hash_cache = None
+
 # Funzione globale per check veloce se R2 è cambiato (usata dal task periodico)
 async def maybe_sync_index():
     """Check veloce se R2 è cambiato. Se sì, esegue sync incrementale. Se no, skip."""
-    global faiss_index, meta_rows, indexing_lock
+    global faiss_index, meta_rows, indexing_lock, _r2_keys_hash_cache
     
     if not USE_R2 or not r2_client or not R2_ONLY_MODE:
         return
@@ -2864,7 +2932,7 @@ async def maybe_sync_index():
         return
     
     try:
-        # ========== STEP 1: Lista veloce R2 keys (solo originali) ==========
+        # ========== STEP 1: Lista veloce R2 keys (solo originali) con hash per check veloce ==========
         paginator = r2_client.get_paginator('list_objects_v2')
         
         # Se R2_PHOTOS_PREFIX è vuoto, non passare Prefix (lista tutto il bucket)
@@ -2873,6 +2941,8 @@ async def maybe_sync_index():
             paginate_kwargs["Prefix"] = R2_PHOTOS_PREFIX
         
         r2_originals_set = set()
+        r2_keys_list = []  # Lista ordinata per hash
+        
         for page in paginator.paginate(**paginate_kwargs):
             for obj in page.get('Contents', []):
                 key = obj['Key']
@@ -2893,9 +2963,28 @@ async def maybe_sync_index():
                 if not any(key.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png']):
                     continue
                 
-                r2_originals_set.add(key)
+                # Estrai filename (basename) come r2_key
+                from pathlib import Path
+                filename = Path(key).name
+                r2_originals_set.add(filename)
+                r2_keys_list.append(filename)
         
-        # ========== STEP 2: Costruisci set delle foto già indicizzate ==========
+        # Calcola hash veloce delle keys (solo per check, non per sync)
+        import hashlib
+        r2_keys_sorted = sorted(r2_keys_list)
+        r2_keys_str = "|".join(r2_keys_sorted)
+        r2_keys_hash = hashlib.md5(r2_keys_str.encode()).hexdigest()
+        
+        # ========== STEP 2: Check veloce con hash (evita sync se hash non cambia) ==========
+        if _r2_keys_hash_cache == r2_keys_hash:
+            # Hash identico = nessun cambiamento, skip sync
+            logger.debug(f"[INDEXING] No changes detected (hash match). Skipping sync.")
+            return
+        
+        # Hash diverso = cambiamenti rilevati, procedi con check dettagliato
+        logger.info(f"[INDEXING] Hash changed (cache={_r2_keys_hash_cache[:8] if _r2_keys_hash_cache else 'None'} -> new={r2_keys_hash[:8]}). Checking differences...")
+        
+        # ========== STEP 3: Costruisci set delle foto già indicizzate ==========
         indexed_set = set()
         if meta_rows:
             for row in meta_rows:
@@ -2904,18 +2993,22 @@ async def maybe_sync_index():
                 if r2_key:
                     indexed_set.add(r2_key)
         
-        # ========== STEP 3: Calcola differenze ==========
+        # ========== STEP 4: Calcola differenze ==========
         to_add = r2_originals_set - indexed_set
         to_remove = indexed_set - r2_originals_set
         
-        # ========== STEP 4: Se nessun cambiamento, skip ==========
+        # ========== STEP 5: Se nessun cambiamento, aggiorna cache e skip ==========
         if len(to_add) == 0 and len(to_remove) == 0:
+            _r2_keys_hash_cache = r2_keys_hash
             logger.info(f"[INDEXING] No changes detected (r2={len(r2_originals_set)} indexed={len(indexed_set)}). Skipping sync.")
             return
         
-        # ========== STEP 5: Cambiamenti rilevati, esegui sync incrementale ==========
+        # ========== STEP 6: Cambiamenti rilevati, esegui sync incrementale ==========
         logger.info(f"[INDEXING] Changes detected: to_add={len(to_add)} to_remove={len(to_remove)}. Running incremental sync.")
         await sync_index_with_r2_incremental()
+        
+        # Aggiorna cache hash dopo sync completato
+        _r2_keys_hash_cache = r2_keys_hash
         
     except Exception as e:
         logger.error(f"[INDEXING] Error in maybe_sync_index: {e}", exc_info=True)
@@ -3131,7 +3224,9 @@ async def sync_index_with_r2_incremental():
                 _r2_keys_cache = None
                 
                 elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                logger.info(f"[INDEXING] SYNC done elapsed={elapsed:.2f}s (added={len(to_add)} removed={len(to_remove)} new_faces={new_faces_count})")
+                logger.info(f"[INDEXING] ✅ SYNC completed in {elapsed:.2f}s")
+                logger.info(f"[INDEXING] 📊 Stats: +{len(to_add)} photos added, -{len(to_remove)} removed, {new_faces_count} new faces indexed")
+                logger.info(f"[INDEXING] 🎯 Index ready: {vectors_in_index} faces in {meta_rows_count} photos")
                 
             except Exception as e:
                 logger.error(f"[INDEXING] Error saving synced index to R2: {e}")
@@ -5317,7 +5412,7 @@ def _extract_embeddings_from_frames(frames: List[np.ndarray]) -> List[np.ndarray
 async def match_selfie(
     selfie: UploadFile = File(...),
     email: Optional[str] = Query(None, description="Email utente (opzionale, per salvare foto trovate)"),
-    top_k_faces: int = Query(400, description="Numero massimo di volti da cercare (default 400)"),
+    top_k_faces: int = Query(600, description="Numero massimo di volti da cercare (default 600, aumentato per catturare foto difficili)"),
     min_score: float = Query(0.25, description="Soglia minima di similarità (default 0.25)"),
     # Parametri per two-pass query expansion
     strict_min_score: float = Query(0.35, description="Soglia strict per Pass 1 (default 0.35)"),
@@ -5490,15 +5585,26 @@ async def match_selfie(
             return 0.0
 
         def _dynamic_min_score(det_score_val: float, area: float) -> float:
-            # Ridotti threshold per aumentare recall (mantenendo protezione contro falsi positivi)
+            # Threshold adattivi per bilanciare recall e precision (protezione contro falsi positivi)
+            # Ottimizzato per catturare foto difficili (profilo, lontane, parzialmente coperte)
             if det_score_val >= 0.85 and area >= 60000:
-                return 0.28  # Ridotto da 0.30 per aumentare recall su foto "facili"
+                return 0.28  # Foto "facili": soglia più bassa ma con conferma 2/2 se score < 0.40
             if det_score_val >= 0.75 and area >= 30000:
-                return 0.31  # Ridotto da 0.33 per aumentare recall su foto "medie"
+                return 0.31  # Foto "medie": soglia moderata
+            # Foto difficili ma con det_score buono (>=0.70): potrebbero essere profili/lontane
+            # Abbassa soglia a 0.30 ma richiede sempre 2/2 hits per protezione
+            if det_score_val >= 0.70 and 15000 <= area < 20000:
+                return 0.30  # Foto difficili (profilo/lontane) con det buono: soglia più bassa
+            # Per foto "small" ma con det_score alto (>=0.75) e area decente (>=20000): usa 0.32
+            if det_score_val >= 0.75 and 20000 <= area < 30000:
+                return 0.32  # Soglia conservativa: richiede sempre 2/2 hits
+            # Foto con det_score medio-alto (0.65-0.75) e area piccola: potrebbero essere profili
+            if 0.65 <= det_score_val < 0.75 and 10000 <= area < 20000:
+                return 0.32  # Soglia per foto difficili con det medio
             # Per bucket speciale (0.62 <= det < 0.75, 10000 <= area < 30000): usa 0.34 invece di 0.36
             if 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
                 return 0.34  # Ridotto da 0.36 per il bucket speciale
-            return 0.35  # Ridotto da 0.36 per aumentare recall generale
+            return 0.35  # Default conservativo per tutte le altre foto "small"
 
         def _dynamic_margin_min(det_score_val: float, area: float) -> float:
             if area < 30000 or det_score_val < 0.75:
@@ -5585,6 +5691,7 @@ async def match_selfie(
                     reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f}"
                 else:
                     # Logica di conferma adattiva per bilanciare recall e precision
+                    # Ottimizzata per catturare foto difficili (profilo, lontane, parzialmente coperte)
                     required_hits = 1  # Default: almeno 1/2 ref_embeddings devono matchare
                     
                     # Foto "facili" (large): se score è molto alto (>=0.40), accetta anche con 1/2 hits
@@ -5594,12 +5701,29 @@ async def match_selfie(
                             required_hits = 1  # Score alto = match sicuro, accetta con 1/2
                         else:
                             required_hits = 2  # Score medio = richiedi conferma 2/2
+                    # Foto difficili ma con det_score buono (>=0.70): potrebbero essere profili/lontane
+                    # Accetta con 2/2 hits se score è borderline (0.28-0.32)
+                    elif det_score_val >= 0.70 and 15000 <= area < 20000:
+                        if best_score >= 0.33:
+                            required_hits = 1  # Score buono, accetta con 1/2
+                        else:
+                            required_hits = 2  # Score borderline, richiedi 2/2 (ma accetta foto difficili)
+                    # Foto con det_score medio-alto (0.65-0.75) e area piccola: potrebbero essere profili
+                    elif 0.65 <= det_score_val < 0.75 and 10000 <= area < 20000:
+                        if best_score >= 0.35:
+                            required_hits = 1  # Score buono, accetta con 1/2
+                        else:
+                            required_hits = 2  # Score borderline, richiedi 2/2
                     # Bucket speciale: small/medium det -> richiede 2/2 hits solo se score borderline
                     elif 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
                         if best_score >= 0.38:
                             required_hits = 1  # Score buono, accetta con 1/2
                         else:
                             required_hits = 2  # Score borderline, richiedi 2/2
+                    # Nuovo bucket: det_score >= 0.75 e 20000 <= area < 30000 (soglia 0.32)
+                    # SEMPRE richiede 2/2 hits per evitare falsi positivi (anche se score è buono)
+                    elif det_score_val >= 0.75 and 20000 <= area < 30000:
+                        required_hits = 2  # Sempre 2/2 hits per questo bucket (protezione anti-falsi positivi)
                     # Foto "difficili" (small): più permissive, ma almeno 2/2 se score molto borderline
                     elif bucket == "small" and best_score < (min_score_dyn + 0.03):
                         required_hits = 2  # Se score è molto borderline, richiedi 2/2
@@ -5612,14 +5736,24 @@ async def match_selfie(
                         # Per foto "facili" (large), se margin è None (solo una faccia), 
                         # essere più permissivi: richiedi solo best_score >= min_score (già verificato sopra)
                         if margin is None:
-                            # Solo per foto "difficili" o "medie", richiedi bonus se margin manca
-                            if bucket != "large" and best_score < (min_score_dyn + 0.02):
+                            # Per foto difficili con det_score buono (>=0.70), essere più permissivi
+                            # Potrebbero essere profili/lontane con solo una faccia visibile
+                            if det_score_val >= 0.70 and best_score >= min_score_dyn:
+                                # Foto difficile ma valida: accetta anche senza margin
+                                pass
+                            elif bucket != "large" and best_score < (min_score_dyn + 0.02):
                                 stats["filtered_by_margin"] += 1
                                 reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
                         else:
-                            if margin < margin_min:
+                            # Per foto difficili con det_score buono, riduci margin_min
+                            effective_margin_min = margin_min
+                            if det_score_val >= 0.70 and area < 20000:
+                                # Foto difficile: riduci margin_min del 50% per essere più permissivi
+                                effective_margin_min = margin_min * 0.5
+                            
+                            if margin < effective_margin_min:
                                 stats["filtered_by_margin"] += 1
-                                reject_reason = f"margin={margin:.3f}<{margin_min:.3f}"
+                                reject_reason = f"margin={margin:.3f}<{effective_margin_min:.3f}"
 
                 if reject_reason is None:
                     from pathlib import Path
