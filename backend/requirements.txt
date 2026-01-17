@@ -68,4 +68,5 @@ aiosqlite==0.19.0
 asyncpg==0.29.0
 boto3>=1.34,<2
 python-dotenv>=1.0.0
-# FORCE REBUILD: 2026-01-05-00-30 - Questo commento forza Render a fare un rebuild completo
+# FORCE REBUILD: 2026-01-15-12-00 - Questo commento forza Render a fare un rebuild completo
+# NO HASH VERIFICATION - Questo file non contiene hash, Render non deve verificare hash
