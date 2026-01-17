@@ -5616,9 +5616,13 @@ async def match_selfie(
             # Foto con det_score medio-alto (0.65-0.75) e area piccola: potrebbero essere profili
             if 0.65 <= det_score_val < 0.75 and 10000 <= area < 20000:
                 return 0.32  # Soglia per foto difficili con det medio
-            # Per bucket speciale (0.62 <= det < 0.75, 10000 <= area < 30000): usa 0.34 invece di 0.36
+            # Per bucket speciale (0.62 <= det < 0.75, 10000 <= area < 30000): usa 0.30 invece di 0.34
+            # Foto piccole ma con det_score medio: potrebbero essere profili/angolate
             if 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
-                return 0.34  # Ridotto da 0.36 per il bucket speciale
+                return 0.30  # Ridotto da 0.34 per catturare foto difficili piccole
+            # Foto piccole (area < 30000) con det_score medio (0.60-0.75): potrebbero essere profili
+            if 0.60 <= det_score_val < 0.75 and area < 30000:
+                return 0.30  # Soglia più bassa per foto piccole con det medio
             return 0.35  # Default conservativo per tutte le altre foto "small"
 
         def _dynamic_margin_min(det_score_val: float, area: float) -> float:
@@ -5709,6 +5713,8 @@ async def match_selfie(
                     tolerance = 0.08  # Foto molto grandi: tolleranza 0.08 (8%) per soglia 0.10
                 elif area >= 70000 or det_score_val >= 0.68:
                     tolerance = 0.03  # Foto grandi o det buono: tolleranza 0.03
+                elif 0.60 <= det_score_val < 0.75 and area < 30000:
+                    tolerance = 0.05  # Foto piccole con det medio: tolleranza 0.05 per catturare profili
                 
                 if score_diff > tolerance:  # Differenza > tolerance = rifiuta
                     stats["filtered_by_score"] += 1
@@ -5772,8 +5778,15 @@ async def match_selfie(
                         else:
                             required_hits = 2  # Score borderline, richiedi 2/2
                     # Bucket speciale: small/medium det -> richiede 2/2 hits solo se score borderline
+                    # min_score è ora 0.30, quindi se score >= 0.32 accetta con 1/2 hits
                     elif 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
-                        if best_score >= 0.38:
+                        if best_score >= 0.32:
+                            required_hits = 1  # Score buono, accetta con 1/2
+                        else:
+                            required_hits = 2  # Score borderline, richiedi 2/2
+                    # Foto piccole (area < 30000) con det_score medio (0.60-0.75): potrebbero essere profili
+                    elif 0.60 <= det_score_val < 0.75 and area < 30000:
+                        if best_score >= 0.32:
                             required_hits = 1  # Score buono, accetta con 1/2
                         else:
                             required_hits = 2  # Score borderline, richiedi 2/2
@@ -5798,6 +5811,11 @@ async def match_selfie(
                             if det_score_val >= 0.70 and best_score >= min_score_dyn:
                                 # Foto difficile ma valida: accetta anche senza margin
                                 pass
+                            # Per foto piccole con det_score medio (0.60-0.75), essere più permissivi
+                            # Potrebbero essere profili con una sola faccia visibile
+                            elif 0.60 <= det_score_val < 0.75 and area < 30000 and best_score >= min_score_dyn:
+                                # Foto piccola con det medio: accetta anche senza margin
+                                pass
                             elif bucket != "large" and best_score < (min_score_dyn + 0.02):
                                 stats["filtered_by_margin"] += 1
                                 reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
@@ -5808,6 +5826,9 @@ async def match_selfie(
                             if best_score < 0.20:
                                 # Score molto basso: AUMENTA margin_min per evitare falsi positivi
                                 effective_margin_min = max(margin_min, 0.05)  # Almeno 0.05 per score bassi
+                            elif 0.60 <= det_score_val < 0.75 and area < 30000:
+                                # Foto piccola con det medio: riduci margin_min per essere più permissivi (profili)
+                                effective_margin_min = margin_min * 0.5  # Ridotto del 50%
                             elif det_score_val >= 0.70 and area < 20000:
                                 # Foto difficile: riduci margin_min del 50% per essere più permissivi
                                 effective_margin_min = margin_min * 0.5
