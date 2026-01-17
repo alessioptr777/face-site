@@ -5717,9 +5717,10 @@ async def match_selfie(
                 # Non applicare tolleranza per evitare falsi positivi (privacy violata)
                 # Pattern tipico di falsi positivi: faccia ben visibile (det alto) ma match debole (score basso)
                 # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = soglia più alta
-                if det_score_val >= 0.85 and best_score < 0.35:
+                # Se det_score >= 0.85, richiedi score >= 0.40 per evitare falsi positivi (es. MIT00045.jpg)
+                if det_score_val >= 0.85 and best_score < 0.40:
                     stats["filtered_by_score"] += 1
-                    reject_reason = f"score={best_score:.3f}<0.35 (det={det_score_val:.3f} molto alto, falso positivo)"
+                    reject_reason = f"score={best_score:.3f}<0.40 (det={det_score_val:.3f} molto alto, falso positivo)"
                 elif det_score_val >= 0.80 and best_score < 0.30:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.30 (det={det_score_val:.3f} molto alto, falso positivo)"
@@ -5881,7 +5882,7 @@ async def match_selfie(
                             # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = margin_min molto alto
                             if det_score_val >= 0.85 and best_score < 0.40:
                                 # Det molto alto (>=0.85) + score basso: margin_min molto alto per evitare falsi positivi
-                                effective_margin_min = max(margin_min, 0.10)  # Almeno 0.10
+                                effective_margin_min = max(margin_min, 0.12)  # Almeno 0.12 (aumentato per MIT00045.jpg)
                             elif det_score_val >= 0.80 and best_score < 0.35:
                                 # Det molto alto + score basso: margin_min molto alto per evitare falsi positivi
                                 effective_margin_min = max(margin_min, 0.08)  # Almeno 0.08
@@ -5939,6 +5940,16 @@ async def match_selfie(
                         "reason": reject_reason,
                     })
 
+            # Deduplica risultati per r2_key (evita foto duplicate)
+            seen_r2_keys = set()
+            deduplicated_results = []
+            for r in results:
+                r2_key = r.get("r2_key") or r.get("photo_id")
+                if r2_key and r2_key not in seen_r2_keys:
+                    seen_r2_keys.add(r2_key)
+                    deduplicated_results.append(r)
+            results = deduplicated_results
+            
             results.sort(key=lambda x: x["score"], reverse=True)
             if len(results) > 80:
                 results = results[:80]
