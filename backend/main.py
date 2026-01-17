@@ -5596,12 +5596,14 @@ async def match_selfie(
             if area >= 150000:
                 return 0.10  # Foto molto grandi: soglia molto bassa per lontane/profilo (protezione: 2/2 hits)
             # Foto con area GRANDE (>70000) anche con det_score basso: potrebbero essere lontane/profilo
-            # Abbassa soglia a 0.20 per catturare meglio (se det_score alto, altrimenti 0.25)
+            # Abbassa soglia a 0.20 per catturare meglio (se det_score alto, altrimenti 0.25 o 0.20 se det molto basso)
             if area >= 70000:
                 if det_score_val >= 0.70:
                     return 0.20  # Foto grandi con det buono: soglia bassa
+                elif det_score_val < 0.55:
+                    return 0.20  # Foto grandi con det molto basso: soglia bassa per catturare foto difficili
                 else:
-                    return 0.25  # Foto grandi con det basso: soglia un po' più alta
+                    return 0.25  # Foto grandi con det medio: soglia un po' più alta
             # Foto con area GRANDE (>150000) ma det_score medio (0.68-0.75): potrebbero essere profili/lontane
             # Abbassa soglia a 0.28 per catturare meglio (come foto "facili" ma con det medio)
             if 0.68 <= det_score_val < 0.75 and area >= 150000:
@@ -5817,6 +5819,9 @@ async def match_selfie(
                     elif 0.60 <= det_score_val < 0.75 and area < 30000:
                         if best_score >= 0.28:
                             required_hits = 1  # Score buono, accetta con 1/2
+                        elif best_score >= min_score_dyn:
+                            # Score >= min_score ma < 0.28: accetta con 1/2 se score è almeno min_score
+                            required_hits = 1  # Permetti 1/2 hits per foto difficili con score valido
                         else:
                             required_hits = 2  # Score borderline, richiedi 2/2
                     # Foto piccole (area < 30000) con det_score basso (0.55-0.60): potrebbero essere profili molto difficili
@@ -5851,6 +5856,10 @@ async def match_selfie(
                             elif 0.60 <= det_score_val < 0.75 and area < 30000 and best_score >= min_score_dyn:
                                 # Foto piccola con det medio: accetta anche senza margin
                                 pass
+                            # Per foto grandi (area >= 70000) con score buono, essere più permissivi
+                            elif area >= 70000 and best_score >= min_score_dyn:
+                                # Foto grande con score buono: accetta anche senza margin
+                                pass
                             elif bucket != "large" and best_score < (min_score_dyn + 0.02):
                                 stats["filtered_by_margin"] += 1
                                 reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
@@ -5880,6 +5889,9 @@ async def match_selfie(
                             elif det_score_val >= 0.70 and area < 20000:
                                 # Foto difficile: riduci margin_min del 50% per essere più permissivi
                                 effective_margin_min = margin_min * 0.5
+                            elif area >= 150000 and best_score >= min_score_dyn:
+                                # Foto molto grande con score valido: riduci margin_min per essere più permissivi
+                                effective_margin_min = margin_min * 0.3  # Ridotto del 70% per foto molto grandi
                             
                             if margin < effective_margin_min:
                                 stats["filtered_by_margin"] += 1
