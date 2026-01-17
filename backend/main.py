@@ -5724,9 +5724,13 @@ async def match_selfie(
                     # Ottimizzata per catturare foto difficili (profilo, lontane, parzialmente coperte)
                     required_hits = 1  # Default: almeno 1/2 ref_embeddings devono matchare
                     
+                    # PROTEZIONE GENERALE: det_score alto ma score basso = possibile falso positivo
+                    # Se det_score >= 0.75 (faccia ben visibile) ma score < 0.25, richiedi SEMPRE 2/2 hits
+                    if det_score_val >= 0.75 and best_score < 0.25:
+                        required_hits = 2  # Det alto + score basso = SEMPRE 2/2 hits (protezione falsi positivi)
                     # Foto "facili" (large): se score è molto alto (>=0.40), accetta anche con 1/2 hits
                     # Altrimenti richiedi 2/2 per evitare falsi positivi
-                    if bucket == "large":
+                    elif bucket == "large":
                         if best_score >= 0.40:
                             required_hits = 1  # Score alto = match sicuro, accetta con 1/2
                         else:
@@ -5742,10 +5746,13 @@ async def match_selfie(
                         else:
                             required_hits = 2  # Score molto basso, richiedi 2/2
                     # Foto con area GRANDE (>70000): potrebbero essere lontane/profilo
+                    # PROTEZIONE: se score è molto basso (<0.20), richiedi SEMPRE 2/2 hits per evitare falsi positivi
                     # Se score è >= 0.25 (o min_score se più alto), accetta con 1/2 hits
                     # Se score è >= min_score ma < 0.25, accetta con 2/2 hits (protezione)
                     elif area >= 70000:
-                        if best_score >= 0.25 or (best_score >= min_score_dyn and det_score_val >= 0.70):
+                        if best_score < 0.20:
+                            required_hits = 2  # Score molto basso: SEMPRE 2/2 hits per evitare falsi positivi
+                        elif best_score >= 0.25 or (best_score >= min_score_dyn and det_score_val >= 0.70 and best_score >= 0.22):
                             required_hits = 1  # Score buono + area grande = accetta con 1/2
                         elif best_score >= min_score_dyn:
                             required_hits = 2  # Score basso ma >= min_score = richiedi 2/2 per protezione
@@ -5796,8 +5803,12 @@ async def match_selfie(
                                 reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
                         else:
                             # Per foto difficili con det_score buono, riduci margin_min
+                            # Ma AUMENTA margin_min per foto con score bassi (protezione falsi positivi)
                             effective_margin_min = margin_min
-                            if det_score_val >= 0.70 and area < 20000:
+                            if best_score < 0.20:
+                                # Score molto basso: AUMENTA margin_min per evitare falsi positivi
+                                effective_margin_min = max(margin_min, 0.05)  # Almeno 0.05 per score bassi
+                            elif det_score_val >= 0.70 and area < 20000:
                                 # Foto difficile: riduci margin_min del 50% per essere più permissivi
                                 effective_margin_min = margin_min * 0.5
                             
