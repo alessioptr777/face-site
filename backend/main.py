@@ -100,7 +100,9 @@ R2_ONLY_MODE = os.getenv("R2_ONLY_MODE", "1") == "1"
 R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
 
 # Configurazione indexing automatico
-INDEXING_ENABLED = os.getenv("INDEXING_ENABLED", "1") == "1"
+# Accetta "1", "true", "yes", "on" come valori validi (case-insensitive)
+_indexing_enabled_str = os.getenv("INDEXING_ENABLED", "1").strip().lower()
+INDEXING_ENABLED = _indexing_enabled_str in {"1", "true", "yes", "on"}
 # Intervallo più breve (60s) per sync più reattivo - rileva cambiamenti R2 velocemente
 INDEXING_INTERVAL_SECONDS = int(os.getenv("INDEXING_INTERVAL_SECONDS", "60"))
 
