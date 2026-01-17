@@ -5592,13 +5592,16 @@ async def match_selfie(
             if det_score_val >= 0.75 and area >= 30000:
                 return 0.31  # Foto "medie": soglia moderata
             # Foto con area MOLTO GRANDE (>150000): potrebbero essere molto lontane/profilo
-            # Abbassa soglia a 0.20 per catturare meglio (foto difficili ma grandi)
+            # Abbassa soglia a 0.10 per catturare meglio (foto difficili ma grandi, richiede sempre 2/2 hits)
             if area >= 150000:
-                return 0.20  # Foto molto grandi: soglia molto bassa per lontane/profilo
+                return 0.10  # Foto molto grandi: soglia molto bassa per lontane/profilo (protezione: 2/2 hits)
             # Foto con area GRANDE (>70000) anche con det_score basso: potrebbero essere lontane/profilo
-            # Abbassa soglia a 0.27 per catturare meglio
+            # Abbassa soglia a 0.20 per catturare meglio (se det_score alto, altrimenti 0.25)
             if area >= 70000:
-                return 0.27  # Foto grandi: soglia bassa (anche con det basso)
+                if det_score_val >= 0.70:
+                    return 0.20  # Foto grandi con det buono: soglia bassa
+                else:
+                    return 0.25  # Foto grandi con det basso: soglia un po' più alta
             # Foto con area GRANDE (>150000) ma det_score medio (0.68-0.75): potrebbero essere profili/lontane
             # Abbassa soglia a 0.28 per catturare meglio (come foto "facili" ma con det medio)
             if 0.68 <= det_score_val < 0.75 and area >= 150000:
@@ -5703,9 +5706,9 @@ async def match_selfie(
                 score_diff = min_score_dyn - best_score
                 tolerance = 0.01  # Default
                 if area >= 150000:
-                    tolerance = 0.05  # Foto molto grandi: tolleranza 0.05 (5%)
+                    tolerance = 0.08  # Foto molto grandi: tolleranza 0.08 (8%) per soglia 0.10
                 elif area >= 70000 or det_score_val >= 0.68:
-                    tolerance = 0.02  # Foto grandi o det buono: tolleranza 0.02
+                    tolerance = 0.03  # Foto grandi o det buono: tolleranza 0.03
                 
                 if score_diff > tolerance:  # Differenza > tolerance = rifiuta
                     stats["filtered_by_score"] += 1
@@ -5729,18 +5732,23 @@ async def match_selfie(
                         else:
                             required_hits = 2  # Score medio = richiedi conferma 2/2
                     # Foto con area MOLTO GRANDE (>150000): potrebbero essere molto lontane/profilo
-                    # Se score è >= min_score (0.20), accetta con 1/2 hits
-                    # Se score è >= 0.18 (vicino a min_score), accetta comunque con 1/2 hits
+                    # Se score è >= 0.15, accetta con 1/2 hits
+                    # Se score è >= 0.10 (min_score), accetta con 2/2 hits (protezione)
                     elif area >= 150000:
-                        if best_score >= min_score_dyn or best_score >= 0.18:
-                            required_hits = 1  # Score >= min_score o >= 0.18 + area molto grande = accetta con 1/2
+                        if best_score >= 0.15:
+                            required_hits = 1  # Score buono + area molto grande = accetta con 1/2
+                        elif best_score >= min_score_dyn:
+                            required_hits = 2  # Score basso ma >= min_score = richiedi 2/2 per protezione
                         else:
                             required_hits = 2  # Score molto basso, richiedi 2/2
                     # Foto con area GRANDE (>70000): potrebbero essere lontane/profilo
-                    # Se score è >= min_score (0.27), accetta con 1/2 hits
+                    # Se score è >= 0.25 (o min_score se più alto), accetta con 1/2 hits
+                    # Se score è >= min_score ma < 0.25, accetta con 2/2 hits (protezione)
                     elif area >= 70000:
-                        if best_score >= min_score_dyn:
-                            required_hits = 1  # Score >= min_score + area grande = accetta con 1/2
+                        if best_score >= 0.25 or (best_score >= min_score_dyn and det_score_val >= 0.70):
+                            required_hits = 1  # Score buono + area grande = accetta con 1/2
+                        elif best_score >= min_score_dyn:
+                            required_hits = 2  # Score basso ma >= min_score = richiedi 2/2 per protezione
                         else:
                             required_hits = 2  # Score borderline, richiedi 2/2
                     # Foto difficili ma con det_score buono (>=0.70): potrebbero essere profili/lontane
