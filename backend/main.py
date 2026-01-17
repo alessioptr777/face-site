@@ -5592,9 +5592,9 @@ async def match_selfie(
             if det_score_val >= 0.75 and area >= 30000:
                 return 0.31  # Foto "medie": soglia moderata
             # Foto con area MOLTO GRANDE (>150000): potrebbero essere molto lontane/profilo
-            # Abbassa soglia a 0.25 per catturare meglio
+            # Abbassa soglia a 0.20 per catturare meglio (foto difficili ma grandi)
             if area >= 150000:
-                return 0.25  # Foto molto grandi: soglia molto bassa per lontane/profilo
+                return 0.20  # Foto molto grandi: soglia molto bassa per lontane/profilo
             # Foto con area GRANDE (>70000) anche con det_score basso: potrebbero essere lontane/profilo
             # Abbassa soglia a 0.27 per catturare meglio
             if area >= 70000:
@@ -5698,28 +5698,24 @@ async def match_selfie(
                     bucket = "medium"
 
                 reject_reason = None
-                # Tolleranza per score molto vicini alla soglia (differenza < 0.01)
-                # Per foto grandi o con det_score buono, accetta anche se score è leggermente sotto
+                # Tolleranza per score molto vicini alla soglia
+                # Per foto molto grandi, tolleranza maggiore
                 score_diff = min_score_dyn - best_score
-                if score_diff > 0.01:  # Differenza > 0.01 = rifiuta
+                tolerance = 0.01  # Default
+                if area >= 150000:
+                    tolerance = 0.05  # Foto molto grandi: tolleranza 0.05 (5%)
+                elif area >= 70000 or det_score_val >= 0.68:
+                    tolerance = 0.02  # Foto grandi o det buono: tolleranza 0.02
+                
+                if score_diff > tolerance:  # Differenza > tolerance = rifiuta
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f}"
-                elif score_diff > 0:  # Differenza <= 0.01 = accetta ma richiede 2/2 hits
+                elif score_diff > 0:  # Differenza <= tolerance = accetta ma richiede 2/2 hits
                     # Score molto vicino alla soglia: accetta ma richiede conferma doppia
-                    # Solo per foto grandi o con det_score buono
-                    if area >= 70000 or det_score_val >= 0.68:
-                        # Considera come se avesse superato la soglia, ma richiedi 2/2 hits
-                        min_score_dyn = best_score  # Aggiusta min_score per permettere il check successivo
-                        # Ricalcola hits_count con la nuova soglia
-                        hits_count = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn)
-                    # Per foto molto grandi (>=150000), aumenta tolleranza a 0.02
-                    elif area >= 150000 and score_diff <= 0.02:
-                        # Foto molto grandi: tolleranza maggiore (0.02 invece di 0.01)
-                        min_score_dyn = best_score
-                        hits_count = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn)
-                    else:
-                        stats["filtered_by_score"] += 1
-                        reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f} (tolerance not applied)"
+                    # Considera come se avesse superato la soglia, ma richiedi 2/2 hits
+                    min_score_dyn = best_score  # Aggiusta min_score per permettere il check successivo
+                    # Ricalcola hits_count con la nuova soglia
+                    hits_count = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn)
                 else:
                     # Logica di conferma adattiva per bilanciare recall e precision
                     # Ottimizzata per catturare foto difficili (profilo, lontane, parzialmente coperte)
@@ -5733,12 +5729,13 @@ async def match_selfie(
                         else:
                             required_hits = 2  # Score medio = richiedi conferma 2/2
                     # Foto con area MOLTO GRANDE (>150000): potrebbero essere molto lontane/profilo
-                    # Se score è >= min_score (0.25), accetta con 1/2 hits
+                    # Se score è >= min_score (0.20), accetta con 1/2 hits
+                    # Se score è >= 0.18 (vicino a min_score), accetta comunque con 1/2 hits
                     elif area >= 150000:
-                        if best_score >= min_score_dyn:
-                            required_hits = 1  # Score >= min_score + area molto grande = accetta con 1/2
+                        if best_score >= min_score_dyn or best_score >= 0.18:
+                            required_hits = 1  # Score >= min_score o >= 0.18 + area molto grande = accetta con 1/2
                         else:
-                            required_hits = 2  # Score borderline, richiedi 2/2
+                            required_hits = 2  # Score molto basso, richiedi 2/2
                     # Foto con area GRANDE (>70000): potrebbero essere lontane/profilo
                     # Se score è >= min_score (0.27), accetta con 1/2 hits
                     elif area >= 70000:
