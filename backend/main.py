@@ -2736,8 +2736,7 @@ async def startup():
             try:
                 await asyncio.sleep(INDEXING_INTERVAL_SECONDS)
                 # Check veloce (non blocca, usa hash per evitare sync inutili)
-                # Log solo se c'è attività (evita spam nei log)
-                logger.debug(f"[INDEXING] Auto-sync check (interval={INDEXING_INTERVAL_SECONDS}s)")
+                logger.info(f"[INDEXING] Auto-sync check (interval={INDEXING_INTERVAL_SECONDS}s)")
                 await maybe_sync_index()
             except Exception as e:
                 logger.error(f"[INDEXING] Error in indexing task: {e}", exc_info=True)
@@ -5715,7 +5714,11 @@ async def match_selfie(
                 # PROTEZIONE CRITICA: det_score alto ma score molto basso = SEMPRE RIFIUTA (privacy)
                 # Non applicare tolleranza per evitare falsi positivi (privacy violata)
                 # Pattern tipico di falsi positivi: faccia ben visibile (det alto) ma match debole (score basso)
-                if det_score_val >= 0.80 and best_score < 0.30:
+                # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = soglia più alta
+                if det_score_val >= 0.85 and best_score < 0.35:
+                    stats["filtered_by_score"] += 1
+                    reject_reason = f"score={best_score:.3f}<0.35 (det={det_score_val:.3f} molto alto, falso positivo)"
+                elif det_score_val >= 0.80 and best_score < 0.30:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.30 (det={det_score_val:.3f} molto alto, falso positivo)"
                 elif det_score_val >= 0.78 and best_score < 0.25:
@@ -5757,11 +5760,14 @@ async def match_selfie(
                     required_hits = 1  # Default: almeno 1/2 ref_embeddings devono matchare
                     
                     # PROTEZIONE GENERALE: det_score alto ma score basso = possibile falso positivo
+                    # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = richiedi sempre 2/2 hits se score < 0.40
                     # Se det_score >= 0.80 (faccia molto ben visibile) ma score < 0.30, richiedi SEMPRE 2/2 hits
                     # Se det_score >= 0.78 (faccia molto ben visibile) ma score < 0.25, richiedi SEMPRE 2/2 hits
                     # Se det_score >= 0.75 (faccia ben visibile) ma score < 0.20, richiedi SEMPRE 2/2 hits
                     # PROTEZIONE CRITICA: anche se score è >= 0.25 ma < 0.35 con det molto alto, richiedi 2/2
-                    if det_score_val >= 0.80 and best_score < 0.35:
+                    if det_score_val >= 0.85 and best_score < 0.40:
+                        required_hits = 2  # Det molto alto (>=0.85) + score basso = SEMPRE 2/2 hits (protezione critica)
+                    elif det_score_val >= 0.80 and best_score < 0.35:
                         required_hits = 2  # Det molto alto + score basso = SEMPRE 2/2 hits (protezione critica)
                     elif det_score_val >= 0.78 and best_score < 0.30:
                         required_hits = 2  # Det molto alto (vicino a 0.80) + score basso = SEMPRE 2/2 hits
@@ -5870,7 +5876,11 @@ async def match_selfie(
                             # Ma AUMENTA margin_min per foto con score bassi (protezione falsi positivi)
                             effective_margin_min = margin_min
                             # PROTEZIONE CRITICA: det_score alto ma score basso = AUMENTA margin_min
-                            if det_score_val >= 0.80 and best_score < 0.35:
+                            # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = margin_min molto alto
+                            if det_score_val >= 0.85 and best_score < 0.40:
+                                # Det molto alto (>=0.85) + score basso: margin_min molto alto per evitare falsi positivi
+                                effective_margin_min = max(margin_min, 0.10)  # Almeno 0.10
+                            elif det_score_val >= 0.80 and best_score < 0.35:
                                 # Det molto alto + score basso: margin_min molto alto per evitare falsi positivi
                                 effective_margin_min = max(margin_min, 0.08)  # Almeno 0.08
                             elif det_score_val >= 0.78 and best_score < 0.30:
