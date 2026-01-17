@@ -5591,6 +5591,10 @@ async def match_selfie(
                 return 0.28  # Foto "facili": soglia più bassa ma con conferma 2/2 se score < 0.40
             if det_score_val >= 0.75 and area >= 30000:
                 return 0.31  # Foto "medie": soglia moderata
+            # Foto con area GRANDE (>150000) ma det_score medio (0.68-0.75): potrebbero essere profili/lontane
+            # Abbassa soglia a 0.28 per catturare meglio (come foto "facili" ma con det medio)
+            if 0.68 <= det_score_val < 0.75 and area >= 150000:
+                return 0.28  # Foto grandi ma det medio: soglia molto bassa per profili/lontane
             # Foto difficili ma con det_score buono (>=0.70): potrebbero essere profili/lontane
             # Abbassa soglia a 0.30 ma richiede sempre 2/2 hits per protezione
             if det_score_val >= 0.70 and 15000 <= area < 20000:
@@ -5701,6 +5705,13 @@ async def match_selfie(
                             required_hits = 1  # Score alto = match sicuro, accetta con 1/2
                         else:
                             required_hits = 2  # Score medio = richiedi conferma 2/2
+                    # Foto con area GRANDE (>150000) ma det_score medio (0.68-0.75): potrebbero essere profili/lontane
+                    # Se score è buono (>=0.30), accetta con 1/2 hits (soglia min_score è 0.28)
+                    elif 0.68 <= det_score_val < 0.75 and area >= 150000:
+                        if best_score >= 0.30:
+                            required_hits = 1  # Score buono + area grande = accetta con 1/2
+                        else:
+                            required_hits = 2  # Score borderline, richiedi 2/2
                     # Foto difficili ma con det_score buono (>=0.70): potrebbero essere profili/lontane
                     # Accetta con 2/2 hits se score è borderline (0.28-0.32)
                     elif det_score_val >= 0.70 and 15000 <= area < 20000:
