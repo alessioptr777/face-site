@@ -5490,11 +5490,15 @@ async def match_selfie(
             return 0.0
 
         def _dynamic_min_score(det_score_val: float, area: float) -> float:
+            # Ridotti threshold per aumentare recall (mantenendo protezione contro falsi positivi)
             if det_score_val >= 0.85 and area >= 60000:
-                return 0.30
+                return 0.28  # Ridotto da 0.30 per aumentare recall su foto "facili"
             if det_score_val >= 0.75 and area >= 30000:
-                return 0.33
-            return 0.36
+                return 0.31  # Ridotto da 0.33 per aumentare recall su foto "medie"
+            # Per bucket speciale (0.62 <= det < 0.75, 10000 <= area < 30000): usa 0.34 invece di 0.36
+            if 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
+                return 0.34  # Ridotto da 0.36 per il bucket speciale
+            return 0.35  # Ridotto da 0.36 per aumentare recall generale
 
         def _dynamic_margin_min(det_score_val: float, area: float) -> float:
             if area < 30000 or det_score_val < 0.75:
@@ -5580,14 +5584,36 @@ async def match_selfie(
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f}"
                 else:
-                    # Bucket speciale: small/medium det -> richiede 2/2 hits
-                    if 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
-                        if hits_count < 2:
-                            stats["filtered_by_score"] += 1
-                            reject_reason = f"hits={hits_count}/2 (bucket requires 2/2)"
+                    # Logica di conferma adattiva per bilanciare recall e precision
+                    required_hits = 1  # Default: almeno 1/2 ref_embeddings devono matchare
+                    
+                    # Foto "facili" (large): se score è molto alto (>=0.40), accetta anche con 1/2 hits
+                    # Altrimenti richiedi 2/2 per evitare falsi positivi
+                    if bucket == "large":
+                        if best_score >= 0.40:
+                            required_hits = 1  # Score alto = match sicuro, accetta con 1/2
+                        else:
+                            required_hits = 2  # Score medio = richiedi conferma 2/2
+                    # Bucket speciale: small/medium det -> richiede 2/2 hits solo se score borderline
+                    elif 0.62 <= det_score_val < 0.75 and 10000 <= area < 30000:
+                        if best_score >= 0.38:
+                            required_hits = 1  # Score buono, accetta con 1/2
+                        else:
+                            required_hits = 2  # Score borderline, richiedi 2/2
+                    # Foto "difficili" (small): più permissive, ma almeno 2/2 se score molto borderline
+                    elif bucket == "small" and best_score < (min_score_dyn + 0.03):
+                        required_hits = 2  # Se score è molto borderline, richiedi 2/2
+                    
+                    if hits_count < required_hits:
+                        stats["filtered_by_score"] += 1
+                        reject_reason = f"hits={hits_count}/{required_hits} (bucket={bucket}, score={best_score:.3f})"
+                    
                     if reject_reason is None:
+                        # Per foto "facili" (large), se margin è None (solo una faccia), 
+                        # essere più permissivi: richiedi solo best_score >= min_score (già verificato sopra)
                         if margin is None:
-                            if best_score < (min_score_dyn + 0.02):
+                            # Solo per foto "difficili" o "medie", richiedi bonus se margin manca
+                            if bucket != "large" and best_score < (min_score_dyn + 0.02):
                                 stats["filtered_by_margin"] += 1
                                 reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
                         else:
