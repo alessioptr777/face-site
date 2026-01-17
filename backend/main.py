@@ -5730,10 +5730,10 @@ async def match_selfie(
                         tolerance = 0.08  # Foto molto grandi: tolleranza 0.08 (8%) per soglia 0.10
                     elif area >= 70000 or det_score_val >= 0.68:
                         tolerance = 0.03  # Foto grandi o det buono: tolleranza 0.03
-                elif 0.60 <= det_score_val < 0.75 and area < 30000:
-                    tolerance = 0.08  # Foto piccole con det medio: tolleranza 0.08 per catturare profili difficili
-                elif 0.55 <= det_score_val < 0.60 and area < 30000:
-                    tolerance = 0.10  # Foto piccole con det basso: tolleranza 0.10 per profili molto difficili
+                    elif 0.60 <= det_score_val < 0.75 and area < 30000:
+                        tolerance = 0.08  # Foto piccole con det medio: tolleranza 0.08 per catturare profili difficili
+                    elif 0.55 <= det_score_val < 0.60 and area < 30000:
+                        tolerance = 0.10  # Foto piccole con det basso: tolleranza 0.10 per profili molto difficili
                     
                     if score_diff > tolerance:  # Differenza > tolerance = rifiuta
                         stats["filtered_by_score"] += 1
@@ -5744,7 +5744,10 @@ async def match_selfie(
                         min_score_dyn = best_score  # Aggiusta min_score per permettere il check successivo
                         # Ricalcola hits_count con la nuova soglia
                         hits_count = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn)
-                else:
+                    # Se score_diff <= 0 (cioè best_score >= min_score_dyn), continua con la logica di conferma normale
+                
+                # Logica di conferma adattiva per bilanciare recall e precision (solo se non c'è reject_reason)
+                if reject_reason is None:
                     # Logica di conferma adattiva per bilanciare recall e precision
                     # Ottimizzata per catturare foto difficili (profilo, lontane, parzialmente coperte)
                     required_hits = 1  # Default: almeno 1/2 ref_embeddings devono matchare
