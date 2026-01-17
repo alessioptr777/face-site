@@ -102,11 +102,7 @@ R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
 # Configurazione indexing automatico
 INDEXING_ENABLED = os.getenv("INDEXING_ENABLED", "1") == "1"
 # Intervallo più breve (60s) per sync più reattivo - rileva cambiamenti R2 velocemente
-# Intervallo auto-sync: più lungo su produzione per non interferire con le richieste
-# Default 300s (5 min) su produzione, 60s in locale (override con INDEXING_INTERVAL_SECONDS env var)
-# Render imposta RENDER=true, quindi rileviamo automaticamente
-_is_render = os.getenv("RENDER") == "true" or os.getenv("RENDER_EXTERNAL_HOSTNAME") is not None
-INDEXING_INTERVAL_SECONDS = int(os.getenv("INDEXING_INTERVAL_SECONDS", "300" if _is_render else "60"))
+INDEXING_INTERVAL_SECONDS = int(os.getenv("INDEXING_INTERVAL_SECONDS", "60"))
 
 # Path per file index/tracking (disabilitati in R2_ONLY_MODE)
 INDEX_PATH = DATA_DIR / "faces.index"
