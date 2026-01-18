@@ -5931,14 +5931,15 @@ async def match_selfie(
                     from urllib.parse import quote
                     r2_key_encoded = quote(r2_key, safe='')
                     
-                    # Log dettagliato per foto con det_score alto (per debug falsi positivi)
-                    if det_score_val >= 0.85:
+                    # Log dettagliato per foto accettate (per debug falsi positivi)
+                    # Log sempre per MIT00044.jpg e MIT00062.jpg (falsi positivi noti)
+                    if "MIT00044" in r2_key or "MIT00062" in r2_key or det_score_val >= 0.85:
                         margin_str = "None" if margin is None else f"{margin:.3f}"
+                        effective_margin_str = f"{effective_margin_min:.3f}" if margin is not None else "N/A"
                         logger.warning(
-                            f"[ACCEPTED_HIGH_DET] {r2_key}: score={best_score:.3f} det={det_score_val:.3f} "
+                            f"[ACCEPTED] {r2_key}: score={best_score:.3f} det={det_score_val:.3f} "
                             f"area={int(area)} min_score={min_score_dyn:.2f} margin={margin_str} "
-                            f"margin_min={effective_margin_min if margin is not None else 'N/A'} "
-                            f"hits={hits_count}/{required_hits} bucket={bucket}"
+                            f"margin_min={effective_margin_str} hits={hits_count}/{required_hits} bucket={bucket}"
                         )
                     
                     results.append({
