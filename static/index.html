@@ -1140,6 +1140,73 @@
       background: rgba(255, 255, 255, 0.3);
     }
     
+    /* Nudge Bar: suggerisce upgrade al prossimo scaglione */
+    .nudge-bar{
+      position: fixed;
+      bottom: calc(80px + env(safe-area-inset-bottom) + 10px); /* Altezza sticky + safe area + 10px */
+      left: 12px;
+      right: 12px;
+      max-width: 600px;
+      margin: 0 auto;
+      background: rgba(20, 20, 30, 0.95);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 12px 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      z-index: 1200; /* Tra sticky (1000) e lightbox (2000) */
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    
+    .nudge-bar.active{
+      display: flex;
+    }
+    
+    .nudge-content{
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    
+    .nudge-text{
+      flex: 1;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--text-light);
+    }
+    
+    .nudge-text small{
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    
+    .nudge-btn{
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 0.2s, opacity 0.2s;
+      flex-shrink: 0;
+    }
+    
+    .nudge-btn:active{
+      transform: scale(0.95);
+      opacity: 0.8;
+    }
+    
     /* Paid Photos Countdown Banner */
     .paid-countdown-banner{
       position: fixed;
@@ -1439,13 +1506,21 @@
   </div>
   
   <!-- Sticky Offer Bar -->
+  <!-- Nudge Bar: suggerisce upgrade al prossimo scaglione -->
+  <div class="nudge-bar" id="nudgeBar" style="display: none;">
+    <div class="nudge-content">
+      <div class="nudge-text" id="nudgeText"></div>
+      <button class="nudge-btn" id="nudgeCheckoutBtn">Vai al checkout</button>
+    </div>
+  </div>
+  
   <div class="sticky-offer-bar" id="stickyOfferBar">
       <div class="sticky-offer-content">
-      <div class="sticky-offer-text" id="stickyOfferText">Get all photos</div>
+      <div class="sticky-offer-text" id="stickyOfferText">Prendile tutte</div>
       <div class="sticky-offer-price" id="stickyOfferPrice">€0</div>
     </div>
     <div class="sticky-offer-actions">
-      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Pay now</button>
+      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Sblocca tutte</button>
     </div>
   </div>
   
@@ -1550,8 +1625,17 @@
     function initCart() {
       cartPhotoIds = [];
       currentCart = { photo_ids: [], count: 0, price_euros: 0 };
-      updateCart();
-      updateCartModal();
+      // Aggiorna UI solo se gli elementi DOM esistono (evita errori all'avvio)
+      try {
+        if (document.readyState === 'loading') {
+          // DOM non ancora caricato, aggiorna dopo
+          return;
+        }
+        updateCart();
+        updateCartModal();
+      } catch(e) {
+        console.warn('initCart: DOM not ready yet, skipping UI update');
+      }
     }
     
     function loadCart() {
@@ -1582,7 +1666,7 @@
       // Sincronizza carrello in memoria con currentCart
       const photoIds = cartPhotoIds;
       const count = photoIds.length;
-      const priceCents = calculatePrice(count);
+      const priceCents = computePrice(count);
       currentCart = {
         photo_ids: photoIds,
         count: count,
@@ -1591,10 +1675,10 @@
       };
       updateCart();
       updateCartModal();
+      updateNudgeBar(); // Aggiorna nudge bar quando carrello cambia
     }
     
-    // Inizializza carrello vuoto all'avvio
-    initCart();
+    // NON chiamare initCart() qui - viene chiamato in bootApp() quando il DOM è pronto
     let fromStripeSuccess = false; // Flag per tracciare se arrivo da Stripe success
 
     // Elementi DOM
@@ -1631,12 +1715,22 @@
       }
       currentScreen = screenName;
       
-      // Gestione stickyOfferBar: visibile SOLO quando albumScreen è attivo
+      // Gestione stickyOfferBar e nudgeBar: visibili SOLO quando albumScreen è attivo
       const stickyOfferBar = document.getElementById('stickyOfferBar');
+      const nudgeBar = document.getElementById('nudgeBar');
+      
       if(stickyOfferBar) {
         if(screenName !== 'album') {
           stickyOfferBar.classList.remove('active');
           stickyOfferBar.style.display = 'none';
+        }
+        // Se è album, verrà mostrato dopo che le foto sono renderizzate
+      }
+      
+      if(nudgeBar) {
+        if(screenName !== 'album') {
+          nudgeBar.classList.remove('active');
+          nudgeBar.style.display = 'none';
         }
         // Se è album, verrà mostrato dopo che le foto sono renderizzate
       }
@@ -1750,7 +1844,19 @@
       
       // 2. Mostra sempre schermata welcome (poi selfie)
       console.log('Mostrando schermata welcome');
-      showScreen('welcome');
+      try {
+        showScreen('welcome');
+        console.log('Schermata welcome mostrata correttamente');
+      } catch(e) {
+        console.error('Errore mostrando schermata welcome:', e);
+        // Fallback: mostra welcome direttamente
+        const welcomeEl = document.getElementById('welcomeScreen');
+        if(welcomeEl) {
+          document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+          welcomeEl.classList.add('active');
+          console.log('Schermata welcome mostrata con fallback');
+        }
+      }
     }
     
     // Funzione separata per caricare album dopo pagamento (stateless: usa session_id)
@@ -2311,6 +2417,13 @@
           updateCartModal();
         }
       });
+      
+      // Event listener per nudge checkout button (se non già presente)
+      const nudgeCheckoutBtn = document.getElementById('nudgeCheckoutBtn');
+      if(nudgeCheckoutBtn && !nudgeCheckoutBtn.dataset.listenerAdded) {
+        // L'onclick viene impostato dinamicamente in updateNudgeBar()
+        nudgeCheckoutBtn.dataset.listenerAdded = 'true';
+      }
     }
     
     // Bottone "Aggiungi membro famiglia"
@@ -4161,14 +4274,22 @@
         }
       }, 2000);
       
-      // Mostra sticky bar con conteggio solo delle foto NON pagate (disponibili da comprare)
-      const unpaidPhotosCount = allPhotos.filter(photo => !paidPhotoIdsSet.has(photo.photo_id)).length;
-      if(unpaidPhotosCount > 0) {
-        showStickyOfferBar(unpaidPhotosCount);
-      } else {
-        // Nascondi sticky bar se tutte le foto sono pagate
+      // Aggiorna sticky bar e nudge bar
+      updateStickyAllOffer();
+      updateNudgeBar();
+      
+      // Mostra sticky bar se ci sono foto
+      if(allPhotos.length > 0) {
         const stickyBar = document.getElementById('stickyOfferBar');
         if(stickyBar) {
+          stickyBar.classList.add('active');
+          stickyBar.style.display = 'flex';
+        }
+      } else {
+        // Nascondi sticky bar se non ci sono foto
+        const stickyBar = document.getElementById('stickyOfferBar');
+        if(stickyBar) {
+          stickyBar.classList.remove('active');
           stickyBar.style.display = 'none';
         }
       }
@@ -4231,7 +4352,7 @@
       }
       
       if(stickyBuyBtn) {
-        stickyBuyBtn.textContent = 'Pay now';
+        stickyBuyBtn.textContent = 'Sblocca tutte';
         stickyBuyBtn.style.padding = '10px 24px';
         stickyBuyBtn.style.fontSize = '14px';
         stickyBuyBtn.style.fontWeight = '700';
@@ -4240,7 +4361,7 @@
       // Event listener per pulsante acquista (se non già presente)
       if(stickyBuyBtn && !stickyBuyBtn.dataset.listenerAdded) {
         stickyBuyBtn.addEventListener('click', () => {
-          checkoutAllPhotos(); // Usa funzione separata per acquistare TUTTE le foto
+          startCheckoutForAllPhotos(); // Checkout per tutte le foto
         });
         stickyBuyBtn.dataset.listenerAdded = 'true';
       }
@@ -4758,15 +4879,20 @@
     }
 
     function updateCart() {
-      if(albumCartCount) {
-        albumCartCount.textContent = currentCart.count || 0;
-      }
-      if(albumCartPrice) {
-        albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
-      }
-      // buyAllPrice rimosso insieme al pulsante buyAllBtn
-      if(buyAllPrice) {
-        buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+      // Aggiorna solo se gli elementi esistono (sicuro anche se chiamato prima del DOM)
+      try {
+        if(albumCartCount) {
+          albumCartCount.textContent = currentCart.count || 0;
+        }
+        if(albumCartPrice) {
+          albumCartPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+        }
+        // buyAllPrice rimosso insieme al pulsante buyAllBtn
+        if(buyAllPrice) {
+          buyAllPrice.textContent = `€${(currentCart.price_euros || 0).toFixed(2)}`;
+        }
+      } catch(e) {
+        // Ignora errori se elementi non esistono ancora
       }
     }
     
@@ -4807,6 +4933,7 @@
       // Rimuovi localmente (istantaneo)
       const updated = removeFromCartLocal(photoId);
       syncCart();
+      updateNudgeBar(); // Aggiorna nudge bar quando si rimuove foto
       
       // Aggiorna UI immediatamente
           const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
@@ -4816,18 +4943,213 @@
       }
     }
 
+    // Funzione unica per calcolare prezzo in centesimi
+    function computePrice(count) {
+      if(count <= 0) return 0;
+      if(count === 1) return 1800; // €18.00
+      if(count === 2) return 3600; // €36.00
+      if(count === 3) return 3900; // €39.00
+      if(count === 4) return 4200; // €42.00
+      if(count === 5) return 4500; // €45.00
+      if(count === 6) return 4700; // €47.00
+      if(count === 7) return 4800; // €48.00
+      if(count === 8) return 4900; // €49.00
+      if(count === 9) return 5000; // €50.00
+      if(count === 10) return 5100; // €51.00
+      if(count === 11) return 5200; // €52.00
+      if(count === 12) return 5300; // €53.00
+      if(count >= 13) return 5300 + 300 * (count - 12); // €53 + €3*(count-12)
+      return 0;
+    }
+    
+    // Mantieni calculatePrice per compatibilità (usa computePrice)
     function calculatePrice(count) {
-      // TEST MODE: tutte le foto costano 50 centesimi (minimo Stripe)
-      return 50; // €0.50 (TEST MODE - minimo Stripe, cambiare per produzione)
+      return computePrice(count);
+    }
+    
+    // Logica nudge: trova il prossimo target conveniente
+    function getNextOffer(k, N) {
+      if(N <= 0) return null;
       
-      // Prezzi produzione (commentati):
-      // if(count === 1) return 2000; // €20.00
-      // if(count === 2) return 4000; // €40.00
-      // if(count === 3) return 3500; // €35.00
-      // if(count === 4) return 4000; // €40.00
-      // if(count === 5) return 4500; // €45.00
-      // if(count >= 6 && count <= 11) return 5000; // €50.00
-      // return 6000; // €60.00
+      const targets = [3, 6, 9, 12];
+      
+      // Se k >= 12 e N > k, target = N (completa album)
+      if(k >= 12 && N > k) {
+        return {
+          target: N,
+          add: N - k,
+          delta: computePrice(N) - computePrice(k)
+        };
+      }
+      
+      // Trova il primo target > k e <= N
+      for(const target of targets) {
+        if(target > k && target <= N) {
+          return {
+            target: target,
+            add: target - k,
+            delta: computePrice(target) - computePrice(k)
+          };
+        }
+      }
+      
+      // Nessun target disponibile
+      return null;
+    }
+    
+    // Aggiorna sticky bar con offerta "Prendile tutte"
+    function updateStickyAllOffer() {
+      if(!allPhotos || allPhotos.length <= 0) {
+        const stickyBar = document.getElementById('stickyOfferBar');
+        if(stickyBar) {
+          stickyBar.classList.remove('active');
+          stickyBar.style.display = 'none';
+        }
+        return;
+      }
+      
+      const N = allPhotos.length;
+      const priceCents = computePrice(N);
+      const priceEuros = (priceCents / 100).toFixed(2);
+      
+      const stickyText = document.getElementById('stickyOfferText');
+      const stickyPrice = document.getElementById('stickyOfferPrice');
+      
+      if(stickyText) {
+        stickyText.textContent = 'Prendile tutte';
+      }
+      if(stickyPrice) {
+        stickyPrice.textContent = `€${priceEuros}`;
+      }
+    }
+    
+    // Aggiorna nudge bar con suggerimento upgrade
+    function updateNudgeBar() {
+      const nudgeBar = document.getElementById('nudgeBar');
+      const nudgeText = document.getElementById('nudgeText');
+      const nudgeCheckoutBtn = document.getElementById('nudgeCheckoutBtn');
+      
+      if(!nudgeBar || !nudgeText || !nudgeCheckoutBtn) return;
+      
+      // Nascondi se non siamo nell'album o non ci sono foto
+      if(currentScreen !== 'album' || !allPhotos || allPhotos.length <= 0) {
+        nudgeBar.classList.remove('active');
+        nudgeBar.style.display = 'none';
+        return;
+      }
+      
+      const k = cartPhotoIds.length;
+      const N = allPhotos.length;
+      
+      // Caso A: k == 0
+      if(k === 0) {
+        const priceEuros = (computePrice(N) / 100).toFixed(2);
+        nudgeText.innerHTML = `Seleziona le foto che vuoi. Offerta migliore: tutte a €${priceEuros}`;
+        nudgeCheckoutBtn.textContent = 'Vedi foto';
+        nudgeCheckoutBtn.onclick = () => {
+          // Scrolla alla griglia (non apre carrello se vuoto)
+          const albumGrid = document.getElementById('albumGrid');
+          if(albumGrid) {
+            albumGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        };
+        nudgeBar.classList.add('active');
+        nudgeBar.style.display = 'flex';
+        return;
+      }
+      
+      // Caso B: 1 <= k < N e esiste target
+      const offer = getNextOffer(k, N);
+      if(offer && k < N) {
+        const deltaEuros = (offer.delta / 100).toFixed(2);
+        nudgeText.innerHTML = `Aggiungi ${offer.add} foto e arrivi a ${offer.target} foto per solo +€${deltaEuros}<small>oppure continua a selezionare</small>`;
+        nudgeCheckoutBtn.textContent = 'Vai al checkout';
+        nudgeCheckoutBtn.onclick = () => {
+          // Apri carrello esistente
+          const cartModal = document.getElementById('cartModal');
+          if(cartModal) {
+            cartModal.classList.add('active');
+            updateCartModal();
+          }
+        };
+        nudgeBar.classList.add('active');
+        nudgeBar.style.display = 'flex';
+        return;
+      }
+      
+      // Caso C: k == N o k > 0 ma nessun target
+      if(k === N || (k > 0 && !offer)) {
+        const priceEuros = (computePrice(k) / 100).toFixed(2);
+        nudgeText.innerHTML = `Perfetto: hai selezionato tutto. Totale €${priceEuros}`;
+        nudgeCheckoutBtn.textContent = 'Vai al checkout';
+        nudgeCheckoutBtn.onclick = () => {
+          // Apri carrello esistente
+          const cartModal = document.getElementById('cartModal');
+          if(cartModal) {
+            cartModal.classList.add('active');
+            updateCartModal();
+          }
+        };
+        nudgeBar.classList.add('active');
+        nudgeBar.style.display = 'flex';
+        return;
+      }
+      
+      // Caso D: nascondi se nessuna condizione soddisfatta
+      nudgeBar.classList.remove('active');
+      nudgeBar.style.display = 'none';
+    }
+    
+    // Checkout per tutte le foto (indipendente dal carrello)
+    async function startCheckoutForAllPhotos() {
+      if(!allPhotos || allPhotos.length === 0) {
+        alert('Nessuna foto disponibile!');
+        return;
+      }
+      
+      const allPhotoIds = allPhotos.map(p => p.photo_id || p.r2_key).filter(Boolean);
+      if(allPhotoIds.length === 0) {
+        alert('Nessuna foto valida disponibile!');
+        return;
+      }
+      
+      // Filtra foto già pagate
+      const paidPhotoIdsSet = new Set(paidPhotos);
+      const unpaidPhotoIds = allPhotoIds.filter(photoId => !paidPhotoIdsSet.has(photoId));
+      
+      if(unpaidPhotoIds.length === 0) {
+        alert('Tutte le foto sono già state acquistate!');
+        return;
+      }
+      
+      const totalCount = unpaidPhotoIds.length;
+      const totalPriceCents = computePrice(totalCount);
+      
+      try {
+        const res = await fetch(`/create_checkout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            photo_ids: unpaidPhotoIds,
+            price_cents: totalPriceCents,
+            currency: 'eur'
+          })
+        });
+        
+        if(!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        if(data.checkout_url) {
+          window.location.href = data.checkout_url;
+        } else {
+          throw new Error('No checkout_url in response');
+        }
+      } catch(e) {
+        console.error('Checkout error:', e);
+        alert('Errore durante il checkout. Riprova.');
+      }
     }
 
     async function checkout() {
