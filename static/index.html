@@ -3953,6 +3953,28 @@
         // L'utente può tornare al selfie manualmente se vuole
         return;
       }
+      
+      // Pulisci carrello localStorage: rimuovi foto che non esistono più in allPhotos
+      try {
+        const cartPhotoIds = loadCart();
+        if(cartPhotoIds && cartPhotoIds.length > 0) {
+          // Crea set delle foto disponibili (più veloce per lookup)
+          const availablePhotoIds = new Set(allPhotos.map(p => p.photo_id || p.r2_key));
+          
+          // Filtra solo foto che esistono ancora
+          const validCartPhotoIds = cartPhotoIds.filter(photoId => availablePhotoIds.has(photoId));
+          
+          // Se alcune foto sono state rimosse, aggiorna il localStorage
+          if(validCartPhotoIds.length < cartPhotoIds.length) {
+            const removedCount = cartPhotoIds.length - validCartPhotoIds.length;
+            console.log(`[CART] Cleaned localStorage: removed ${removedCount} deleted photos`);
+            saveCart(validCartPhotoIds);
+            syncCartFromLocalStorage(); // Aggiorna currentCart
+          }
+        }
+      } catch(e) {
+        console.error('[CART] Error cleaning localStorage cart:', e);
+      }
 
       // Carica foto pagate prima di renderizzare
       await loadPaidPhotos();
