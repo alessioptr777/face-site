@@ -5729,6 +5729,12 @@ async def match_selfie(
                 elif det_score_val >= 0.85 and best_score < 0.50:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
+                # PROTEZIONE SPECIALE: foto con area molto grande (>150000) e det_score medio-alto (0.70-0.85)
+                # Queste foto hanno min_score=0.10 (troppo basso), ma se det_score è buono e score è basso = falso positivo
+                # Es. MIT00044.jpg (det=0.728, area=216071, score=0.127) e MIT00062.jpg (det=0.727, area=243526, score=0.161)
+                elif area >= 150000 and 0.70 <= det_score_val < 0.85 and best_score < 0.25:
+                    stats["filtered_by_score"] += 1
+                    reject_reason = f"score={best_score:.3f}<0.25 (det={det_score_val:.3f} area_grande={int(area)}, falso positivo)"
                 elif det_score_val >= 0.80 and best_score < 0.30:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.30 (det={det_score_val:.3f} molto alto, falso positivo)"
@@ -5787,6 +5793,10 @@ async def match_selfie(
                         required_hits = 2  # Det molto alto (vicino a 0.80) + score basso = SEMPRE 2/2 hits
                     elif det_score_val >= 0.75 and best_score < 0.25:
                         required_hits = 2  # Det alto + score basso = SEMPRE 2/2 hits (protezione falsi positivi)
+                    # PROTEZIONE SPECIALE: foto con area molto grande (>150000) e det_score medio-alto (0.70-0.85)
+                    # Richiedi sempre 2/2 hits se score < 0.30 (per bloccare MIT00044.jpg e MIT00062.jpg)
+                    elif area >= 150000 and 0.70 <= det_score_val < 0.85 and best_score < 0.30:
+                        required_hits = 2  # Area grande + det medio + score basso = SEMPRE 2/2 hits
                     # Foto "facili" (large): se score è molto alto (>=0.40), accetta anche con 1/2 hits
                     # Altrimenti richiedi 2/2 per evitare falsi positivi
                     elif bucket == "large":
