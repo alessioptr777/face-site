@@ -5693,6 +5693,9 @@ async def match_selfie(
                 "filtered_by_score": 0,
                 "filtered_by_margin": 0,
             }
+            
+            # Log versione protezioni (per verificare che i cambiamenti siano attivi su Render)
+            logger.info("[PROTECTION_VERSION] det>=0.90: score>=0.50, det>=0.85: score>=0.50, det>=0.80: score>=0.30, det>=0.78: score>=0.25")
 
             for r2_key, c in candidates_by_photo.items():
                 best_score = float(c["best_score"])
@@ -5717,6 +5720,7 @@ async def match_selfie(
                 # Non applicare tolleranza per evitare falsi positivi (privacy violata)
                 # Pattern tipico di falsi positivi: faccia ben visibile (det alto) ma match debole (score basso)
                 # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = soglia più alta
+                # VERSIONE: det>=0.90 richiede score>=0.50, det>=0.85 richiede score>=0.50 (ultra-aggressive)
                 # Se det_score >= 0.90, richiedi score >= 0.50 per evitare falsi positivi critici
                 if det_score_val >= 0.90 and best_score < 0.50:
                     stats["filtered_by_score"] += 1
@@ -5926,6 +5930,17 @@ async def match_selfie(
                     from pathlib import Path
                     from urllib.parse import quote
                     r2_key_encoded = quote(r2_key, safe='')
+                    
+                    # Log dettagliato per foto con det_score alto (per debug falsi positivi)
+                    if det_score_val >= 0.85:
+                        margin_str = "None" if margin is None else f"{margin:.3f}"
+                        logger.warning(
+                            f"[ACCEPTED_HIGH_DET] {r2_key}: score={best_score:.3f} det={det_score_val:.3f} "
+                            f"area={int(area)} min_score={min_score_dyn:.2f} margin={margin_str} "
+                            f"margin_min={effective_margin_min if margin is not None else 'N/A'} "
+                            f"hits={hits_count}/{required_hits} bucket={bucket}"
+                        )
+                    
                     results.append({
                         "r2_key": r2_key,
                         "display_name": Path(r2_key).name,
