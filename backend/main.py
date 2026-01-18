@@ -6336,42 +6336,10 @@ async def _clear_cart(session_id: str):
 
 @app.get("/cart")
 async def get_cart(session_id: str = Query(..., description="ID sessione")):
-    """Ottiene il contenuto del carrello e rimuove automaticamente foto che non esistono più su R2"""
-    photo_ids = await _get_cart(session_id)
-    
-    # Verifica che le foto esistano ancora su R2 e rimuovi quelle eliminate
-    if photo_ids and USE_R2 and r2_client:
-        try:
-            # Usa cache per verificare esistenza foto (veloce)
-            r2_keys_set = await get_r2_keys_set_cached()
-            
-            # Filtra solo foto che esistono ancora su R2
-            valid_photo_ids = []
-            removed_photo_ids = []
-            
-            for photo_id in photo_ids:
-                # Verifica se esiste su R2 (controlla anche varianti thumbs/ e wm/)
-                # La foto può essere salvata come chiave diretta o con prefisso
-                exists = (
-                    photo_id in r2_keys_set or
-                    f"thumbs/{photo_id}" in r2_keys_set or
-                    f"wm/{photo_id}" in r2_keys_set
-                )
-                
-                if exists:
-                    valid_photo_ids.append(photo_id)
-                else:
-                    removed_photo_ids.append(photo_id)
-            
-            # Se alcune foto sono state rimosse, aggiorna il carrello nel database
-            if removed_photo_ids:
-                logger.info(f"[CART] Cleaned session={session_id}: removed {len(removed_photo_ids)} deleted photos: {removed_photo_ids[:5]}")
-                # Aggiorna il carrello con solo le foto valide
-                await _set_cart(session_id, valid_photo_ids)
-                photo_ids = valid_photo_ids
-        except Exception as e:
-            logger.error(f"[CART] Error cleaning cart for session {session_id}: {e}", exc_info=True)
-            # In caso di errore, restituisci il carrello originale (non bloccare l'utente)
+    """Ottiene il contenuto del carrello - SEMPRE VUOTO (carrello non persistente tra sessioni)"""
+    # Carrello sempre vuoto - non persiste tra sessioni
+    # Il frontend genera sempre un nuovo sessionId, quindi non ci saranno mai carrelli vecchi
+    photo_ids = []
     
     price = calculate_price(len(photo_ids))
     

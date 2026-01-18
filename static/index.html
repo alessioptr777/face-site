@@ -1543,45 +1543,44 @@
     let selfieCompleted = false; // Flag per tracciare se il selfie è stato completato
     let photosLoaded = false; // Flag per tracciare se le foto sono state caricate
     
-    // Carrello locale (localStorage) - istantaneo, senza chiamate backend
-    const CART_KEY = "cart_photo_ids";
+    // Carrello solo in memoria - SEMPRE VUOTO ad ogni refresh (non persistente)
+    let cartPhotoIds = []; // Array in memoria, si svuota automaticamente ad ogni refresh
+    
+    // Inizializza sempre carrello vuoto
+    function initCart() {
+      cartPhotoIds = [];
+      currentCart = { photo_ids: [], count: 0, price_euros: 0 };
+      updateCart();
+      updateCartModal();
+    }
     
     function loadCart() {
-      try {
-        const stored = localStorage.getItem(CART_KEY);
-        return stored ? JSON.parse(stored) : [];
-      } catch(e) {
-        console.error("Error loading cart from localStorage:", e);
-        return [];
-      }
+      // Sempre ritorna array vuoto - carrello non persistente
+      return [];
     }
     
     function saveCart(ids) {
-      try {
-        localStorage.setItem(CART_KEY, JSON.stringify(ids));
-      } catch(e) {
-        console.error("Error saving cart to localStorage:", e);
-      }
+      // Aggiorna solo la variabile in memoria, NON salva nulla
+      cartPhotoIds = ids || [];
     }
     
     function addToCartLocal(photoId) {
-      const ids = new Set(loadCart());
-      ids.add(photoId);
-      const updated = [...ids];
-      saveCart(updated);
-      return updated;
+      // Aggiungi solo in memoria (si perde ad ogni refresh)
+      if (!cartPhotoIds.includes(photoId)) {
+        cartPhotoIds.push(photoId);
+      }
+      return [...cartPhotoIds];
     }
     
     function removeFromCartLocal(photoId) {
-      const ids = new Set(loadCart());
-      ids.delete(photoId);
-      const updated = [...ids];
-      saveCart(updated);
-      return updated;
+      // Rimuovi solo dalla memoria
+      cartPhotoIds = cartPhotoIds.filter(id => id !== photoId);
+      return [...cartPhotoIds];
     }
     
-    function syncCartFromLocalStorage() {
-      const photoIds = loadCart();
+    function syncCart() {
+      // Sincronizza carrello in memoria con currentCart
+      const photoIds = cartPhotoIds;
       const count = photoIds.length;
       const priceCents = calculatePrice(count);
       currentCart = {
@@ -1593,6 +1592,9 @@
       updateCart();
       updateCartModal();
     }
+    
+    // Inizializza carrello vuoto all'avvio
+    initCart();
     let fromStripeSuccess = false; // Flag per tracciare se arrivo da Stripe success
 
     // Elementi DOM
@@ -1713,6 +1715,9 @@
     // Bootstrap app: mostra sempre welcome/selfie screen (stateless)
     async function bootApp() {
       console.log('bootApp() called (stateless mode)');
+      
+      // Carrello sempre vuoto all'inizio (si svuota ad ogni refresh)
+      initCart();
       
       // 1. Controlla se è ritorno dopo pagamento Stripe (success=1 e session_id)
       if (hasStripeSuccessParams()) {
@@ -1936,31 +1941,9 @@
         // PULISCI CARRELLO: Se ha foto pagate, rimuovi tutte le foto dal carrello
         // (potrebbero essere rimaste da una sessione precedente)
         if(hasAnyPaid) {
-          try {
-            // Carica carrello corrente dal localStorage
-            syncCartFromLocalStorage();
-            const cartPhotoIds = currentCart.photo_ids || [];
-            
-            if(cartPhotoIds.length > 0) {
-              // Raccogli tutte le foto pagate
-              const allPaidPhotoIds = new Set();
-              if(data.paid_photos) {
-                data.paid_photos.forEach(id => allPaidPhotoIds.add(id));
-              }
-              if(data.found_photos) {
-                data.found_photos.filter(p => p.status === 'paid').forEach(p => allPaidPhotoIds.add(p.photo_id));
-              }
-              
-              // Rimuovi tutte le foto pagate dal carrello locale
-              const unpaidPhotoIds = cartPhotoIds.filter(photoId => !allPaidPhotoIds.has(photoId));
-              if(unpaidPhotoIds.length !== cartPhotoIds.length) {
-                saveCart(unpaidPhotoIds);
-                syncCartFromLocalStorage();
-              }
-            }
-          } catch(e) {
-            console.error('Error cleaning cart on return:', e);
-          }
+          // Carrello sempre vuoto all'inizio - non persiste tra sessioni
+          cartPhotoIds = [];
+          syncCart();
         }
         
         // 3. Se ha foto trovate → mostra album (SEMPRE, anche se ha foto pagate)
@@ -3942,8 +3925,8 @@
     }
     
     async function displayPhotos() {
-      // Inizializza carrello dal localStorage all'inizio
-      syncCartFromLocalStorage();
+      // Carrello sempre vuoto all'inizio (non persistente, si svuota ad ogni refresh)
+      initCart();
       // Reset photosLoaded all'inizio
       photosLoaded = false;
       
@@ -3952,28 +3935,6 @@
         // NON mostrare alert, NON chiamare showSelfieError, NON avviare camera
         // L'utente può tornare al selfie manualmente se vuole
         return;
-      }
-      
-      // Pulisci carrello localStorage: rimuovi foto che non esistono più in allPhotos
-      try {
-        const cartPhotoIds = loadCart();
-        if(cartPhotoIds && cartPhotoIds.length > 0) {
-          // Crea set delle foto disponibili (più veloce per lookup)
-          const availablePhotoIds = new Set(allPhotos.map(p => p.photo_id || p.r2_key));
-          
-          // Filtra solo foto che esistono ancora
-          const validCartPhotoIds = cartPhotoIds.filter(photoId => availablePhotoIds.has(photoId));
-          
-          // Se alcune foto sono state rimosse, aggiorna il localStorage
-          if(validCartPhotoIds.length < cartPhotoIds.length) {
-            const removedCount = cartPhotoIds.length - validCartPhotoIds.length;
-            console.log(`[CART] Cleaned localStorage: removed ${removedCount} deleted photos`);
-            saveCart(validCartPhotoIds);
-            syncCartFromLocalStorage(); // Aggiorna currentCart
-          }
-        }
-      } catch(e) {
-        console.error('[CART] Error cleaning localStorage cart:', e);
       }
 
       // Carica foto pagate prima di renderizzare
@@ -4786,7 +4747,7 @@
       
       // Aggiungi localmente (istantaneo)
       const updated = addToCartLocal(photoId);
-      syncCartFromLocalStorage();
+      syncCart();
       
       // Aggiorna UI immediatamente
           const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
@@ -4845,7 +4806,7 @@
     function removeFromCart(photoId) {
       // Rimuovi localmente (istantaneo)
       const updated = removeFromCartLocal(photoId);
-      syncCartFromLocalStorage();
+      syncCart();
       
       // Aggiorna UI immediatamente
           const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
@@ -4870,15 +4831,15 @@
     }
 
     async function checkout() {
-      // Carica carrello dal localStorage
-      const photoIds = loadCart();
+      // Usa carrello in memoria (non persistente)
+      const photoIds = cartPhotoIds;
       
       if(!photoIds || photoIds.length === 0) {
         alert('Cart is empty');
         return;
       }
       
-      // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout (localmente)
+      // FILTRA FOTO PAGATE: rimuovi foto già pagate dal carrello prima del checkout
       let unpaidPhotoIds = photoIds;
       if(paidPhotos.length > 0) {
         const paidPhotoIdsSet = new Set(paidPhotos);
@@ -4887,9 +4848,9 @@
         if(unpaidPhotoIds.length !== photoIds.length) {
           console.log(`Rimosse ${photoIds.length - unpaidPhotoIds.length} foto pagate dal carrello prima del checkout`);
           
-          // Aggiorna localStorage rimuovendo foto pagate
-          saveCart(unpaidPhotoIds);
-          syncCartFromLocalStorage();
+          // Aggiorna carrello in memoria rimuovendo foto pagate
+          cartPhotoIds = unpaidPhotoIds;
+          syncCart();
             
             // Se carrello vuoto dopo filtro, avvisa
           if(unpaidPhotoIds.length === 0) {
