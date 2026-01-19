@@ -1421,7 +1421,7 @@
         radial-gradient(circle, rgba(236,72,153,.95) 0 2px, transparent 3px) 75% 15%/52px 52px,
         radial-gradient(circle, rgba(255,215,120,.9) 0 2px, transparent 3px) 90% 30%/48px 48px;
       opacity: 0;
-      animation: burst 5700ms ease-out forwards;
+      animation: burst 3700ms ease-out forwards;
     }
     .deal-burst::after{
       transform: rotate(18deg);
@@ -1465,32 +1465,66 @@
         <circle cx="70" cy="35" r="4"/>
       </svg>
         </div>
-    <h1 class="welcome-title">Find your photos!</h1>
-    <p class="welcome-text">
-      Here is how it works: take a selfie and the system will find your photos. On the next step, you will be asked to allow camera access.
-    </p>
-    <button class="btn-primary" id="welcomeContinueBtn">Continue</button>
-    <p class="welcome-privacy">
-      We operate in full respect of Privacy and use your face exclusively to find photos that feature you.
-    </p>
+    <h1 class="welcome-title" data-i18n="welcome_title">Find your photos!</h1>
+    <button class="btn-primary" id="welcomeContinueBtn" data-i18n="welcome_take_selfie">Take a selfie</button>
       </div>
+  
+  <!-- Language Selection Screen -->
+  <div class="screen language-screen" id="languageScreen">
+    <h1 class="language-title" data-i18n="language_title">Choose your language</h1>
+    <p class="language-subtitle" data-i18n="language_subtitle">We're finding your photos…</p>
+    <div class="language-grid">
+      <button class="language-option" data-lang="en">
+        <span class="language-flag">🇬🇧</span>
+        <span class="language-name">English</span>
+      </button>
+      <button class="language-option" data-lang="es">
+        <span class="language-flag">🇪🇸</span>
+        <span class="language-name">Español</span>
+      </button>
+      <button class="language-option" data-lang="it">
+        <span class="language-flag">🇮🇹</span>
+        <span class="language-name">Italiano</span>
+      </button>
+      <button class="language-option" data-lang="fr">
+        <span class="language-flag">🇫🇷</span>
+        <span class="language-name">Français</span>
+      </button>
+      <button class="language-option" data-lang="de">
+        <span class="language-flag">🇩🇪</span>
+        <span class="language-name">Deutsch</span>
+      </button>
+    </div>
+    <div id="langFeedback" style="margin-top: 16px; display: none; text-align: center;">
+      <p style="color: var(--accent); font-weight: 600; margin-bottom: 8px;" id="langFeedbackText"></p>
+      <p style="color: var(--text-muted); font-size: 14px;" id="langFindingText" data-i18n="finding_photos">Finding your photos…</p>
+    </div>
+    <div id="langLoading" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; flex-direction: column; gap: 20px;">
+      <div class="loading-spinner"></div>
+      <p style="color: var(--text-light); font-size: 16px;" data-i18n="loading_photos">Loading photos...</p>
+    </div>
+    <div id="langErrorBox" style="display: none; margin-top: 20px; padding: 20px; background: rgba(255,68,68,0.1); border: 2px solid rgba(255,68,68,0.3); border-radius: 12px; text-align: center; max-width: 400px; margin-left: auto; margin-right: auto;">
+      <p style="color: var(--text-light); margin-bottom: 15px;" data-i18n="no_photos_found">No photos found yet. They may still be processing.</p>
+      <button class="btn-primary" id="langRetakeSelfieBtn" data-i18n="retake_selfie">Retake selfie</button>
+    </div>
+  </div>
 
   <!-- Selfie Screen -->
   <div class="screen selfie-screen" id="selfieScreen">
     <div class="selfie-header">
-      <h2 id="selfieHeaderText">Take your selfie</h2>
+      <h2 id="selfieHeaderText" data-i18n="take_your_selfie">Take your selfie</h2>
     </div>
     <div class="selfie-preview">
       <div class="selfie-video">
         <video id="video" autoplay playsinline muted webkit-playsinline style="display:none;"></video>
         <canvas id="canvas" style="display:none;"></canvas>
         <div id="videoPlaceholder" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
-          <p style="font-size: 14px;">Camera not available</p>
-          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;">Retry</button>
+          <p style="font-size: 14px;" data-i18n="camera_not_available">Camera not available</p>
+          <button class="btn-primary" id="retryCameraBtn" style="margin-top: 15px; padding: 12px 24px; font-size: 14px;" data-i18n="retry">Retry</button>
         </div>
         <div id="startCameraPrompt" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center; min-height: 300px;">
-          <p style="font-size: 16px; color: var(--text-muted); margin-bottom: 20px;">Enable camera access to take your selfie</p>
-          <button class="btn-primary" id="startCameraBtn" style="padding: 14px 28px; font-size: 16px;">Start Camera</button>
+          <p style="font-size: 16px; color: var(--text-muted); margin-bottom: 20px;" data-i18n="enable_camera">Enable camera access to take your selfie</p>
+          <button class="btn-primary" id="startCameraBtn" style="padding: 14px 28px; font-size: 16px;" data-i18n="start_camera">Start Camera</button>
         </div>
       </div>
       <div class="selfie-controls">
@@ -1499,7 +1533,7 @@
             <circle cx="12" cy="12" r="10"/>
           </svg>
         </button>
-        <button class="btn-retake" id="switchCameraBtn" style="display:none;">Switch camera</button>
+        <button class="btn-retake" id="switchCameraBtn" style="display:none;" data-i18n="switch_camera">Switch camera</button>
       </div>
     </div>
     <!-- Upload Status Area - sempre visibile quando attiva -->
@@ -1518,14 +1552,14 @@
     <!-- Selfie Error Box - mostra errore quando match_selfie fallisce -->
     <div class="selfie-error-box" id="selfieErrorBox" style="display: none;">
       <div class="selfie-error-content">
-        <p class="selfie-error-message" id="selfieErrorMessage">No photos found or still processing. Please try again.</p>
-        <button class="btn-retake-selfie" id="retakeSelfieBtn">Retake selfie</button>
+        <p class="selfie-error-message" id="selfieErrorMessage" data-i18n="no_photos_found">No photos found or still processing. Please try again.</p>
+        <button class="btn-retake-selfie" id="retakeSelfieBtn" data-i18n="retake_selfie">Retake selfie</button>
       </div>
     </div>
 
   <!-- Confirm Selfie Screen -->
   <div class="screen confirm-screen" id="confirmScreen">
-    <h2 class="confirm-title">Confirm selfie</h2>
+    <h2 class="confirm-title" data-i18n="confirm_selfie">Confirm selfie</h2>
     <div class="confirm-preview">
       <img id="confirmPreview" alt="Selfie preview">
     </div>
@@ -1533,13 +1567,13 @@
       By selecting "Confirm" you consent to the processing of biometric data for the purposes of Detection and Recognition as per Privacy Policy.
     </p>
     <div class="confirm-buttons">
-      <button class="btn-confirm" id="confirmBtn">Confirm</button>
-      <button class="btn-retake" id="retakeBtn">Take again</button>
+      <button class="btn-confirm" id="confirmBtn" data-i18n="continue">Confirm</button>
+      <button class="btn-retake" id="retakeBtn" data-i18n="take_again">Take again</button>
     </div>
     <!-- Loading indicator per ricerca foto -->
     <div id="confirmLoadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
       <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--purple); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-      <p style="color: var(--text-muted); margin-top: 15px;">Loading photos...</p>
+      <p style="color: var(--text-muted); margin-top: 15px;" data-i18n="loading_photos">Loading photos...</p>
     </div>
   </div>
 
@@ -1573,8 +1607,8 @@
           🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
         </button>
         <div id="dealPill" class="deal-pill">
-          <div class="deal-pill-top">Sblocca il vero affare</div>
-          <div class="deal-pill-bottom">Dalla 7ª: €1.00 a foto</div>
+          <div class="deal-pill-top" data-i18n="dealpill_top">Sblocca il vero affare</div>
+          <div class="deal-pill-bottom" data-i18n="dealpill_bottom">Dalla 7ª: €1.00 a foto</div>
         </div>
       </div>
     </div>
@@ -1586,7 +1620,7 @@
         <h3>Tenerife Stars Pictures</h3>
         <p>Your photo session was taken by Metaproos</p>
       </div>
-      <button class="btn-secondary" id="addFamilyBtn" style="padding: 8px 16px; font-size: 14px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 20px; margin-left: auto;">
+      <button class="btn-secondary" id="addFamilyBtn" style="padding: 8px 16px; font-size: 14px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 20px; margin-left: auto;" data-i18n="add_family_member">
         👥 Add family member
         <span id="familyMembersCount" style="margin-left: 8px; font-size: 12px; opacity: 0.8;">(0/8)</span>
       </button>
@@ -1595,8 +1629,8 @@
     <!-- Sezione Membri -->
     <div id="familyMembersSection" style="padding: 0 20px 20px; margin-bottom: 20px; display: none;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <h3 style="color: white; font-size: 18px; margin: 0;">Added members</h3>
-        <button class="btn-primary" id="addMemberBtn" style="padding: 10px 20px; font-size: 14px;">
+        <h3 style="color: white; font-size: 18px; margin: 0;" data-i18n="added_members">Added members</h3>
+        <button class="btn-primary" id="addMemberBtn" style="padding: 10px 20px; font-size: 14px;" data-i18n="add_member">
           👥 Add member
         </button>
       </div>
@@ -1605,8 +1639,8 @@
       </div>
     </div>
     <div class="album-tabs">
-      <button class="album-tab active" id="myContentTab">My content</button>
-      <button class="album-tab" id="pricesTab">Price list ↗</button>
+      <button class="album-tab active" id="myContentTab" data-i18n="album_my_content">My content</button>
+      <button class="album-tab" id="pricesTab" data-i18n="album_price_list">Price list ↗</button>
     </div>
     <div class="album-photo-count" id="albumPhotoCount" style="display: none;">
       <span>You found <span id="photoCountNumber">0</span> photos</span>
@@ -1614,8 +1648,8 @@
     
     <!-- Listino Prezzi -->
     <div class="prices-list" id="pricesList">
-      <h2 class="prices-title">Price List</h2>
-      <p class="prices-subtitle">Choose the offer you prefer</p>
+      <h2 class="prices-title" data-i18n="price_list_title">Price List</h2>
+      <p class="prices-subtitle" data-i18n="price_list_subtitle">Choose the offer you prefer</p>
       
       <div class="price-item">
         <div class="price-item-info">
@@ -1694,17 +1728,17 @@
       <div id="nudgeLine1"></div>
       <div id="nudgeLine2"></div>
     </div>
-    <button id="nudgeCheckoutBtn" class="nudge-cta">Vai al checkout</button>
+    <button id="nudgeCheckoutBtn" class="nudge-cta" data-i18n="nudge_go_checkout">Vai al checkout</button>
   </div>
   
   <!-- Sticky Offer Bar -->
   <div class="sticky-offer-bar" id="stickyOfferBar">
       <div class="sticky-offer-content">
-      <div class="sticky-offer-text" id="stickyOfferText">Prendile tutte</div>
+      <div class="sticky-offer-text" id="stickyOfferText" data-i18n="sticky_take_all">Prendile tutte</div>
       <div class="sticky-offer-price" id="stickyOfferPrice">€0</div>
     </div>
     <div class="sticky-offer-actions">
-      <button class="sticky-offer-btn" id="stickyOfferBuyBtn">Sblocca tutte</button>
+      <button class="sticky-offer-btn" id="stickyOfferBuyBtn" data-i18n="sticky_unlock_all">Sblocca tutte</button>
     </div>
   </div>
   
@@ -1723,11 +1757,11 @@
       <div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px; z-index: 10; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px;" id="photoCounter">1/1</div>
       <button id="lightboxPrev" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">←</button>
       <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
-      <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;">📥 Download</button>
-      <div id="lightboxIOSInstruction" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.85); color: white; padding: 14px 20px; border-radius: 12px; font-size: 15px; font-weight: 500; text-align: center; z-index: 10; pointer-events: none; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">📱 Tieni premuto sull'immagine e tocca 'Salva in Foto'</div>
+      <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;" data-i18n="lightbox_download">📥 Download</button>
+      <div id="lightboxIOSInstruction" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.85); color: white; padding: 14px 20px; border-radius: 12px; font-size: 15px; font-weight: 500; text-align: center; z-index: 10; pointer-events: none; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-i18n="lightbox_ios_hint">📱 Tieni premuto sull'immagine e tocca 'Salva in Foto'</div>
       <div id="lightboxCartCTA" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(123, 116, 255, 0.95); color: white; padding: 16px 24px; border-radius: 12px; text-align: center; z-index: 10; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: auto;">
-        <button id="lightboxAddCartBtn" style="background: white; color: rgba(123, 116, 255, 1); border: none; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 8px;">Aggiungi al carrello</button>
-        <div style="font-size: 13px; opacity: 0.9;">Acquista per scaricare le foto senza watermark</div>
+        <button id="lightboxAddCartBtn" style="background: white; color: rgba(123, 116, 255, 1); border: none; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 8px;" data-i18n="lightbox_add_to_cart">Aggiungi al carrello</button>
+        <div style="font-size: 13px; opacity: 0.9;" data-i18n="lightbox_purchase_hint">Acquista per scaricare le foto senza watermark</div>
       </div>
       <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain;" alt="Foto">
     </div>
@@ -1736,17 +1770,17 @@
   <!-- Modal Carrello -->
   <div class="ios-share-modal" id="cartModal">
     <div class="ios-share-modal-content" style="max-width: 500px; width: 90%;">
-      <h3 style="margin-top: 0; font-size: 20px; color: var(--text-light);">🛒 Carrello</h3>
+      <h3 style="margin-top: 0; font-size: 20px; color: var(--text-light);" data-i18n="cart_title">🛒 Carrello</h3>
       <div id="cartItems" style="max-height: 400px; overflow-y: auto; margin: 20px 0;">
-        <p style="text-align: center; color: var(--text-muted);">Il carrello è vuoto</p>
+        <p style="text-align: center; color: var(--text-muted);" data-i18n="cart_empty">Il carrello è vuoto</p>
       </div>
       <div style="border-top: 2px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 15px;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 18px; font-weight: 600; color: var(--text-light);">
-          <span>Totale:</span>
+          <span data-i18n="cart_total">Totale:</span>
           <span id="cartTotal">€0.00</span>
         </div>
-        <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled>💳 Checkout</button>
-        <button class="btn-retake" id="closeCartBtn" style="width: 100%;">Chiudi</button>
+        <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled data-i18n="cart_checkout">💳 Checkout</button>
+        <button class="btn-retake" id="closeCartBtn" style="width: 100%;" data-i18n="cart_close">Chiudi</button>
       </div>
     </div>
   </div>
@@ -1778,6 +1812,501 @@
 
   <script>
     // ========== SISTEMA TRADUZIONI ==========
+    
+    // Variabili globali lingua
+    let currentLang = 'en';
+    let selectedLanguage = null;
+    let photosReady = false;
+    let photosFailed = false;
+    
+    // Oggetto traduzioni completo
+    const I18N = {
+      en: {
+        welcome_title: "Find your photos!",
+        welcome_take_selfie: "Take a selfie",
+        language_title: "Choose your language",
+        language_subtitle: "We're finding your photos…",
+        language_selected: "✅ {langName} selected",
+        finding_photos: "Finding your photos…",
+        loading_photos: "Loading photos...",
+        no_photos_found: "No photos found yet. They may still be processing.",
+        retake_selfie: "Retake selfie",
+        take_your_selfie: "Take your selfie",
+        family_member_selfie: "Family member selfie",
+        confirm_selfie: "Confirm selfie",
+        take_again: "Take again",
+        camera_not_available: "Camera not available",
+        retry: "Retry",
+        enable_camera: "Enable camera access to take your selfie",
+        start_camera: "Start Camera",
+        switch_camera: "Switch camera",
+        album_my_content: "My content",
+        album_price_list: "Price list ↗",
+        album_photo_count: "You found {count} photos",
+        cart_title: "🛒 Cart",
+        cart_empty: "Cart is empty",
+        cart_total: "Total:",
+        cart_checkout: "💳 Checkout",
+        cart_close: "Close",
+        cart_loading: "⏳ Loading...",
+        cart_go_payment: "💳 Go to Payment",
+        lightbox_download: "📥 Download",
+        lightbox_add_to_cart: "Add to cart",
+        lightbox_remove_from_cart: "Remove from cart",
+        lightbox_ios_hint: "📱 Hold the image and tap 'Save to Photos'",
+        lightbox_purchase_hint: "Purchase to download photos without watermark",
+        deal_title: "Congratulations! You unlocked the real deal",
+        deal_subtitle: "From now on each photo costs €1.00",
+        deal_continue: "Continue selection",
+        nudge_selected_all: "You selected everything",
+        nudge_go_checkout: "Go to checkout",
+        nudge_deal_unlocked: "From now on the next photos cost only €1.00 each",
+        nudge_add_more: "Add more or go to checkout",
+        nudge_add_one: "Add 1 photo: you pay only €{price}",
+        nudge_add_many: "Add {count} photos: only €{price} each",
+        nudge_unlock_package: "Unlock the {count} photo package",
+        sticky_take_all: "Take them all",
+        sticky_unlock_all: "Unlock all",
+        dealpill_top: "Unlock the real deal",
+        dealpill_bottom: "From the 7th: €1.00 per photo",
+        add_family_member: "👥 Add family member",
+        added_members: "Added members",
+        add_member: "👥 Add member",
+        price_list_title: "Price List",
+        price_list_subtitle: "Choose the offer you prefer",
+        photo: "photo",
+        photos: "photos",
+        single_photo: "Single photo",
+        double: "Double",
+        special_offer: "Special offer",
+        package: "Package",
+        complete_package: "Complete package",
+        all_photos_best: "All photos at the best price",
+        discount: "Discount",
+        best: "Best",
+        top: "Top",
+        paid_countdown: "Your paid photos will expire in <strong>{days}</strong> days",
+        error_download: "Error downloading photo. Please try again.",
+        error_checkout: "Error during checkout. Please try again.",
+        checkout_loading: "Loading...",
+        no_face_detected: "No face detected in selfie. Please try again.",
+        checking_photos: "Checking your photos...",
+        continue: "Continue",
+        close: "Close",
+        next: "Next",
+        prev: "Previous"
+      },
+      es: {
+        welcome_title: "¡Encuentra tus fotos!",
+        welcome_take_selfie: "Hazte un selfie",
+        language_title: "Elige tu idioma",
+        language_subtitle: "Estamos buscando tus fotos…",
+        language_selected: "✅ {langName} seleccionado",
+        finding_photos: "Buscando tus fotos…",
+        loading_photos: "Cargando fotos...",
+        no_photos_found: "No se encontraron fotos todavía. Pueden estar procesándose.",
+        retake_selfie: "Volver a hacer selfie",
+        take_your_selfie: "Hazte un selfie",
+        family_member_selfie: "Selfie de miembro de la familia",
+        confirm_selfie: "Confirmar selfie",
+        take_again: "Hacer de nuevo",
+        camera_not_available: "Cámara no disponible",
+        retry: "Reintentar",
+        enable_camera: "Habilita el acceso a la cámara para hacerte un selfie",
+        start_camera: "Iniciar cámara",
+        switch_camera: "Cambiar cámara",
+        album_my_content: "Mi contenido",
+        album_price_list: "Lista de precios ↗",
+        album_photo_count: "Encontraste {count} fotos",
+        cart_title: "🛒 Carrito",
+        cart_empty: "El carrito está vacío",
+        cart_total: "Total:",
+        cart_checkout: "💳 Pagar",
+        cart_close: "Cerrar",
+        cart_loading: "⏳ Cargando...",
+        cart_go_payment: "💳 Ir al pago",
+        lightbox_download: "📥 Descargar",
+        lightbox_add_to_cart: "Añadir al carrito",
+        lightbox_remove_from_cart: "Quitar del carrito",
+        lightbox_ios_hint: "📱 Mantén presionada la imagen y toca 'Guardar en Fotos'",
+        lightbox_purchase_hint: "Compra para descargar fotos sin marca de agua",
+        deal_title: "¡Felicidades! Desbloqueaste la verdadera oferta",
+        deal_subtitle: "De ahora en adelante cada foto cuesta €1.00",
+        deal_continue: "Continuar selección",
+        nudge_selected_all: "Seleccionaste todo",
+        nudge_go_checkout: "Ir al pago",
+        nudge_deal_unlocked: "De ahora en adelante las próximas fotos cuestan solo €1.00 cada una",
+        nudge_add_more: "Añade más o ve al pago",
+        nudge_add_one: "Añade 1 foto: pagas solo €{price}",
+        nudge_add_many: "Añade {count} fotos: solo €{price} cada una",
+        nudge_unlock_package: "Desbloquea el paquete de {count} fotos",
+        sticky_take_all: "Tómalas todas",
+        sticky_unlock_all: "Desbloquear todas",
+        dealpill_top: "Desbloquea la verdadera oferta",
+        dealpill_bottom: "Desde la 7ª: €1.00 por foto",
+        add_family_member: "👥 Añadir miembro de la familia",
+        added_members: "Miembros añadidos",
+        add_member: "👥 Añadir miembro",
+        price_list_title: "Lista de precios",
+        price_list_subtitle: "Elige la oferta que prefieras",
+        photo: "foto",
+        photos: "fotos",
+        single_photo: "Foto individual",
+        double: "Doble",
+        special_offer: "Oferta especial",
+        package: "Paquete",
+        complete_package: "Paquete completo",
+        all_photos_best: "Todas las fotos al mejor precio",
+        discount: "Descuento",
+        best: "Mejor",
+        top: "Top",
+        paid_countdown: "Tus fotos pagadas expirarán en <strong>{days}</strong> días",
+        error_download: "Error al descargar la foto. Por favor, inténtalo de nuevo.",
+        error_checkout: "Error durante el pago. Por favor, inténtalo de nuevo.",
+        checkout_loading: "Cargando...",
+        no_face_detected: "No se detectó cara en el selfie. Por favor, inténtalo de nuevo.",
+        checking_photos: "Comprobando tus fotos...",
+        continue: "Continuar",
+        close: "Cerrar",
+        next: "Siguiente",
+        prev: "Anterior"
+      },
+      it: {
+        welcome_title: "Trova le tue foto!",
+        welcome_take_selfie: "Fai un selfie",
+        language_title: "Scegli la tua lingua",
+        language_subtitle: "Stiamo cercando le tue foto…",
+        language_selected: "✅ {langName} selezionato",
+        finding_photos: "Cercando le tue foto…",
+        loading_photos: "Caricamento foto...",
+        no_photos_found: "Nessuna foto trovata ancora. Potrebbero essere ancora in elaborazione.",
+        retake_selfie: "Rifai il selfie",
+        take_your_selfie: "Fai il tuo selfie",
+        family_member_selfie: "Selfie membro famiglia",
+        confirm_selfie: "Conferma selfie",
+        take_again: "Rifai",
+        camera_not_available: "Fotocamera non disponibile",
+        retry: "Riprova",
+        enable_camera: "Abilita l'accesso alla fotocamera per fare il selfie",
+        start_camera: "Avvia fotocamera",
+        switch_camera: "Cambia fotocamera",
+        album_my_content: "I miei contenuti",
+        album_price_list: "Listino prezzi ↗",
+        album_photo_count: "Hai trovato {count} foto",
+        cart_title: "🛒 Carrello",
+        cart_empty: "Il carrello è vuoto",
+        cart_total: "Totale:",
+        cart_checkout: "💳 Checkout",
+        cart_close: "Chiudi",
+        cart_loading: "⏳ Caricamento...",
+        cart_go_payment: "💳 Vai al Pagamento",
+        lightbox_download: "📥 Download",
+        lightbox_add_to_cart: "Aggiungi al carrello",
+        lightbox_remove_from_cart: "Rimuovi dal carrello",
+        lightbox_ios_hint: "📱 Tieni premuto sull'immagine e tocca 'Salva in Foto'",
+        lightbox_purchase_hint: "Acquista per scaricare le foto senza watermark",
+        deal_title: "Complimenti! Hai sbloccato il vero affare",
+        deal_subtitle: "Da adesso in poi ogni foto costa €1.00",
+        deal_continue: "Continua la selezione",
+        nudge_selected_all: "Hai selezionato tutto",
+        nudge_go_checkout: "Vai al checkout",
+        nudge_deal_unlocked: "Da ora in poi le prossime foto costano solo €1.00 ciascuna",
+        nudge_add_more: "Aggiungine altre o vai al checkout",
+        nudge_add_one: "Aggiungi 1 foto: la paghi solo €{price}",
+        nudge_add_many: "Aggiungi {count} foto: solo €{price} ciascuna",
+        nudge_unlock_package: "Sblocchi il pacchetto da {count} foto",
+        sticky_take_all: "Prendile tutte",
+        sticky_unlock_all: "Sblocca tutte",
+        dealpill_top: "Sblocca il vero affare",
+        dealpill_bottom: "Dalla 7ª: €1.00 a foto",
+        add_family_member: "👥 Aggiungi membro famiglia",
+        added_members: "Membri aggiunti",
+        add_member: "👥 Aggiungi membro",
+        price_list_title: "Listino Prezzi",
+        price_list_subtitle: "Scegli l'offerta che preferisci",
+        photo: "foto",
+        photos: "foto",
+        single_photo: "Foto singola",
+        double: "Doppia",
+        special_offer: "Offerta speciale",
+        package: "Pacchetto",
+        complete_package: "Pacchetto completo",
+        all_photos_best: "Tutte le foto al miglior prezzo",
+        discount: "Sconto",
+        best: "Migliore",
+        top: "Top",
+        paid_countdown: "Le tue foto pagate scadranno tra <strong>{days}</strong> giorni",
+        error_download: "Errore nel download della foto. Riprova.",
+        error_checkout: "Errore durante il checkout. Riprova.",
+        checkout_loading: "Caricamento...",
+        no_face_detected: "Nessun volto rilevato nel selfie. Riprova.",
+        checking_photos: "Controllo delle tue foto...",
+        continue: "Continua",
+        close: "Chiudi",
+        next: "Successivo",
+        prev: "Precedente"
+      },
+      fr: {
+        welcome_title: "Trouvez vos photos!",
+        welcome_take_selfie: "Prendre un selfie",
+        language_title: "Choisissez votre langue",
+        language_subtitle: "Nous recherchons vos photos…",
+        language_selected: "✅ {langName} sélectionné",
+        finding_photos: "Recherche de vos photos…",
+        loading_photos: "Chargement des photos...",
+        no_photos_found: "Aucune photo trouvée pour le moment. Elles peuvent encore être en cours de traitement.",
+        retake_selfie: "Refaire le selfie",
+        take_your_selfie: "Prenez votre selfie",
+        family_member_selfie: "Selfie membre famille",
+        confirm_selfie: "Confirmer le selfie",
+        take_again: "Reprendre",
+        camera_not_available: "Caméra non disponible",
+        retry: "Réessayer",
+        enable_camera: "Activez l'accès à la caméra pour prendre votre selfie",
+        start_camera: "Démarrer la caméra",
+        switch_camera: "Changer de caméra",
+        album_my_content: "Mon contenu",
+        album_price_list: "Liste des prix ↗",
+        album_photo_count: "Vous avez trouvé {count} photos",
+        cart_title: "🛒 Panier",
+        cart_empty: "Le panier est vide",
+        cart_total: "Total:",
+        cart_checkout: "💳 Paiement",
+        cart_close: "Fermer",
+        cart_loading: "⏳ Chargement...",
+        cart_go_payment: "💳 Aller au paiement",
+        lightbox_download: "📥 Télécharger",
+        lightbox_add_to_cart: "Ajouter au panier",
+        lightbox_remove_from_cart: "Retirer du panier",
+        lightbox_ios_hint: "📱 Maintenez l'image et appuyez sur 'Enregistrer dans Photos'",
+        lightbox_purchase_hint: "Achetez pour télécharger les photos sans filigrane",
+        deal_title: "Félicitations! Vous avez débloqué la vraie offre",
+        deal_subtitle: "À partir de maintenant, chaque photo coûte €1.00",
+        deal_continue: "Continuer la sélection",
+        nudge_selected_all: "Vous avez tout sélectionné",
+        nudge_go_checkout: "Aller au paiement",
+        nudge_deal_unlocked: "À partir de maintenant, les prochaines photos coûtent seulement €1.00 chacune",
+        nudge_add_more: "Ajoutez-en plus ou allez au paiement",
+        nudge_add_one: "Ajoutez 1 photo: vous payez seulement €{price}",
+        nudge_add_many: "Ajoutez {count} photos: seulement €{price} chacune",
+        nudge_unlock_package: "Débloquez le pack de {count} photos",
+        sticky_take_all: "Prenez-les toutes",
+        sticky_unlock_all: "Débloquer toutes",
+        dealpill_top: "Débloquez la vraie offre",
+        dealpill_bottom: "À partir de la 7ème: €1.00 par photo",
+        add_family_member: "👥 Ajouter un membre de la famille",
+        added_members: "Membres ajoutés",
+        add_member: "👥 Ajouter un membre",
+        price_list_title: "Liste des prix",
+        price_list_subtitle: "Choisissez l'offre que vous préférez",
+        photo: "photo",
+        photos: "photos",
+        single_photo: "Photo unique",
+        double: "Double",
+        special_offer: "Offre spéciale",
+        package: "Pack",
+        complete_package: "Pack complet",
+        all_photos_best: "Toutes les photos au meilleur prix",
+        discount: "Réduction",
+        best: "Meilleur",
+        top: "Top",
+        paid_countdown: "Vos photos payées expireront dans <strong>{days}</strong> jours",
+        error_download: "Erreur lors du téléchargement de la photo. Veuillez réessayer.",
+        error_checkout: "Erreur lors du paiement. Veuillez réessayer.",
+        checkout_loading: "Chargement...",
+        no_face_detected: "Aucun visage détecté dans le selfie. Veuillez réessayer.",
+        checking_photos: "Vérification de vos photos...",
+        continue: "Continuer",
+        close: "Fermer",
+        next: "Suivant",
+        prev: "Précédent"
+      },
+      de: {
+        welcome_title: "Finde deine Fotos!",
+        welcome_take_selfie: "Ein Selfie machen",
+        language_title: "Wähle deine Sprache",
+        language_subtitle: "Wir suchen deine Fotos…",
+        language_selected: "✅ {langName} ausgewählt",
+        finding_photos: "Suche deine Fotos…",
+        loading_photos: "Fotos werden geladen...",
+        no_photos_found: "Noch keine Fotos gefunden. Sie werden möglicherweise noch verarbeitet.",
+        retake_selfie: "Selfie erneut aufnehmen",
+        take_your_selfie: "Mach dein Selfie",
+        family_member_selfie: "Familienmitglied Selfie",
+        confirm_selfie: "Selfie bestätigen",
+        take_again: "Erneut aufnehmen",
+        camera_not_available: "Kamera nicht verfügbar",
+        retry: "Erneut versuchen",
+        enable_camera: "Kamerazugriff aktivieren, um dein Selfie zu machen",
+        start_camera: "Kamera starten",
+        switch_camera: "Kamera wechseln",
+        album_my_content: "Meine Inhalte",
+        album_price_list: "Preisliste ↗",
+        album_photo_count: "Du hast {count} Fotos gefunden",
+        cart_title: "🛒 Warenkorb",
+        cart_empty: "Der Warenkorb ist leer",
+        cart_total: "Gesamt:",
+        cart_checkout: "💳 Zur Kasse",
+        cart_close: "Schließen",
+        cart_loading: "⏳ Wird geladen...",
+        cart_go_payment: "💳 Zur Zahlung",
+        lightbox_download: "📥 Herunterladen",
+        lightbox_add_to_cart: "In den Warenkorb",
+        lightbox_remove_from_cart: "Aus Warenkorb entfernen",
+        lightbox_ios_hint: "📱 Bild gedrückt halten und 'In Fotos speichern' tippen",
+        lightbox_purchase_hint: "Kaufen, um Fotos ohne Wasserzeichen herunterzuladen",
+        deal_title: "Glückwunsch! Du hast das echte Angebot freigeschaltet",
+        deal_subtitle: "Ab jetzt kostet jedes Foto €1.00",
+        deal_continue: "Auswahl fortsetzen",
+        nudge_selected_all: "Du hast alles ausgewählt",
+        nudge_go_checkout: "Zur Kasse",
+        nudge_deal_unlocked: "Ab jetzt kosten die nächsten Fotos nur noch €1.00 pro Stück",
+        nudge_add_more: "Füge mehr hinzu oder gehe zur Kasse",
+        nudge_add_one: "Füge 1 Foto hinzu: du zahlst nur €{price}",
+        nudge_add_many: "Füge {count} Fotos hinzu: nur €{price} pro Stück",
+        nudge_unlock_package: "Schalte das {count} Fotos Paket frei",
+        sticky_take_all: "Nimm sie alle",
+        sticky_unlock_all: "Alle freischalten",
+        dealpill_top: "Schalte das echte Angebot frei",
+        dealpill_bottom: "Ab dem 7.: €1.00 pro Foto",
+        add_family_member: "👥 Familienmitglied hinzufügen",
+        added_members: "Hinzugefügte Mitglieder",
+        add_member: "👥 Mitglied hinzufügen",
+        price_list_title: "Preisliste",
+        price_list_subtitle: "Wähle das Angebot, das dir gefällt",
+        photo: "Foto",
+        photos: "Fotos",
+        single_photo: "Einzelfoto",
+        double: "Doppel",
+        special_offer: "Sonderangebot",
+        package: "Paket",
+        complete_package: "Komplettpaket",
+        all_photos_best: "Alle Fotos zum besten Preis",
+        discount: "Rabatt",
+        best: "Beste",
+        top: "Top",
+        paid_countdown: "Deine bezahlten Fotos laufen in <strong>{days}</strong> Tagen ab",
+        error_download: "Fehler beim Herunterladen des Fotos. Bitte versuche es erneut.",
+        error_checkout: "Fehler beim Checkout. Bitte versuche es erneut.",
+        checkout_loading: "Wird geladen...",
+        no_face_detected: "Kein Gesicht im Selfie erkannt. Bitte versuche es erneut.",
+        checking_photos: "Überprüfe deine Fotos...",
+        continue: "Weiter",
+        close: "Schließen",
+        next: "Weiter",
+        prev: "Zurück"
+      }
+    };
+    
+    // Funzione traduzione con sostituzione variabili
+    function t(key, vars = {}) {
+      const translation = I18N[currentLang]?.[key] || I18N['en'][key] || key;
+      let result = translation;
+      for(const [k, v] of Object.entries(vars)) {
+        result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+      }
+      return result;
+    }
+    
+    // Applica traduzioni a elementi con data-i18n
+    function applyTranslations() {
+      // Testi normali
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if(key) {
+          el.textContent = t(key);
+        }
+      });
+      
+      // Placeholder
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if(key) {
+          el.placeholder = t(key);
+        }
+      });
+      
+      // HTML (solo se necessario)
+      document.querySelectorAll('[data-i18n-html]').forEach(el => {
+        const key = el.getAttribute('data-i18n-html');
+        if(key) {
+          el.innerHTML = t(key);
+        }
+      });
+    }
+    
+    // Aggiorna testi dinamici generati da JS
+    function refreshDynamicTexts() {
+      // Nudge bar
+      updateNudgeBar();
+      
+      // Sticky bar
+      updateStickyAllOffer();
+      
+      // Cart modal
+      updateCartModal();
+      
+      // Deal pill
+      const dealPillTop = document.querySelector('.deal-pill-top');
+      const dealPillBottom = document.querySelector('.deal-pill-bottom');
+      if(dealPillTop) dealPillTop.textContent = t('dealpill_top');
+      if(dealPillBottom) dealPillBottom.textContent = t('dealpill_bottom');
+      
+      // Album photo count
+      const photoCountNumber = document.getElementById('photoCountNumber');
+      if(photoCountNumber && allPhotos.length > 0) {
+        const countEl = photoCountNumber.parentElement;
+        if(countEl) countEl.textContent = t('album_photo_count', { count: allPhotos.length });
+      }
+      
+      // Lightbox texts (se aperto)
+      updateLightboxTexts();
+      
+      // Selfie header
+      const selfieHeaderText = document.getElementById('selfieHeaderText');
+      if(selfieHeaderText) {
+        selfieHeaderText.textContent = activeFamilyMode ? t('family_member_selfie') : t('take_your_selfie');
+      }
+    }
+    
+    // Aggiorna testi lightbox
+    function updateLightboxTexts() {
+      const downloadBtn = document.getElementById('lightboxDownload');
+      const iosInstruction = document.getElementById('lightboxIOSInstruction');
+      const addCartBtn = document.getElementById('lightboxAddCartBtn');
+      const purchaseHint = document.querySelector('#lightboxCartCTA div');
+      
+      if(downloadBtn && downloadBtn.style.display !== 'none') {
+        downloadBtn.textContent = t('lightbox_download');
+      }
+      if(iosInstruction && iosInstruction.style.display !== 'none') {
+        iosInstruction.textContent = t('lightbox_ios_hint');
+      }
+      if(addCartBtn) {
+        const isInCart = cartPhotoIds.includes(currentPhotoIndex >= 0 && allPhotos[currentPhotoIndex] ? allPhotos[currentPhotoIndex].photo_id : '');
+        addCartBtn.textContent = isInCart ? t('lightbox_remove_from_cart') : t('lightbox_add_to_cart');
+      }
+      if(purchaseHint) {
+        purchaseHint.textContent = t('lightbox_purchase_hint');
+      }
+    }
+    
+    // Imposta lingua e applica traduzioni
+    function setLanguage(lang) {
+      currentLang = lang;
+      selectedLanguage = lang;
+      applyTranslations();
+      refreshDynamicTexts();
+    }
+    
+    // Nomi lingue per feedback
+    const langNames = {
+      en: 'English',
+      es: 'Español',
+      it: 'Italiano',
+      fr: 'Français',
+      de: 'Deutsch'
+    };
 
     // Variabili globali
     let currentScreen = 'email';
@@ -2063,6 +2592,9 @@
     // Bootstrap app: mostra sempre welcome/selfie screen (stateless)
     async function bootApp() {
       console.log('bootApp() called (stateless mode)');
+      
+      // Applica traduzioni iniziali (default: inglese per welcome screen)
+      applyTranslations();
       
       // Carrello sempre vuoto all'inizio (si svuota ad ogni refresh)
       initCart();
@@ -2571,6 +3103,68 @@
       showScreen('selfie');
         // QUI e SOLO QUI richiediamo permesso camera
       await startCamera();
+      });
+    }
+    
+    // Event listeners per language screen
+    document.querySelectorAll('.language-option[data-lang]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const lang = btn.getAttribute('data-lang');
+        if(!lang) return;
+        
+        // Imposta lingua
+        setLanguage(lang);
+        
+        // Mostra feedback
+        const langFeedback = document.getElementById('langFeedback');
+        const langFeedbackText = document.getElementById('langFeedbackText');
+        if(langFeedback && langFeedbackText) {
+          langFeedbackText.textContent = t('language_selected', { langName: langNames[lang] });
+          langFeedback.style.display = 'block';
+        }
+        
+        // Se foto pronte, vai all'album
+        if(photosReady) {
+          const langLoading = document.getElementById('langLoading');
+          const langErrorBox = document.getElementById('langErrorBox');
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'none';
+          
+          showScreen('album');
+          displayPhotos().then(() => {
+            updateCart();
+            if(allPhotos.length > 0) {
+              showStickyOfferBar();
+            }
+          });
+        } else if(!photosFailed) {
+          // Foto non ancora pronte: mostra loading
+          const langLoading = document.getElementById('langLoading');
+          const langErrorBox = document.getElementById('langErrorBox');
+          if(langLoading) langLoading.style.display = 'flex';
+          if(langErrorBox) langErrorBox.style.display = 'none';
+        } else {
+          // Foto fallite: mostra errore
+          const langLoading = document.getElementById('langLoading');
+          const langErrorBox = document.getElementById('langErrorBox');
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'block';
+        }
+      });
+    });
+    
+    // Event listener per "Retake selfie" nella language screen
+    const langRetakeSelfieBtn = document.getElementById('langRetakeSelfieBtn');
+    if(langRetakeSelfieBtn) {
+      langRetakeSelfieBtn.addEventListener('click', () => {
+        // NON resettare selectedLanguage (mantiene la scelta)
+        resetSelfieState();
+        // Reset stati foto
+        photosReady = false;
+        photosFailed = false;
+        // Nascondi error box
+        const langErrorBox = document.getElementById('langErrorBox');
+        if(langErrorBox) langErrorBox.style.display = 'none';
       });
     }
     
@@ -3668,12 +4262,58 @@
     }
     
     async function confirmSelfie() {
+      console.log('[CONFIRM_FLOW] Confirm button clicked');
+      
+      // Disabilita confirmBtn
+      const confirmBtn = document.getElementById('confirmBtn');
+      if(confirmBtn) {
+        confirmBtn.disabled = true;
+      }
+      
+      // Mostra confirmLoadingIndicator come fallback
+      const confirmLoadingIndicator = document.getElementById('confirmLoadingIndicator');
+      if(confirmLoadingIndicator) {
+        confirmLoadingIndicator.style.display = 'block';
+      }
+      
       // Marca selfie come completato (per non interrompere se le API finiscono dopo)
       selfieCompleted = true;
       
-      // NON registrare utente: match senza email
-      // Dopo la conferma del selfie, cerca direttamente le foto
-      matchPhotos();
+      // Reset stati foto
+      photosReady = false;
+      photosFailed = false;
+      
+      // Vai immediatamente alla language screen
+      showScreen('language');
+      
+      // Mostra langLoading e nascondi langErrorBox
+      const langLoading = document.getElementById('langLoading');
+      const langErrorBox = document.getElementById('langErrorBox');
+      const langFeedback = document.getElementById('langFeedback');
+      if(langLoading) langLoading.style.display = 'flex';
+      if(langErrorBox) langErrorBox.style.display = 'none';
+      if(langFeedback) langFeedback.style.display = 'none';
+      
+      try {
+        // Avvia match in background
+        await matchPhotos();
+      } catch(err) {
+        console.error('[CONFIRM_FLOW] Error in matchPhotos:', err);
+        // Gestisci errore: nascondi loading, mostra error box
+        if(langLoading) langLoading.style.display = 'none';
+        if(langErrorBox) langErrorBox.style.display = 'block';
+        photosReady = false;
+        photosFailed = true;
+      } finally {
+        // Riabilita confirmBtn
+        if(confirmBtn) {
+          confirmBtn.disabled = false;
+        }
+        // Nascondi confirmLoadingIndicator
+        if(confirmLoadingIndicator) {
+          confirmLoadingIndicator.style.display = 'none';
+        }
+      }
     }
 
     // Funzioni UI per gestione selfie loading/error
@@ -3713,10 +4353,10 @@
         captureBtn.style.opacity = '1';
       }
       
-      // Mostra errore
-      if(selfieErrorMessage) {
-        selfieErrorMessage.textContent = message || "No photos found or still processing. Please try again.";
-      }
+        // Mostra errore
+        if(selfieErrorMessage) {
+          selfieErrorMessage.textContent = message || t('no_photos_found');
+        }
       if(selfieErrorBox) {
         selfieErrorBox.style.display = 'flex';
       }
@@ -3754,28 +4394,30 @@
       }
       
       if(!capturedBlob) {
-        console.error("capturedBlob è null!");
-        alert("Error: selfie not found. Please take it again.");
-        showScreen('selfie');
-        startCamera();
-      return;
-    }
+        console.error("[CONFIRM_FLOW] capturedBlob è null!");
+        // NON tornare a selfie screen, mostra errore nella language screen
+        const langLoading = document.getElementById('langLoading');
+        const langErrorBox = document.getElementById('langErrorBox');
+        if(langLoading) langLoading.style.display = 'none';
+        if(langErrorBox) langErrorBox.style.display = 'block';
+        photosReady = false;
+        photosFailed = true;
+        return;
+      }
 
-      // Mostra area upload status (torna allo schermo selfie se siamo in confirm)
-      showScreen('selfie');
-      const uploadStatus = document.getElementById('uploadStatus');
-      const uploadStatusText = document.getElementById('uploadStatusText');
-      const uploadProgressBar = document.getElementById('uploadProgressBar');
-      const uploadPercentage = document.getElementById('uploadPercentage');
-      const captureBtn = document.getElementById('captureBtn');
+      // NON tornare a selfie screen - restiamo sulla language screen
+      // Gestiamo il loading nella language screen invece
+      const langLoading = document.getElementById('langLoading');
+      const langErrorBox = document.getElementById('langErrorBox');
       
-      // Mostra loading
-      showSelfieLoading(true);
+      // Assicurati di essere sulla language screen
+      if(currentScreen !== 'language') {
+        showScreen('language');
+      }
       
-      // Imposta testo e progress iniziale
-      if(uploadStatusText) uploadStatusText.textContent = 'Loading photos...';
-      if(uploadProgressBar) uploadProgressBar.style.width = '10%';
-      if(uploadPercentage) uploadPercentage.textContent = '10%';
+      // Mostra langLoading e nascondi langErrorBox
+      if(langLoading) langLoading.style.display = 'flex';
+      if(langErrorBox) langErrorBox.style.display = 'none';
       
       try {
         console.log("STEP selfie->match_selfie");
@@ -3869,24 +4511,21 @@
         
         // Controlla se la risposta è OK
         if(res.status < 200 || res.status >= 300) {
-          console.error("❌ Errore HTTP:", res.status, res.statusText);
-          console.error("Response text completo:", res.responseText);
+          console.error("[CONFIRM_FLOW] ❌ Errore HTTP:", res.status, res.statusText);
+          console.error("[CONFIRM_FLOW] Response text completo:", res.responseText);
           
-          // Usa sempre il messaggio richiesto per tutti gli errori
-          const errorMsg = "No photos found or still processing. Please try again.";
+          // Imposta stato errore
+          photosReady = false;
+          photosFailed = true;
           
-          // Mostra errore con bottone "Rifai selfie"
-          showSelfieError(errorMsg);
+          // Nascondi langLoading e mostra langErrorBox
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'block';
           return;
         }
         
-        // Aggiorna progress finale
-        if(uploadProgressBar) uploadProgressBar.style.width = '100%';
-        if(uploadPercentage) uploadPercentage.textContent = '100%';
-        if(uploadStatusText) uploadStatusText.textContent = 'Completato!';
-        
-        // Nascondi loading quando tutto va bene (verrà mostrato l'album)
-        showSelfieLoading(false);
+        // Nascondi langLoading (gestito nella language screen)
+        if(langLoading) langLoading.style.display = 'none';
         
         // Verifica che la risposta non sia vuota
         if(!res.responseText || res.responseText.trim() === '') {
@@ -3935,36 +4574,30 @@
         const allIds = [...new Set([...(mainIds||[]), ...(backIds||[]), ...resultsIds].filter(Boolean))];
         console.log("[match_selfie] allIds", allIds);
         
-        // Se non ci sono foto, mostra errore
+        // Se non ci sono foto, imposta stato errore
         if (allIds.length === 0) {
-          console.warn("⚠️ Nessuna foto trovata - allIds è vuoto");
-          showSelfieError("Nessuna foto trovata per questo selfie. Riprova con un selfie più frontale/luminoso.");
+          console.warn("[CONFIRM_FLOW] ⚠️ Nessuna foto trovata - allIds è vuoto");
+          photosReady = false;
+          photosFailed = true;
+          
+          // Nascondi langLoading e mostra langErrorBox
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'block';
           return;
         }
         
-        // Se ci sono foto, mostra l'album
-        console.log(`✅ Trovate ${allIds.length} foto, mostrando album`);
+        // Se ci sono foto, imposta stato pronto
+        console.log(`[CONFIRM_FLOW] ✅ Trovate ${allIds.length} foto`);
+        photosReady = true;
+        photosFailed = false;
         
         // Converti allIds in formato allPhotos
         const photos = data.results || data.matches || [];
         
         if(data.ok && allIds.length > 0) {
-          console.log(`Trovate ${photos.length} foto`);
-          console.log("STEP selfie->match_selfie");
-          if(uploadStatusText) uploadStatusText.textContent = `Found ${photos.length} photos!`;
+          console.log(`[CONFIRM_FLOW] Trovate ${photos.length} foto`);
           
-          // Nascondi upload status
-          setTimeout(() => {
-            if(uploadStatus) uploadStatus.classList.remove('active');
-            if(captureBtn) {
-              captureBtn.disabled = false;
-              captureBtn.style.opacity = '1';
-            }
-          }, 500);
-          
-          // STEP 3: Dopo match_selfie completato, mostra album direttamente
           // Converti allIds in formato allPhotos
-          // Se abbiamo results/matches con oggetti completi, usali, altrimenti crea oggetti semplici da allIds
           if (photos.length > 0) {
             allPhotos = photos.map(p => ({
               photo_id: p.photo_id || p.photoId || p.get?.('photo_id'),
@@ -4001,17 +4634,24 @@
           photosLoadedCount = 0;
           paidPhotos = [];
           
-          // Mostra album direttamente
-          showScreen('album');
-          await displayPhotos();
+          // Nascondi langLoading (foto pronte, resta su language screen per scelta lingua)
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'none';
           
-          // Aggiorna carrello
-          updateCart();
-          
-          // Mostra sticky offer bar se ci sono foto non pagate
-          if(allPhotos.length > 0) {
-            showStickyOfferBar();
+          // Se lingua già selezionata, vai all'album
+          if(selectedLanguage) {
+            showScreen('album');
+            await displayPhotos();
+            
+            // Aggiorna carrello
+            updateCart();
+            
+            // Mostra sticky offer bar se ci sono foto non pagate
+            if(allPhotos.length > 0) {
+              showStickyOfferBar();
+            }
           }
+          // Altrimenti resta sulla language screen (l'utente sceglierà la lingua)
         } else {
           // Questo blocco viene raggiunto solo se data.ok è false MA allIds.length > 0
           // In questo caso, mostra comunque l'album usando allIds
@@ -4039,9 +4679,14 @@
             return;
           }
           
-          // Solo se davvero non ci sono foto, mostra errore
-          console.warn("⚠️ Nessuna foto trovata - allIds è vuoto e data.ok è false");
-          showSelfieError("Nessuna foto trovata per questo selfie. Riprova con un selfie più frontale/luminoso.");
+          // Solo se davvero non ci sono foto, mostra errore nella language screen
+          console.warn("[CONFIRM_FLOW] ⚠️ Nessuna foto trovata - allIds è vuoto e data.ok è false");
+          photosReady = false;
+          photosFailed = true;
+          
+          // Nascondi langLoading e mostra langErrorBox
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'block';
           
           // Controlla se ci sono foto già acquistate da mostrare (stateless: disabilitato)
           if(false && userEmail) {
@@ -4089,35 +4734,29 @@
           }
           
           // Nessuna foto trovata e nessuna foto pagata
-          // Nascondi upload status
-          if(uploadStatus) uploadStatus.classList.remove('active');
-          if(captureBtn) {
-            captureBtn.disabled = false;
-            captureBtn.style.opacity = '1';
-          }
+          // Gestisci nella language screen (NON tornare a selfie screen)
+          photosReady = false;
+          photosFailed = true;
           
-          // NON tornare alla welcome se siamo già nell'album
-          // Solo se siamo ancora nella schermata selfie/confirm
-          if(currentScreen !== 'album') {
-            alert('No photos found. Try again.');
-            showScreen('selfie');
-            startCamera();
-          } else {
-            // Se siamo già nell'album, mostra solo un messaggio
-            alert('No photos found. Try again.');
-          }
+          // Nascondi langLoading e mostra langErrorBox
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) langErrorBox.style.display = 'block';
         }
       } catch(err) {
-        console.error("Errore nel caricamento foto:", err);
-        console.error("Stack trace:", err.stack);
-        console.error("Tipo errore:", err.name, "Messaggio:", err.message);
-        console.error("Error type:", err.type, "Status:", err.status);
+        console.error("[CONFIRM_FLOW] Errore nel caricamento foto:", err);
+        console.error("[CONFIRM_FLOW] Stack trace:", err.stack);
+        console.error("[CONFIRM_FLOW] Tipo errore:", err.name, "Messaggio:", err.message);
+        console.error("[CONFIRM_FLOW] Error type:", err.type, "Status:", err.status);
         
-        // Usa sempre il messaggio richiesto per tutti gli errori (503, network, timeout, ecc.)
-        const errorMessage = "No photos found or still processing. Please try again.";
+        // Imposta stato errore
+        photosReady = false;
+        photosFailed = true;
         
-        // Mostra errore con bottone "Rifai selfie"
-        showSelfieError(errorMessage);
+        // Nascondi langLoading e mostra langErrorBox nella language screen
+        const langLoading = document.getElementById('langLoading');
+        const langErrorBox = document.getElementById('langErrorBox');
+        if(langLoading) langLoading.style.display = 'none';
+        if(langErrorBox) langErrorBox.style.display = 'block';
       }
     }
 
@@ -4647,7 +5286,7 @@
       // Mostra banner conteggio foto sopra la griglia
       if(photoCountBanner && photoCountNumber) {
         photoCountNumber.textContent = photoCount;
-        const foundText = `You found ${photoCount} photos`;
+        const foundText = t('album_photo_count', { count: photoCount });
         photoCountBanner.innerHTML = foundText;
         photoCountBanner.style.display = 'block';
       }
@@ -4853,11 +5492,11 @@
           const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id);
           if(addCartBtnLightbox) {
             if(isInCart) {
-              addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+              addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
               addCartBtnLightbox.style.background = '#ff4444';
               addCartBtnLightbox.style.color = 'white';
             } else {
-              addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+              addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
               addCartBtnLightbox.style.background = 'white';
               addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
             }
@@ -4869,11 +5508,11 @@
                 const newIsInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photo.photo_id);
                 if(addCartBtnLightbox) {
                   if(newIsInCart) {
-                    addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+                    addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
                     addCartBtnLightbox.style.background = '#ff4444';
                     addCartBtnLightbox.style.color = 'white';
                   } else {
-                    addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+                    addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
                     addCartBtnLightbox.style.background = 'white';
                     addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
                   }
@@ -4994,11 +5633,11 @@
           const isInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
           if(addCartBtnLightbox) {
             if(isInCart) {
-              addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+              addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
               addCartBtnLightbox.style.background = '#ff4444';
               addCartBtnLightbox.style.color = 'white';
             } else {
-              addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+              addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
               addCartBtnLightbox.style.background = 'white';
               addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
             }
@@ -5168,11 +5807,11 @@
             if(currentPhoto && currentPhoto.photo_id === photoId) {
               const newIsInCart = currentCart.photo_ids && currentCart.photo_ids.includes(photoId);
               if(newIsInCart) {
-                addCartBtnLightbox.textContent = 'Rimuovi dal carrello';
+                addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
                 addCartBtnLightbox.style.background = '#ff4444';
                 addCartBtnLightbox.style.color = 'white';
               } else {
-                addCartBtnLightbox.textContent = 'Aggiungi al carrello';
+                addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
                 addCartBtnLightbox.style.background = 'white';
                 addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
               }
@@ -5390,8 +6029,8 @@
       
       // Se k >= N: stato tutto selezionato
       if(k >= N) {
-        nudgeLine1.textContent = 'Hai selezionato tutto';
-        nudgeLine2.textContent = 'Vai al checkout';
+        nudgeLine1.textContent = t('nudge_selected_all');
+        nudgeLine2.textContent = t('nudge_go_checkout');
         nudgeCheckoutBtn.onclick = () => {
           const cartModal = document.getElementById('cartModal');
           if(cartModal) {
@@ -5411,8 +6050,8 @@
       
       // Se k >= 6 e k < N: messaggio fisso
       if(k >= 6 && k < N) {
-        nudgeLine1.textContent = 'Da ora in poi le prossime foto costano solo €1.00 ciascuna';
-        nudgeLine2.textContent = 'Aggiungine altre o vai al checkout';
+        nudgeLine1.textContent = t('nudge_deal_unlocked');
+        nudgeLine2.textContent = t('nudge_add_more');
         nudgeCheckoutBtn.onclick = () => {
           const cartModal = document.getElementById('cartModal');
           if(cartModal) {
@@ -5457,11 +6096,11 @@
       
       // Copy
       if(add === 1) {
-        nudgeLine1.textContent = `Aggiungi 1 foto: la paghi solo €${perEachFormatted}`;
+        nudgeLine1.textContent = t('nudge_add_one', { price: perEachFormatted });
       } else {
-        nudgeLine1.textContent = `Aggiungi ${add} foto: solo €${perEachFormatted} ciascuna`;
+        nudgeLine1.textContent = t('nudge_add_many', { count: add, price: perEachFormatted });
       }
-      nudgeLine2.textContent = `Sblocchi il pacchetto da ${T} foto`;
+      nudgeLine2.textContent = t('nudge_unlock_package', { count: T });
       
       nudgeCheckoutBtn.onclick = () => {
         const cartModal = document.getElementById('cartModal');
@@ -5568,7 +6207,7 @@
       const photoIds = cartPhotoIds;
       
       if(!photoIds || photoIds.length === 0) {
-        alert('Cart is empty');
+        alert(t('cart_empty'));
         return;
       }
       
@@ -5596,7 +6235,7 @@
       const checkoutBtn = document.getElementById("checkoutBtn");
       if(checkoutBtn) {
         checkoutBtn.disabled = true;
-        checkoutBtn.textContent = "⏳ Caricamento...";
+        checkoutBtn.textContent = t('cart_loading');
       }
       
       try {
@@ -5652,7 +6291,7 @@
         alert("Error during payment: " + err.message + "\n\nCheck the console for details.");
         if(checkoutBtn) {
           checkoutBtn.disabled = false;
-          checkoutBtn.textContent = "💳 Vai al Pagamento";
+          checkoutBtn.textContent = t('cart_go_payment');
         }
       }
     }
@@ -5840,9 +6479,9 @@
     <div class="deal-modal-backdrop"></div>
     <div class="deal-modal-card" role="dialog" aria-modal="true" aria-label="Deal unlocked">
       <div class="deal-burst" aria-hidden="true"></div>
-      <div class="deal-title">Complimenti! Hai sbloccato il vero affare</div>
-      <div class="deal-subtitle">Da adesso in poi ogni foto costa €1.00</div>
-      <button id="dealContinueBtn" class="deal-continue-btn" type="button">Continua la selezione</button>
+      <div class="deal-title" data-i18n="deal_title">Complimenti! Hai sbloccato il vero affare</div>
+      <div class="deal-subtitle" data-i18n="deal_subtitle">Da adesso in poi ogni foto costa €1.00</div>
+      <button id="dealContinueBtn" class="deal-continue-btn" type="button" data-i18n="deal_continue">Continua la selezione</button>
     </div>
   </div>
 </body>
