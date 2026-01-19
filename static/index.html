@@ -613,6 +613,7 @@
       z-index: 999; /* Sotto il banner sticky ma sopra il contenuto */
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
+      overflow: visible; /* Evita clipping degli elementi figli */
     }
     
     .album-header-title{
@@ -621,7 +622,7 @@
       color: var(--text-light);
       flex: 1;
       text-align: center;
-      display: none; /* Mostrato solo su mobile */
+      display: block; /* Visibile su tutti i device */
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -663,6 +664,7 @@
       padding: 6px 12px;
       z-index: 998;
       display: none; /* Mostrato solo su mobile */
+      overflow: visible; /* Evita clipping degli elementi figli */
     }
     
     .album-top-mini-bar .deal-pill{
@@ -698,27 +700,34 @@
       color: rgba(255,215,120,.95);
     }
     
-    /* Member Chips Row (mobile) */
-    .member-chips-row{
-      display: none; /* Mostrato solo su mobile */
+    /* Member Chips Row - Cross-device (mobile + desktop) */
+    .member-chips-row,
+    .members-bar{
+      display: flex;
       flex-wrap: nowrap;
-      gap: 8px;
-      padding: 10px 14px;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px 12px;
+      min-height: 64px; /* Evita taglio degli avatar */
       overflow-x: auto;
+      overflow-y: visible; /* IMPORTANT: niente clipping verticale */
       -webkit-overflow-scrolling: touch;
       background: rgba(0,0,0,0.1);
       border-bottom: 1px solid rgba(255,255,255,0.05);
     }
     
-    .member-chips-row::-webkit-scrollbar{
+    .member-chips-row::-webkit-scrollbar,
+    .members-bar::-webkit-scrollbar{
       display: none;
     }
     
-    .member-chip{
-      width: 38px;
-      height: 38px;
-      border-radius: 999px;
-      border: 2px solid rgba(255,255,255,0.18);
+    .member-chip,
+    .members-bar .member-avatar,
+    .members-bar .member-add{
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.25);
       background: rgba(255,255,255,0.06);
       display: flex;
       align-items: center;
@@ -728,24 +737,29 @@
       position: relative;
     }
     
-    .member-chip img{
+    .member-chip img,
+    .members-bar .member-avatar img{
       width: 100%;
       height: 100%;
       object-fit: cover;
-      border-radius: 999px;
+      object-position: center; /* Centra l'immagine per evitare tagli */
+      border-radius: 50%;
+      display: block;
     }
     
-    .member-chip.plus{
-      font-size: 22px;
+    .member-chip.plus,
+    .members-bar .member-add{
+      font-size: 26px;
       font-weight: 800;
       color: white;
-      background: rgba(99,102,241,0.35);
+      background: rgba(99,102,241,0.25);
       border-color: rgba(99,102,241,0.65);
       cursor: pointer;
       transition: all 0.2s ease;
     }
     
-    .member-chip.plus:active{
+    .member-chip.plus:active,
+    .members-bar .member-add:active{
       transform: scale(0.95);
       background: rgba(99,102,241,0.5);
     }
@@ -789,6 +803,7 @@
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
+      overflow: visible; /* Evita clipping degli elementi figli */
     }
     
     /* Mobile-first: modifiche per schermi piccoli */
@@ -824,6 +839,7 @@
         top: 44px; /* Altezza header mobile */
         padding: 6px 12px;
         border-bottom: 1px solid rgba(255,215,120,0.25);
+        overflow: visible; /* Evita clipping degli elementi figli */
       }
       
       .album-top-mini-bar .deal-pill{
@@ -841,12 +857,7 @@
         line-height: 1.3;
       }
       
-      .member-chips-row{
-        display: flex;
-        padding: 8px 12px;
-        gap: 6px;
-        min-height: 38px;
-      }
+      /* Mobile: mantieni stili base per members bar, nessuna modifica necessaria */
       
       .album-profile{
         display: none; /* Nascondi su mobile */
@@ -876,20 +887,36 @@
         padding: 16px 20px;
       }
       
+      /* Desktop: titolo sempre visibile (come mobile) */
       .album-header-title{
-        display: none;
+        display: block;
       }
       
       .album-top-mini-bar{
         display: none;
       }
       
-      .member-chips-row{
-        display: none;
+      /* Desktop: micro-adattamenti per members bar */
+      .member-chips-row,
+      .members-bar{
+        padding: 12px 20px 14px;
+        min-height: 72px;
+      }
+      
+      .member-chip,
+      .members-bar .member-avatar,
+      .members-bar .member-add{
+        width: 52px;
+        height: 52px;
+      }
+      
+      .member-chip.plus,
+      .members-bar .member-add{
+        font-size: 28px;
       }
       
       .album-profile{
-        display: flex;
+        display: none; /* Nascosto su desktop - solo Metaproos S.L nell'header */
       }
       
       /* Desktop: deal pill nell'header */
@@ -1832,7 +1859,7 @@
     </div>
     
     <!-- Member Chips Row (mobile) -->
-    <div id="memberChipsRow" class="member-chips-row"></div>
+    <div id="memberChipsRow" class="member-chips-row members-bar"></div>
     
     <!-- Album Profile (desktop, nascosto su mobile) -->
     <div class="album-profile">
