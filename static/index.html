@@ -605,7 +605,7 @@
       position: sticky;
       top: 0;
       background: var(--bg-dark2);
-      padding: 16px 20px;
+      padding: 12px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -615,6 +615,18 @@
       -webkit-backdrop-filter: blur(10px);
     }
     
+    .album-header-title{
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-light);
+      flex: 1;
+      text-align: center;
+      display: none; /* Mostrato solo su mobile */
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
     .album-back{
       background: none;
       border: none;
@@ -622,20 +634,120 @@
       font-size: 24px;
       cursor: pointer;
       padding: 8px;
+      flex-shrink: 0;
     }
     
     .album-cart{
       background: var(--accent);
       color: white;
       border: none;
-      padding: 8px 16px;
+      padding: 8px 14px;
       border-radius: 20px;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       cursor: pointer;
+      flex-shrink: 0;
+    }
+    
+    /* Mini Banner Deal (sotto header) */
+    .album-top-mini-bar{
+      position: sticky;
+      top: 44px; /* Altezza header mobile */
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(255,215,120,0.2);
+      padding: 6px 12px;
+      z-index: 998;
+      display: none; /* Mostrato solo su mobile */
+    }
+    
+    .album-top-mini-bar .deal-pill{
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 3px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.3);
+      border: 1.5px solid rgba(255,215,120,0.4);
+      box-shadow:
+        0 0 0 1px rgba(255,215,120,0.15) inset,
+        0 4px 12px rgba(0,0,0,.3),
+        0 0 8px rgba(255,215,120,0.1);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      width: 100%;
+      max-width: 100%;
+    }
+    
+    .album-top-mini-bar .deal-pill-top{
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.2;
+      color: rgba(255,255,255,.95);
+    }
+    
+    .album-top-mini-bar .deal-pill-bottom{
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      color: rgba(255,215,120,.95);
+    }
+    
+    /* Member Chips Row (mobile) */
+    .member-chips-row{
+      display: none; /* Mostrato solo su mobile */
+      flex-wrap: nowrap;
+      gap: 8px;
+      padding: 10px 14px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      background: rgba(0,0,0,0.1);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    .member-chips-row::-webkit-scrollbar{
+      display: none;
+    }
+    
+    .member-chip{
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .member-chip img{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 999px;
+    }
+    
+    .member-chip.plus{
+      font-size: 22px;
+      font-weight: 800;
+      color: white;
+      background: rgba(99,102,241,0.35);
+      border-color: rgba(99,102,241,0.65);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .member-chip.plus:active{
+      transform: scale(0.95);
+      background: rgba(99,102,241,0.5);
     }
     
     .deal-pill{
@@ -671,18 +783,119 @@
       color: rgba(255,215,120,.95);
     }
     
-    /* Mobile: pill più compatta per non rompere la header */
-    @media (max-width: 420px){
-      .deal-pill{ padding: 7px 8px; border-radius: 12px; }
-      .deal-pill-top, .deal-pill-bottom{ font-size: 10px; }
-    }
-    
     .album-profile{
       padding: 12px 20px;
       display: flex;
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
+    }
+    
+    /* Mobile-first: modifiche per schermi piccoli */
+    @media (max-width: 480px){
+      .album-header{
+        padding: 8px 12px;
+        min-height: 44px;
+        max-height: 44px;
+      }
+      
+      .album-header-title{
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      
+      .album-back{
+        font-size: 20px;
+        padding: 4px 8px;
+        min-width: 32px;
+      }
+      
+      .album-cart{
+        padding: 6px 10px;
+        font-size: 11px;
+        gap: 4px;
+        border-radius: 16px;
+        font-weight: 700;
+      }
+      
+      .album-top-mini-bar{
+        display: block;
+        top: 44px; /* Altezza header mobile */
+        padding: 6px 12px;
+        border-bottom: 1px solid rgba(255,215,120,0.25);
+      }
+      
+      .album-top-mini-bar .deal-pill{
+        padding: 8px 12px;
+        gap: 2px;
+      }
+      
+      .album-top-mini-bar .deal-pill-top{
+        font-size: 12px;
+        line-height: 1.3;
+      }
+      
+      .album-top-mini-bar .deal-pill-bottom{
+        font-size: 11px;
+        line-height: 1.3;
+      }
+      
+      .member-chips-row{
+        display: flex;
+        padding: 8px 12px;
+        gap: 6px;
+        min-height: 38px;
+      }
+      
+      .album-profile{
+        display: none; /* Nascondi su mobile */
+      }
+      
+      .album-tabs{
+        padding: 6px 12px 0;
+        margin-top: 0;
+        min-height: 40px;
+      }
+      
+      .album-tab{
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+      
+      .album-grid{
+        padding: 8px 12px;
+        padding-top: 12px;
+        padding-bottom: calc(160px + env(safe-area-inset-bottom));
+      }
+    }
+    
+    /* Desktop: mantieni layout originale */
+    @media (min-width: 481px){
+      .album-header{
+        padding: 16px 20px;
+      }
+      
+      .album-header-title{
+        display: none;
+      }
+      
+      .album-top-mini-bar{
+        display: none;
+      }
+      
+      .member-chips-row{
+        display: none;
+      }
+      
+      .album-profile{
+        display: flex;
+      }
+      
+      /* Desktop: deal pill nell'header */
+      .album-header .deal-pill{
+        display: flex;
+      }
     }
     
     .profile-avatar{
@@ -1604,16 +1817,24 @@
   <div class="screen album-screen" id="albumScreen">
     <div class="album-header">
       <button class="album-back" id="albumBackBtn">←</button>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <button class="album-cart" id="albumCartBtn">
-          🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
-        </button>
-        <div id="dealPill" class="deal-pill">
-          <div class="deal-pill-top" data-i18n="dealpill_top">Sblocca il vero affare</div>
-          <div class="deal-pill-bottom" data-i18n="dealpill_bottom">Dalla 7ª: €1.00 a foto</div>
-        </div>
+      <div class="album-header-title" id="albumHeaderTitle">Metaproos S.L</div>
+      <button class="album-cart" id="albumCartBtn">
+        🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
+      </button>
+    </div>
+    
+    <!-- Mini Banner Deal (sotto header, mobile) -->
+    <div id="albumTopMiniBar" class="album-top-mini-bar">
+      <div id="dealPill" class="deal-pill">
+        <div class="deal-pill-top" data-i18n="dealpill_top">Sblocca il vero affare</div>
+        <div class="deal-pill-bottom" data-i18n="dealpill_bottom">Dalla 7ª: €1.00 a foto</div>
       </div>
     </div>
+    
+    <!-- Member Chips Row (mobile) -->
+    <div id="memberChipsRow" class="member-chips-row"></div>
+    
+    <!-- Album Profile (desktop, nascosto su mobile) -->
     <div class="album-profile">
       <div class="profile-avatar">
         <!-- Logo rimosso per evitare 404 - usa solo testo -->
@@ -3609,11 +3830,14 @@
         // Carica membri famiglia in background
         loadFamilyMembersOnce().catch(e => console.error('Error loading family members:', e));
         
-        // Aggiorna carrello
-        updateCart();
-        
-        // Carica le foto (con lazy loading)
-        await displayPhotos();
+      // Aggiorna carrello
+      updateCart();
+      
+      // Carica le foto (con lazy loading)
+      await displayPhotos();
+      
+      // Renderizza chip membri su mobile
+      renderMemberChips();
         
         // Mostra banner dopo che lo schermo è visibile
         setTimeout(() => {
@@ -3763,12 +3987,12 @@
         const res = await fetch(`/family/members?email=${encodeURIComponent(userEmail)}`);
         const data = await res.json();
         
-        if(data.ok && data.members) {
+          if(data.ok && data.members) {
           familyMembers = data.members;
           // Salva in localStorage
           // Stateless: non salvare family members
           
-          // Aggiorna contatore
+          // Aggiorna contatore e chip
           updateFamilyMembersCount();
           
           if(data.members.length > 0) {
@@ -3848,6 +4072,76 @@
       const countEl = document.getElementById('familyMembersCount');
       if(countEl) {
         countEl.textContent = `(${familyMembers.length}/8)`;
+      }
+      
+      // Aggiorna anche i chip su mobile
+      renderMemberChips();
+    }
+    
+    // Funzione per renderizzare i chip membri su mobile
+    function renderMemberChips() {
+      const memberChipsRow = document.getElementById('memberChipsRow');
+      if(!memberChipsRow) return;
+      
+      // Pulisci contenuto
+      memberChipsRow.innerHTML = '';
+      
+      // Array di membri da mostrare (max 4 totali: principale + 3 aggiunti)
+      const membersToShow = [];
+      
+      // Aggiungi avatar principale se disponibile
+      const mainPersonAvatar = document.getElementById('mainPersonAvatar');
+      if(mainPersonAvatar && mainPersonAvatar.src && mainPersonAvatar.src !== window.location.href) {
+        const mainChip = document.createElement('div');
+        mainChip.className = 'member-chip';
+        const img = document.createElement('img');
+        img.src = mainPersonAvatar.src;
+        img.alt = 'Main person';
+        mainChip.appendChild(img);
+        memberChipsRow.appendChild(mainChip);
+        membersToShow.push({ type: 'main', avatar: mainPersonAvatar.src });
+      }
+      
+      // Aggiungi membri famiglia (max 3 per arrivare a 4 totali)
+      const maxAdditional = 3;
+      const membersToAdd = familyMembers.slice(0, maxAdditional);
+      
+      membersToAdd.forEach((member, index) => {
+        const chip = document.createElement('div');
+        chip.className = 'member-chip';
+        
+        // Se il membro ha un avatar_url, usalo, altrimenti usa un placeholder
+        if(member.avatar_url) {
+          const img = document.createElement('img');
+          img.src = member.avatar_url;
+          img.alt = member.name || `Member ${index + 1}`;
+          chip.appendChild(img);
+        } else {
+          // Placeholder con iniziale o icona
+          chip.textContent = (member.name && member.name.charAt(0).toUpperCase()) || '?';
+          chip.style.fontSize = '16px';
+          chip.style.fontWeight = '600';
+          chip.style.color = 'rgba(255,255,255,0.8)';
+        }
+        
+        memberChipsRow.appendChild(chip);
+      });
+      
+      // Aggiungi chip "+" per aggiungere membro (solo se non abbiamo raggiunto il limite UI di 4)
+      const totalChips = (mainPersonAvatar && mainPersonAvatar.src && mainPersonAvatar.src !== window.location.href ? 1 : 0) + membersToAdd.length;
+      if(totalChips < 4 && familyMembers.length < 8) {
+        const plusChip = document.createElement('div');
+        plusChip.className = 'member-chip plus';
+        plusChip.textContent = '+';
+        plusChip.title = t('add_family_member');
+        plusChip.addEventListener('click', () => {
+          // Chiama lo stesso handler di addFamilyBtn
+          const addFamilyBtn = document.getElementById('addFamilyBtn');
+          if(addFamilyBtn) {
+            addFamilyBtn.click();
+          }
+        });
+        memberChipsRow.appendChild(plusChip);
       }
     }
     
@@ -4368,6 +4662,8 @@
           confirmPreview.src = url;
           if(mainPersonAvatar) {
             mainPersonAvatar.src = url;
+            // Aggiorna chip membri se siamo sull'album
+            setTimeout(() => renderMemberChips(), 100);
           }
           
           // Ferma lo stream
@@ -5462,6 +5758,9 @@
       updateNudgeBar();
       updateBottomPadding(); // Aggiorna padding dopo displayPhotos
       
+      // Renderizza chip membri su mobile
+      renderMemberChips();
+      
       // Mostra sticky bar se ci sono foto
       if(allPhotos.length > 0) {
         const stickyBar = document.getElementById('stickyOfferBar');
@@ -5480,6 +5779,9 @@
       
       // Aggiorna padding dopo che i banner sono stati renderizzati
       setTimeout(() => updateBottomPadding(), 100);
+      
+      // Renderizza chip membri su mobile
+      renderMemberChips();
     }
 
     function showStickyOfferBar(photoCount) {
