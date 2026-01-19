@@ -638,11 +638,51 @@
       cursor: pointer;
     }
     
+    .deal-pill{
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.25);
+      border: 1px solid rgba(255,215,120,.35);
+      box-shadow:
+        0 0 0 1px rgba(255,215,120,.14) inset,
+        0 8px 18px rgba(0,0,0,.22),
+        0 0 14px rgba(255,215,120,.14);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    
+    .deal-pill-top{
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.1;
+      color: rgba(255,255,255,.95);
+    }
+    
+    .deal-pill-bottom{
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.1;
+      color: rgba(255,215,120,.95);
+    }
+    
+    /* Mobile: pill più compatta per non rompere la header */
+    @media (max-width: 420px){
+      .deal-pill{ padding: 7px 8px; border-radius: 12px; }
+      .deal-pill-top, .deal-pill-bottom{ font-size: 10px; }
+    }
+    
     .album-profile{
       padding: 12px 20px;
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-wrap: wrap;
     }
     
     .profile-avatar{
@@ -796,7 +836,7 @@
     
     .album-grid{
       padding: 20px;
-      padding-bottom: calc(100px + env(safe-area-inset-bottom)); /* Spazio per il CTA fisso + safe area iPhone */
+      padding-bottom: calc(160px + env(safe-area-inset-bottom));
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 20px;
@@ -808,8 +848,13 @@
       overflow: hidden;
       aspect-ratio: 1;
       background: var(--bg-dark2);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      
+      /* Bordo glass per foto non selezionate */
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 6px 18px rgba(0,0,0,.28);
+      background: rgba(255,255,255,.03);
+      
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
     }
     
     .album-photo:active{
@@ -822,6 +867,19 @@
       object-fit: cover;
       opacity: 0;
       transition: opacity 0.3s ease;
+      
+      /* Filtro per migliorare visibilità foto notturne */
+      filter: brightness(1.05) contrast(1.08) saturate(1.06);
+    }
+    
+    /* Stato selezionato: ring oro + glow */
+    .album-photo:has(.add-to-cart-btn.is-added),
+    .album-photo.selected{
+      border-color: rgba(255,215,120,.55);
+      box-shadow:
+        0 0 0 1px rgba(255,215,120,.18) inset,
+        0 10px 26px rgba(0,0,0,.30),
+        0 0 18px rgba(255,215,120,.20);
     }
     
     .album-photo img.loaded{
@@ -1140,72 +1198,80 @@
       background: rgba(255, 255, 255, 0.3);
     }
     
-    /* Nudge Bar: suggerisce upgrade al prossimo scaglione */
+    /* Nudge Bar: suggerisce upgrade al prossimo scaglione - Premium style */
     .nudge-bar{
       position: fixed;
-      bottom: calc(80px + env(safe-area-inset-bottom) + 10px); /* Altezza sticky + safe area + 10px */
       left: 12px;
       right: 12px;
-      max-width: 600px;
+      max-width: 650px;
       margin: 0 auto;
-      background: rgba(20, 20, 30, 0.95);
+      bottom: calc(72px + env(safe-area-inset-bottom));
+      z-index: 1100;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      
+      /* diverso dallo sticky - più scuro e meno saturo */
+      background: linear-gradient(135deg, rgba(25,18,55,.92), rgba(60,20,70,.92));
+      
+      /* bordo oro premium */
+      border: 1px solid rgba(255, 215, 120, .45);
+      
+      /* glow oro + glow viola */
+      box-shadow:
+        0 0 0 1px rgba(255, 215, 120, .18) inset,
+        0 10px 26px rgba(0,0,0,.28),
+        0 0 18px rgba(255, 215, 120, .22),
+        0 0 26px rgba(168,85,247,.18);
+      
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 12px 16px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-      z-index: 1200; /* Tra sticky (1000) e lightbox (2000) */
-      display: none;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
     }
+    .nudge-bar.active{ display:flex !important; }
     
-    .nudge-bar.active{
-      display: flex;
+    /* Effetto "risplende" con pseudo-elemento */
+    .nudge-bar::before{
+      content:"";
+      position:absolute;
+      inset:-10px;
+      border-radius: 22px;
+      background: radial-gradient(circle at 30% 30%, rgba(255,215,120,.22), transparent 55%),
+                  radial-gradient(circle at 70% 70%, rgba(168,85,247,.18), transparent 60%);
+      filter: blur(10px);
+      z-index:-1;
+      pointer-events:none;
     }
-    
-    .nudge-content{
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    
-    .nudge-text{
-      flex: 1;
+
+    .nudge-text{ flex: 1; min-width: 0; }
+    #nudgeLine1{ font-size: 14px; font-weight: 900; color:#fff; line-height: 1.2; }
+    #nudgeLine2{ margin-top: 2px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.92); line-height: 1.2; }
+
+    .nudge-cta{
+      border:none;
+      cursor:pointer;
+      border-radius: 12px;
+      padding: 10px 14px;
+      
+      /* CTA più premium: oro chiaro invece del bianco */
+      background: linear-gradient(135deg, rgba(255, 235, 170, .98), rgba(255, 215, 120, .98));
+      color: rgba(45, 20, 70, 1);
+      
+      font-weight: 900;
       font-size: 13px;
-      line-height: 1.4;
-      color: var(--text-light);
-    }
-    
-    .nudge-text small{
-      display: block;
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-    
-    .nudge-btn{
-      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
       white-space: nowrap;
-      transition: transform 0.2s, opacity 0.2s;
-      flex-shrink: 0;
+      
+      box-shadow: 0 6px 14px rgba(0,0,0,.18), 0 0 12px rgba(255,215,120,.18);
+      transition: transform .15s ease, opacity .15s ease;
     }
-    
-    .nudge-btn:active{
-      transform: scale(0.95);
-      opacity: 0.8;
+    .nudge-cta:active{ transform: scale(.98); opacity:.9; }
+
+    @keyframes nudgePop {
+      0% { transform: translateY(10px); opacity: 0; }
+      100% { transform: translateY(0); opacity: 1; }
     }
+    .nudge-bar.pop{ animation: nudgePop .18s ease-out; }
     
     /* Paid Photos Countdown Banner */
     .paid-countdown-banner{
@@ -1259,6 +1325,117 @@
       font-size: 16px;
       font-weight: 600;
       color: var(--accent-light);
+    }
+    
+    /* Deal Unlocked Modal */
+    .deal-modal{
+      position: fixed;
+      inset: 0;
+      z-index: 3000;
+      display: none;               /* default off */
+      pointer-events: none;        /* IMPORTANT: quando off non blocca */
+    }
+    .deal-modal.show{
+      display: block;
+      pointer-events: auto;        /* quando on prende i tap */
+    }
+    
+    .deal-modal-backdrop{
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,.70);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      pointer-events: auto; /* Backdrop intercetta click per chiudere */
+    }
+    
+    /* Quando modal non ha .show, backdrop non deve intercettare */
+    .deal-modal:not(.show) .deal-modal-backdrop{
+      pointer-events: none;
+    }
+    
+    .deal-modal-card{
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) scale(.96);
+      width: min(92vw, 440px);
+      background: linear-gradient(135deg, rgba(168,85,247,.30), rgba(236,72,153,.22));
+      border: 1px solid rgba(255,215,120,.55);
+      box-shadow: 0 18px 60px rgba(0,0,0,.55), 0 0 28px rgba(255,215,120,.20);
+      border-radius: 22px;
+      padding: 22px 18px 18px;
+      text-align: center;
+      color: #fff;
+      animation: dealPopIn 260ms ease-out forwards;
+      overflow: hidden;
+    }
+    
+    .deal-title{
+      font-weight: 900;
+      font-size: 18px;
+      line-height: 1.2;
+      margin-top: 8px;
+      margin-bottom: 10px;
+    }
+    .deal-subtitle{
+      font-weight: 800;
+      font-size: 14px;
+      opacity: .95;
+      line-height: 1.35;
+      margin-bottom: 16px;
+    }
+    
+    .deal-continue-btn{
+      width: 100%;
+      border: none;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-size: 16px;
+      font-weight: 900;
+      cursor: pointer;
+      background: linear-gradient(135deg, #f7c948, #f59e0b);
+      color: #1a1f3a;
+      box-shadow: 0 8px 24px rgba(245,158,11,.28);
+      transition: transform .15s ease;
+    }
+    .deal-continue-btn:active{
+      transform: scale(.98);
+    }
+
+    /* confetti burst */
+    .deal-burst{
+      position:absolute;
+      inset:-60px;
+      pointer-events:none;
+    }
+    .deal-burst::before,
+    .deal-burst::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(circle, rgba(255,215,120,.95) 0 2px, transparent 3px) 10% 20%/40px 40px,
+        radial-gradient(circle, rgba(255,255,255,.9) 0 2px, transparent 3px) 30% 10%/52px 52px,
+        radial-gradient(circle, rgba(168,85,247,.95) 0 2px, transparent 3px) 55% 25%/46px 46px,
+        radial-gradient(circle, rgba(236,72,153,.95) 0 2px, transparent 3px) 75% 15%/52px 52px,
+        radial-gradient(circle, rgba(255,215,120,.9) 0 2px, transparent 3px) 90% 30%/48px 48px;
+      opacity: 0;
+      animation: burst 5700ms ease-out forwards;
+    }
+    .deal-burst::after{
+      transform: rotate(18deg);
+      animation-delay: 120ms;
+    }
+    @keyframes burst{
+      0%{ opacity: 0; transform: translateY(-10px) scale(.95); }
+      15%{ opacity: 1; }
+      70%{ opacity: 1; }
+      100%{ opacity: 0; transform: translateY(90px) scale(1.08); }
+    }
+    
+    @keyframes dealPopIn{
+      to { transform: translate(-50%, -50%) scale(1); }
     }
   </style>
 </head>
@@ -1391,13 +1568,15 @@
   <div class="screen album-screen" id="albumScreen">
     <div class="album-header">
       <button class="album-back" id="albumBackBtn">←</button>
-      <button class="album-cart" id="albumCartBtn">
-        🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
-      </button>
-      <button class="btn-primary" id="addFamilyBtn" style="padding: 8px 16px; font-size: 14px; margin-left: 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 20px;">
-        👥 Add family member
-        <span id="familyMembersCount" style="margin-left: 8px; font-size: 12px; opacity: 0.8;">(0/8)</span>
-      </button>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button class="album-cart" id="albumCartBtn">
+          🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
+        </button>
+        <div id="dealPill" class="deal-pill">
+          <div class="deal-pill-top">Sblocca il vero affare</div>
+          <div class="deal-pill-bottom">Dalla 7ª: €1.00 a foto</div>
+        </div>
+      </div>
     </div>
     <div class="album-profile">
       <div class="profile-avatar">
@@ -1407,6 +1586,10 @@
         <h3>Tenerife Stars Pictures</h3>
         <p>Your photo session was taken by Metaproos</p>
       </div>
+      <button class="btn-secondary" id="addFamilyBtn" style="padding: 8px 16px; font-size: 14px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 20px; margin-left: auto;">
+        👥 Add family member
+        <span id="familyMembersCount" style="margin-left: 8px; font-size: 12px; opacity: 0.8;">(0/8)</span>
+      </button>
     </div>
     
     <!-- Sezione Membri -->
@@ -1505,15 +1688,16 @@
     
   </div>
   
-  <!-- Sticky Offer Bar -->
   <!-- Nudge Bar: suggerisce upgrade al prossimo scaglione -->
-  <div class="nudge-bar" id="nudgeBar" style="display: none;">
-    <div class="nudge-content">
-      <div class="nudge-text" id="nudgeText"></div>
-      <button class="nudge-btn" id="nudgeCheckoutBtn">Vai al checkout</button>
+  <div id="nudgeBar" class="nudge-bar" style="display:none;">
+    <div class="nudge-text">
+      <div id="nudgeLine1"></div>
+      <div id="nudgeLine2"></div>
     </div>
+    <button id="nudgeCheckoutBtn" class="nudge-cta">Vai al checkout</button>
   </div>
   
+  <!-- Sticky Offer Bar -->
   <div class="sticky-offer-bar" id="stickyOfferBar">
       <div class="sticky-offer-content">
       <div class="sticky-offer-text" id="stickyOfferText">Prendile tutte</div>
@@ -1666,20 +1850,80 @@
       // Sincronizza carrello in memoria con currentCart
       const photoIds = cartPhotoIds;
       const count = photoIds.length;
-      const priceCents = computePrice(count);
+      const priceEuros = computePrice(count);
       currentCart = {
         photo_ids: photoIds,
         count: count,
-        price_cents: priceCents,
-        price_euros: priceCents / 100.0
+        price_cents: Math.round(priceEuros * 100),
+        price_euros: priceEuros
       };
       updateCart();
       updateCartModal();
       updateNudgeBar(); // Aggiorna nudge bar quando carrello cambia
+      
+      // Trigger modal celebrativo: transizione 5 -> 6 (una volta sola)
+      const newCount = currentCart.count;
+      const totalAvailable = (allPhotos && allPhotos.length) ? allPhotos.length : 0;
+      const hasMoreThanSix = totalAvailable > 6;
+      
+      if(!dealUnlockedShown && hasMoreThanSix && prevCartCountForDeal === 5 && newCount === 6){
+        dealUnlockedShown = true;
+        openDealModal();
+      }
+      prevCartCountForDeal = newCount;
     }
+    
+    // Funzioni per modal celebrativo "Deal Unlocked"
+    function openDealModal(){
+      const modal = document.getElementById('dealModal');
+      if(!modal) return;
+      modal.classList.add('show');
+      // Assicura che sia visibile e interattivo
+      modal.style.display = 'block';
+      modal.style.pointerEvents = 'auto';
+    }
+
+    function closeDealModal(){
+      const modal = document.getElementById('dealModal');
+      if(!modal) return;
+
+      // Chiudi davvero (1 sola sorgente di verità)
+      modal.classList.remove('show');
+      modal.style.display = 'none';
+      modal.style.pointerEvents = 'none';
+      modal.style.visibility = 'hidden';
+
+      // Ripristina eventuali modifiche a backdrop/card
+      const backdrop = modal.querySelector('.deal-modal-backdrop');
+      const card = modal.querySelector('.deal-modal-card');
+      if(backdrop){
+        backdrop.style.display = '';
+        backdrop.style.pointerEvents = '';
+      }
+      if(card){
+        card.style.pointerEvents = '';
+      }
+
+      // Sblocca scroll/tap del body
+      document.body.style.overflow = '';
+    }
+
+    // Bind robusto (così il bottone chiude SEMPRE anche se il binding non parte)
+    (function bindDealContinue(){
+      document.addEventListener('click', (e) => {
+        const t = e.target;
+        if(t && t.id === 'dealContinueBtn'){
+          e.preventDefault();
+          e.stopPropagation();
+          closeDealModal();
+        }
+      }, true);
+    })();
     
     // NON chiamare initCart() qui - viene chiamato in bootApp() quando il DOM è pronto
     let fromStripeSuccess = false; // Flag per tracciare se arrivo da Stripe success
+    let dealUnlockedShown = false; // Flag per modal celebrativo (una volta sola)
+    let prevCartCountForDeal = 0; // Contatore precedente per rilevare transizione 5 -> 6
 
     // Elementi DOM
     const welcomeScreen = document.getElementById("welcomeScreen");
@@ -1733,6 +1977,16 @@
           nudgeBar.style.display = 'none';
         }
         // Se è album, verrà mostrato dopo che le foto sono renderizzate
+      }
+      
+      // Aggiorna padding quando si cambia schermata
+      if(screenName === 'album') {
+        setTimeout(() => {
+          updateNudgeBar();
+          updateBottomPadding();
+        }, 100);
+      } else {
+        updateBottomPadding();
       }
       
       // Gestione selfieErrorBox: nascondi quando non siamo in selfieScreen
@@ -2424,7 +2678,65 @@
         // L'onclick viene impostato dinamicamente in updateNudgeBar()
         nudgeCheckoutBtn.dataset.listenerAdded = 'true';
       }
+      
+      // Event listener per resize/orientationchange per aggiornare padding
+      let resizeTimeout;
+      function handleResize() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          if(currentScreen === 'album') {
+            updateBottomPadding();
+          }
+        }, 150);
+      }
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('orientationchange', handleResize);
     }
+    
+    // Event listener per bottone modal celebrativo (collegato dopo DOM ready)
+    (function bindDealModal(){
+      const btn = document.getElementById('dealContinueBtn');
+      if(btn && !btn.dataset.bound){
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('[DEAL_MODAL] Bottone cliccato, chiudo modal');
+          closeDealModal();
+          // Forza un piccolo delay per assicurarsi che il DOM si aggiorni
+          setTimeout(() => {
+            // Verifica che il modal sia chiuso
+            const modal = document.getElementById('dealModal');
+            if(modal) {
+              if(modal.classList.contains('show')) {
+                console.warn('[DEAL_MODAL] Modal ancora aperto, forzo chiusura');
+                modal.classList.remove('show');
+              }
+              // Forza rimozione completa
+              modal.style.display = 'none';
+              modal.style.pointerEvents = 'none';
+              modal.style.visibility = 'hidden';
+              
+              // Rimuovi anche da backdrop e card
+              const backdrop = modal.querySelector('.deal-modal-backdrop');
+              const card = modal.querySelector('.deal-modal-card');
+              if(backdrop) {
+                backdrop.style.pointerEvents = 'none';
+                backdrop.style.display = 'none';
+              }
+              if(card) {
+                card.style.pointerEvents = 'none';
+              }
+              
+              // Assicura che body non abbia overflow hidden
+              if(document.body) {
+                document.body.style.overflow = '';
+              }
+            }
+          }, 10);
+        });
+      }
+    })();
     
     // Bottone "Aggiungi membro famiglia"
     const addFamilyBtn = document.getElementById('addFamilyBtn');
@@ -4190,6 +4502,7 @@
           if(isInCart) {
             addCartBtn.classList.add('is-added');
             addCartBtn.setAttribute('aria-label', 'Rimuovi dal carrello');
+            div.classList.add('selected'); // Aggiungi classe selected alla card
           } else {
             addCartBtn.setAttribute('aria-label', 'Aggiungi al carrello');
           }
@@ -4212,9 +4525,11 @@
             if(wasInCart) {
               addCartBtn.classList.remove('is-added');
               addCartBtn.setAttribute('aria-label', 'Aggiungi al carrello');
+              div.classList.remove('selected'); // Rimuovi classe selected dalla card
             } else {
               addCartBtn.classList.add('is-added');
               addCartBtn.setAttribute('aria-label', 'Rimuovi dal carrello');
+              div.classList.add('selected'); // Aggiungi classe selected alla card
             }
             
             try {
@@ -4231,9 +4546,11 @@
               if(wasInCart) {
                 addCartBtn.classList.add('is-added');
                 addCartBtn.setAttribute('aria-label', 'Rimuovi dal carrello');
+                div.classList.add('selected'); // Ripristina classe selected
               } else {
                 addCartBtn.classList.remove('is-added');
                 addCartBtn.setAttribute('aria-label', 'Aggiungi al carrello');
+                div.classList.remove('selected'); // Rimuovi classe selected
               }
             }
           });
@@ -4277,6 +4594,7 @@
       // Aggiorna sticky bar e nudge bar
       updateStickyAllOffer();
       updateNudgeBar();
+      updateBottomPadding(); // Aggiorna padding dopo displayPhotos
       
       // Mostra sticky bar se ci sono foto
       if(allPhotos.length > 0) {
@@ -4293,6 +4611,9 @@
           stickyBar.style.display = 'none';
         }
       }
+      
+      // Aggiorna padding dopo che i banner sono stati renderizzati
+      setTimeout(() => updateBottomPadding(), 100);
     }
 
     function showStickyOfferBar(photoCount) {
@@ -4875,6 +5196,9 @@
           if(btn && !btn.classList.contains('is-added')) {
             btn.classList.add('is-added');
             btn.setAttribute('aria-label', 'Rimuovi dal carrello');
+            // Aggiungi classe selected alla card
+            const card = btn.closest('.album-photo');
+            if(card) card.classList.add('selected');
       }
     }
 
@@ -4940,31 +5264,30 @@
           if(btn && btn.classList.contains('is-added')) {
             btn.classList.remove('is-added');
             btn.setAttribute('aria-label', 'Aggiungi al carrello');
+            // Rimuovi classe selected dalla card
+            const card = btn.closest('.album-photo');
+            if(card) card.classList.remove('selected');
       }
     }
 
-    // Funzione unica per calcolare prezzo in centesimi
+    // Funzione unica per calcolare prezzo in euro (number)
     function computePrice(count) {
       if(count <= 0) return 0;
-      if(count === 1) return 1800; // €18.00
-      if(count === 2) return 3600; // €36.00
-      if(count === 3) return 3900; // €39.00
-      if(count === 4) return 4200; // €42.00
-      if(count === 5) return 4500; // €45.00
-      if(count === 6) return 4700; // €47.00
-      if(count === 7) return 4800; // €48.00
-      if(count === 8) return 4900; // €49.00
-      if(count === 9) return 5000; // €50.00
-      if(count === 10) return 5100; // €51.00
-      if(count === 11) return 5200; // €52.00
-      if(count === 12) return 5300; // €53.00
-      if(count >= 13) return 5300 + 300 * (count - 12); // €53 + €3*(count-12)
+      if(count === 1) return 18;
+      if(count === 2) return 36;
+      if(count === 3) return 39;
+      if(count === 4) return 42;
+      if(count === 5) return 45;
+      if(count === 6) return 47;
+      // Dalla 7ª in poi: +€1.00 per ogni foto aggiunta
+      // Formula: 47 + (count - 6) * 1 = 41 + count
+      if(count >= 7) return 47 + (count - 6) * 1;
       return 0;
     }
     
-    // Mantieni calculatePrice per compatibilità (usa computePrice)
+    // Mantieni calculatePrice per compatibilità (ritorna centesimi)
     function calculatePrice(count) {
-      return computePrice(count);
+      return Math.round(computePrice(count) * 100);
     }
     
     // Logica nudge: trova il prossimo target conveniente
@@ -5009,8 +5332,7 @@
       }
       
       const N = allPhotos.length;
-      const priceCents = computePrice(N);
-      const priceEuros = (priceCents / 100).toFixed(2);
+      const priceEuros = computePrice(N).toFixed(2);
       
       const stickyText = document.getElementById('stickyOfferText');
       const stickyPrice = document.getElementById('stickyOfferPrice');
@@ -5023,49 +5345,54 @@
       }
     }
     
+    // Formatta numero con virgola italiana, max 2 decimali, rimuove zeri inutili
+    function formatPrice(price) {
+      const parts = price.toFixed(2).split('.');
+      const integer = parts[0];
+      let decimals = parts[1];
+      // Rimuovi zeri finali
+      decimals = decimals.replace(/0+$/, '');
+      if(decimals === '') {
+        return integer;
+      }
+      return integer + ',' + decimals;
+    }
+    
     // Aggiorna nudge bar con suggerimento upgrade
-    function updateNudgeBar() {
+    function updateNudgeBar(forcePop = false) {
       const nudgeBar = document.getElementById('nudgeBar');
-      const nudgeText = document.getElementById('nudgeText');
+      const nudgeLine1 = document.getElementById('nudgeLine1');
+      const nudgeLine2 = document.getElementById('nudgeLine2');
       const nudgeCheckoutBtn = document.getElementById('nudgeCheckoutBtn');
       
-      if(!nudgeBar || !nudgeText || !nudgeCheckoutBtn) return;
+      if(!nudgeBar || !nudgeLine1 || !nudgeLine2 || !nudgeCheckoutBtn) return;
       
-      // Nascondi se non siamo nell'album o non ci sono foto
-      if(currentScreen !== 'album' || !allPhotos || allPhotos.length <= 0) {
+      const wasVisible = nudgeBar.classList.contains('active');
+      
+      // Nascondi se non siamo nell'album
+      if(currentScreen !== 'album') {
         nudgeBar.classList.remove('active');
         nudgeBar.style.display = 'none';
+        updateBottomPadding();
         return;
       }
       
       const k = cartPhotoIds.length;
-      const N = allPhotos.length;
+      const N = allPhotos ? allPhotos.length : 0;
       
-      // Caso A: k == 0
-      if(k === 0) {
-        const priceEuros = (computePrice(N) / 100).toFixed(2);
-        nudgeText.innerHTML = `Seleziona le foto che vuoi. Offerta migliore: tutte a €${priceEuros}`;
-        nudgeCheckoutBtn.textContent = 'Vedi foto';
-        nudgeCheckoutBtn.onclick = () => {
-          // Scrolla alla griglia (non apre carrello se vuoto)
-          const albumGrid = document.getElementById('albumGrid');
-          if(albumGrid) {
-            albumGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        };
-        nudgeBar.classList.add('active');
-        nudgeBar.style.display = 'flex';
+      // Se k < 2 => nascondi (0 e 1 foto: MAI)
+      if(k < 2 || N <= 0) {
+        nudgeBar.classList.remove('active');
+        nudgeBar.style.display = 'none';
+        updateBottomPadding();
         return;
       }
       
-      // Caso B: 1 <= k < N e esiste target
-      const offer = getNextOffer(k, N);
-      if(offer && k < N) {
-        const deltaEuros = (offer.delta / 100).toFixed(2);
-        nudgeText.innerHTML = `Aggiungi ${offer.add} foto e arrivi a ${offer.target} foto per solo +€${deltaEuros}<small>oppure continua a selezionare</small>`;
-        nudgeCheckoutBtn.textContent = 'Vai al checkout';
+      // Se k >= N: stato tutto selezionato
+      if(k >= N) {
+        nudgeLine1.textContent = 'Hai selezionato tutto';
+        nudgeLine2.textContent = 'Vai al checkout';
         nudgeCheckoutBtn.onclick = () => {
-          // Apri carrello esistente
           const cartModal = document.getElementById('cartModal');
           if(cartModal) {
             cartModal.classList.add('active');
@@ -5074,16 +5401,19 @@
         };
         nudgeBar.classList.add('active');
         nudgeBar.style.display = 'flex';
+        if(forcePop || !wasVisible) {
+          nudgeBar.classList.add('pop');
+          setTimeout(() => nudgeBar.classList.remove('pop'), 200);
+        }
+        updateBottomPadding();
         return;
       }
       
-      // Caso C: k == N o k > 0 ma nessun target
-      if(k === N || (k > 0 && !offer)) {
-        const priceEuros = (computePrice(k) / 100).toFixed(2);
-        nudgeText.innerHTML = `Perfetto: hai selezionato tutto. Totale €${priceEuros}`;
-        nudgeCheckoutBtn.textContent = 'Vai al checkout';
+      // Se k >= 6 e k < N: messaggio fisso
+      if(k >= 6 && k < N) {
+        nudgeLine1.textContent = 'Da ora in poi le prossime foto costano solo €1.00 ciascuna';
+        nudgeLine2.textContent = 'Aggiungine altre o vai al checkout';
         nudgeCheckoutBtn.onclick = () => {
-          // Apri carrello esistente
           const cartModal = document.getElementById('cartModal');
           if(cartModal) {
             cartModal.classList.add('active');
@@ -5092,12 +5422,92 @@
         };
         nudgeBar.classList.add('active');
         nudgeBar.style.display = 'flex';
+        if(forcePop || !wasVisible) {
+          nudgeBar.classList.add('pop');
+          setTimeout(() => nudgeBar.classList.remove('pop'), 200);
+        }
+        updateBottomPadding();
         return;
       }
       
-      // Caso D: nascondi se nessuna condizione soddisfatta
-      nudgeBar.classList.remove('active');
-      nudgeBar.style.display = 'none';
+      // Se k < 6: usa logica target (3 e 6) con perEach
+      const targets = [3, 6]; // Solo 3 e 6 per k < 6
+      let T = null;
+      
+      // Primo T in targets con T > k e T <= N
+      for(const target of targets) {
+        if(target > k && target <= N) {
+          T = target;
+          break;
+        }
+      }
+      
+      // Se non esiste target, nascondi
+      if(!T) {
+        nudgeBar.classList.remove('active');
+        nudgeBar.style.display = 'none';
+        updateBottomPadding();
+        return;
+      }
+      
+      const add = T - k;
+      const delta = computePrice(T) - computePrice(k);
+      const perEach = delta / add;
+      const perEachFormatted = formatPrice(perEach);
+      
+      // Copy
+      if(add === 1) {
+        nudgeLine1.textContent = `Aggiungi 1 foto: la paghi solo €${perEachFormatted}`;
+      } else {
+        nudgeLine1.textContent = `Aggiungi ${add} foto: solo €${perEachFormatted} ciascuna`;
+      }
+      nudgeLine2.textContent = `Sblocchi il pacchetto da ${T} foto`;
+      
+      nudgeCheckoutBtn.onclick = () => {
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          updateCartModal();
+        }
+      };
+      
+      nudgeBar.classList.add('active');
+      nudgeBar.style.display = 'flex';
+      if(forcePop || !wasVisible) {
+        nudgeBar.classList.add('pop');
+        setTimeout(() => nudgeBar.classList.remove('pop'), 200);
+      }
+      updateBottomPadding();
+    }
+    
+    // Aggiorna padding-bottom della griglia in base all'altezza dei banner
+    function updateBottomPadding() {
+      const stickyBar = document.getElementById('stickyOfferBar');
+      const nudgeBar = document.getElementById('nudgeBar');
+      
+      let sum = 0;
+      
+      // Altezza sticky bar se visibile
+      if(stickyBar && stickyBar.classList.contains('active') && stickyBar.style.display !== 'none') {
+        const stickyRect = stickyBar.getBoundingClientRect();
+        if(stickyRect.height > 0) {
+          sum += stickyRect.height;
+        }
+      }
+      
+      // Altezza nudge bar se visibile + gap
+      if(nudgeBar && nudgeBar.classList.contains('active') && nudgeBar.style.display !== 'none') {
+        const nudgeRect = nudgeBar.getBoundingClientRect();
+        if(nudgeRect.height > 0) {
+          sum += nudgeRect.height + 16; // gap 16px
+        }
+      }
+      
+      // Safe area + margine extra
+      sum += 24; // margine extra
+      
+      // Imposta variabile CSS
+      document.documentElement.style.setProperty('--bottom-bars', `${sum}px`);
     }
     
     // Checkout per tutte le foto (indipendente dal carrello)
@@ -5123,7 +5533,8 @@
       }
       
       const totalCount = unpaidPhotoIds.length;
-      const totalPriceCents = computePrice(totalCount);
+      const totalPriceEuros = computePrice(totalCount);
+      const totalPriceCents = Math.round(totalPriceEuros * 100);
       
       try {
         const res = await fetch(`/create_checkout`, {
@@ -5423,6 +5834,17 @@
       }
     });
   </script>
+  
+  <!-- Deal Unlocked Modal -->
+  <div id="dealModal" class="deal-modal">
+    <div class="deal-modal-backdrop"></div>
+    <div class="deal-modal-card" role="dialog" aria-modal="true" aria-label="Deal unlocked">
+      <div class="deal-burst" aria-hidden="true"></div>
+      <div class="deal-title">Complimenti! Hai sbloccato il vero affare</div>
+      <div class="deal-subtitle">Da adesso in poi ogni foto costa €1.00</div>
+      <button id="dealContinueBtn" class="deal-continue-btn" type="button">Continua la selezione</button>
+    </div>
+  </div>
 </body>
 </html>
 
