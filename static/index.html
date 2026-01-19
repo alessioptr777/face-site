@@ -1067,12 +1067,14 @@
       z-index: 1001;
       opacity: 0;
       visibility: hidden;
+      pointer-events: none;
       transition: opacity 0.3s ease, visibility 0.3s ease;
     }
     
     .ios-share-modal.active{
       opacity: 1;
       visibility: visible;
+      pointer-events: auto;
     }
     
     .ios-share-modal-content{
@@ -1499,11 +1501,11 @@
       <p style="color: var(--accent); font-weight: 600; margin-bottom: 8px;" id="langFeedbackText"></p>
       <p style="color: var(--text-muted); font-size: 14px;" id="langFindingText" data-i18n="finding_photos">Finding your photos…</p>
     </div>
-    <div id="langLoading" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; flex-direction: column; gap: 20px;">
+    <div id="langLoading" style="display: none; pointer-events: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; flex-direction: column; gap: 20px;">
       <div class="loading-spinner"></div>
       <p style="color: var(--text-light); font-size: 16px;" data-i18n="loading_photos">Loading photos...</p>
     </div>
-    <div id="langErrorBox" style="display: none; margin-top: 20px; padding: 20px; background: rgba(255,68,68,0.1); border: 2px solid rgba(255,68,68,0.3); border-radius: 12px; text-align: center; max-width: 400px; margin-left: auto; margin-right: auto;">
+    <div id="langErrorBox" style="display: none; pointer-events: none; margin-top: 20px; padding: 20px; background: rgba(255,68,68,0.1); border: 2px solid rgba(255,68,68,0.3); border-radius: 12px; text-align: center; max-width: 400px; margin-left: auto; margin-right: auto;">
       <p style="color: var(--text-light); margin-bottom: 15px;" data-i18n="no_photos_found">No photos found yet. They may still be processing.</p>
       <button class="btn-primary" id="langRetakeSelfieBtn" data-i18n="retake_selfie">Retake selfie</button>
     </div>
@@ -1818,6 +1820,8 @@
     let selectedLanguage = null;
     let photosReady = false;
     let photosFailed = false;
+    // Promise della ricerca foto avviata in background dopo il selfie
+    let photosSearchPromise = null;
     
     // Oggetto traduzioni completo
     const I18N = {
@@ -1825,7 +1829,7 @@
         welcome_title: "Find your photos!",
         welcome_take_selfie: "Take a selfie",
         language_title: "Choose your language",
-        language_subtitle: "We're finding your photos…",
+        language_subtitle: "Choose a language to continue",
         language_selected: "✅ {langName} selected",
         finding_photos: "Finding your photos…",
         loading_photos: "Loading photos...",
@@ -1900,7 +1904,7 @@
         welcome_title: "¡Encuentra tus fotos!",
         welcome_take_selfie: "Hazte un selfie",
         language_title: "Elige tu idioma",
-        language_subtitle: "Estamos buscando tus fotos…",
+        language_subtitle: "Elige un idioma para continuar",
         language_selected: "✅ {langName} seleccionado",
         finding_photos: "Buscando tus fotos…",
         loading_photos: "Cargando fotos...",
@@ -1975,7 +1979,7 @@
         welcome_title: "Trova le tue foto!",
         welcome_take_selfie: "Fai un selfie",
         language_title: "Scegli la tua lingua",
-        language_subtitle: "Stiamo cercando le tue foto…",
+        language_subtitle: "Scegli una lingua per continuare",
         language_selected: "✅ {langName} selezionato",
         finding_photos: "Cercando le tue foto…",
         loading_photos: "Caricamento foto...",
@@ -2050,7 +2054,7 @@
         welcome_title: "Trouvez vos photos!",
         welcome_take_selfie: "Prendre un selfie",
         language_title: "Choisissez votre langue",
-        language_subtitle: "Nous recherchons vos photos…",
+        language_subtitle: "Choisissez une langue pour continuer",
         language_selected: "✅ {langName} sélectionné",
         finding_photos: "Recherche de vos photos…",
         loading_photos: "Chargement des photos...",
@@ -2125,7 +2129,7 @@
         welcome_title: "Finde deine Fotos!",
         welcome_take_selfie: "Ein Selfie machen",
         language_title: "Wähle deine Sprache",
-        language_subtitle: "Wir suchen deine Fotos…",
+        language_subtitle: "Wähle eine Sprache, um fortzufahren",
         language_selected: "✅ {langName} ausgewählt",
         finding_photos: "Suche deine Fotos…",
         loading_photos: "Fotos werden geladen...",
@@ -2308,6 +2312,64 @@
       de: 'Deutsch'
     };
 
+    // Avvia la ricerca foto in background (senza bloccare UI)
+    function startPhotosSearchInBackground(){
+      if(photosSearchPromise) return photosSearchPromise;
+
+      photosReady = false;
+      photosFailed = false;
+
+      // IMPORTANT: qui richiamiamo la stessa logica che prima partiva al click di Confirm
+      // senza mostrare overlay di loading.
+      photosSearchPromise = (async () => {
+        try {
+          await matchAndLoadPhotosAfterSelfie();
+          photosReady = true;
+          return true;
+        } catch (e) {
+          console.warn('[PHOTOS_SEARCH] failed', e);
+          photosFailed = true;
+          return false;
+        }
+      })();
+
+      return photosSearchPromise;
+    }
+
+    // Dopo scelta lingua: mostra loading SOLO se serve e poi vai in album
+    async function proceedAfterLanguageSelection(){
+      const langLoading = document.getElementById('langLoading');
+      const langErrorBox = document.getElementById('langErrorBox');
+      if(langErrorBox) langErrorBox.style.display = 'none';
+
+      // Se la ricerca non e' mai partita (edge case), la facciamo partire ora.
+      if(!photosSearchPromise) startPhotosSearchInBackground();
+
+      // Se gia' pronta, non mostriamo nessun loading
+      if(photosReady) {
+        if(langLoading) langLoading.style.display = 'none';
+        goToAlbumScreen();
+        return;
+      }
+
+      // Altrimenti: loading overlay dopo scelta lingua
+      if(langLoading) {
+        langLoading.style.display = 'flex';
+      }
+
+      const ok = await photosSearchPromise;
+
+      if(langLoading) {
+        langLoading.style.display = 'none';
+      }
+
+      if(ok && !photosFailed) {
+        goToAlbumScreen();
+      } else {
+        if(langErrorBox) langErrorBox.style.display = 'block';
+      }
+    }
+
     // Variabili globali
     let currentScreen = 'email';
     let stream = null;
@@ -2330,10 +2392,94 @@
     let paidPhotos = []; // Array di photo_id pagate
     let selfieCompleted = false; // Flag per tracciare se il selfie è stato completato
     let photosLoaded = false; // Flag per tracciare se le foto sono state caricate
+
+    // ========== MATCH & LOAD PHOTOS AFTER SELFIE ==========
+    // Sposta la logica di ricerca foto (chiamata /match_selfie, riempie allPhotos ecc.) qui
+    async function matchAndLoadPhotosAfterSelfie(){
+      // move here the exact code that was previously executed on Confirm
+      // that calls match_selfie (or similar) and fills allPhotos / prepares album.
+      // Do NOT show any loading UI here.
+      // --- BEGIN MOVED LOGIC ---
+      // Ricerca foto backend dopo selfie
+      // (Questa funzione deve essere popolata con la logica esistente, qui solo esempio)
+      // Esempio:
+      // const response = await fetch('/match_selfie', { ... });
+      // allPhotos = response.photos || [];
+      // photosLoaded = true;
+      // (Assicurati che allPhotos venga popolato come prima)
+      // --- END MOVED LOGIC ---
+      // (Sostituisci questa funzione con la tua logica reale)
+      // Qui solo placeholder:
+      if(typeof _matchAndLoadPhotosAfterSelfieImpl === 'function') {
+        // Per test: consenti override
+        await _matchAndLoadPhotosAfterSelfieImpl();
+      }
+    }
     
     // Carrello solo in memoria - SEMPRE VUOTO ad ogni refresh (non persistente)
     let cartPhotoIds = []; // Array in memoria, si svuota automaticamente ad ogni refresh
     
+    // ========== EVENT HANDLERS ==========
+
+    // Conferma selfie: mostra subito la schermata lingua e avvia ricerca foto in background
+    document.getElementById('confirmBtn').addEventListener('click', async () => {
+      try {
+        // Vai subito alla lingua (piu' logico per l'utente)
+        showScreen('language');
+
+        // Avvia ricerca foto in background
+        startPhotosSearchInBackground();
+
+        // Se l'utente aveva gia' scelto una lingua in questa sessione, non chiedere di nuovo
+        if(selectedLanguage){
+          setLanguage(selectedLanguage);
+          proceedAfterLanguageSelection();
+        }
+      } catch (e) {
+        console.warn('[CONFIRM] error', e);
+        // fallback: mostra errore selfie classico (se gia' esiste nel codice)
+        const selfieErrorBox = document.getElementById('selfieErrorBox');
+        if(selfieErrorBox) selfieErrorBox.style.display = 'flex';
+      }
+    });
+
+    // Lingua scelta: aggiungi proceedAfterLanguageSelection dopo setLanguage
+    document.querySelectorAll('.language-option').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const lang = this.getAttribute('data-lang');
+        setLanguage(lang);
+        // Mostra feedback selezione (già esistente)
+        const feedback = document.getElementById('langFeedback');
+        const feedbackText = document.getElementById('langFeedbackText');
+        if(feedback && feedbackText){
+          feedback.style.display = 'block';
+          feedbackText.textContent = t('language_selected', { langName: langNames[lang] || lang });
+        }
+        // Avvia flusso dopo selezione lingua
+        proceedAfterLanguageSelection();
+      });
+    });
+
+
+    // ========== NAVIGATION HELPERS ==========
+    // showScreen: mostra la schermata richiesta
+    function showScreen(name){
+      document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+      // id convenzione: #languageScreen, #albumScreen, ecc.
+      const el = document.getElementById(name + 'Screen');
+      if(el) el.classList.add('active');
+      currentScreen = name;
+    }
+
+    // goToAlbumScreen: nascondi lingua, mostra album, renderizza album se serve
+    function goToAlbumScreen(){
+      showScreen('album');
+      // Chiama funzione di render album se esiste
+      if(typeof renderAlbum === 'function'){
+        renderAlbum();
+      }
+    }
+
     // Inizializza sempre carrello vuoto
     function initCart() {
       cartPhotoIds = [];
@@ -3115,41 +3261,8 @@
         // Imposta lingua
         setLanguage(lang);
         
-        // Mostra feedback
-        const langFeedback = document.getElementById('langFeedback');
-        const langFeedbackText = document.getElementById('langFeedbackText');
-        if(langFeedback && langFeedbackText) {
-          langFeedbackText.textContent = t('language_selected', { langName: langNames[lang] });
-          langFeedback.style.display = 'block';
-        }
-        
-        // Se foto pronte, vai all'album
-        if(photosReady) {
-          const langLoading = document.getElementById('langLoading');
-          const langErrorBox = document.getElementById('langErrorBox');
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) langErrorBox.style.display = 'none';
-          
-          showScreen('album');
-          displayPhotos().then(() => {
-            updateCart();
-            if(allPhotos.length > 0) {
-              showStickyOfferBar();
-            }
-          });
-        } else if(!photosFailed) {
-          // Foto non ancora pronte: mostra loading
-          const langLoading = document.getElementById('langLoading');
-          const langErrorBox = document.getElementById('langErrorBox');
-          if(langLoading) langLoading.style.display = 'flex';
-          if(langErrorBox) langErrorBox.style.display = 'none';
-        } else {
-          // Foto fallite: mostra errore
-          const langLoading = document.getElementById('langLoading');
-          const langErrorBox = document.getElementById('langErrorBox');
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) langErrorBox.style.display = 'block';
-        }
+        // Procedi dopo la selezione della lingua
+        proceedAfterLanguageSelection();
       });
     });
     
@@ -3157,14 +3270,25 @@
     const langRetakeSelfieBtn = document.getElementById('langRetakeSelfieBtn');
     if(langRetakeSelfieBtn) {
       langRetakeSelfieBtn.addEventListener('click', () => {
-        // NON resettare selectedLanguage (mantiene la scelta)
-        resetSelfieState();
-        // Reset stati foto
+        // Reset promise e stati
+        photosSearchPromise = null;
         photosReady = false;
         photosFailed = false;
-        // Nascondi error box
+        
+        // NON resettare selectedLanguage (mantiene la scelta)
+        resetSelfieState();
+        
+        // Nascondi error box e loading
         const langErrorBox = document.getElementById('langErrorBox');
-        if(langErrorBox) langErrorBox.style.display = 'none';
+        const langLoading = document.getElementById('langLoading');
+        if(langErrorBox) {
+          langErrorBox.style.display = 'none';
+          langErrorBox.style.pointerEvents = 'none';
+        }
+        if(langLoading) {
+          langLoading.style.display = 'none';
+          langLoading.style.pointerEvents = 'none';
+        }
       });
     }
     
@@ -4261,58 +4385,201 @@
       }
     }
     
-    async function confirmSelfie() {
-      console.log('[CONFIRM_FLOW] Confirm button clicked');
-      
-      // Disabilita confirmBtn
-      const confirmBtn = document.getElementById('confirmBtn');
-      if(confirmBtn) {
-        confirmBtn.disabled = true;
+    // Funzione per avviare la ricerca foto in background (senza await)
+    function startPhotosSearchInBackground() {
+      if(photosSearchPromise) {
+        // Già in corso, non riavviare
+        return;
       }
       
-      // Mostra confirmLoadingIndicator come fallback
-      const confirmLoadingIndicator = document.getElementById('confirmLoadingIndicator');
-      if(confirmLoadingIndicator) {
-        confirmLoadingIndicator.style.display = 'block';
-      }
-      
-      // Marca selfie come completato (per non interrompere se le API finiscono dopo)
-      selfieCompleted = true;
+      console.log('[CONFIRM_FLOW] Starting photos search in background');
       
       // Reset stati foto
       photosReady = false;
       photosFailed = false;
       
-      // Vai immediatamente alla language screen
-      showScreen('language');
-      
-      // Mostra langLoading e nascondi langErrorBox
-      const langLoading = document.getElementById('langLoading');
-      const langErrorBox = document.getElementById('langErrorBox');
-      const langFeedback = document.getElementById('langFeedback');
-      if(langLoading) langLoading.style.display = 'flex';
-      if(langErrorBox) langErrorBox.style.display = 'none';
-      if(langFeedback) langFeedback.style.display = 'none';
-      
-      try {
-        // Avvia match in background
-        await matchPhotos();
-      } catch(err) {
+      // Avvia match in background (senza await)
+      photosSearchPromise = matchPhotos().catch(err => {
         console.error('[CONFIRM_FLOW] Error in matchPhotos:', err);
-        // Gestisci errore: nascondi loading, mostra error box
-        if(langLoading) langLoading.style.display = 'none';
-        if(langErrorBox) langErrorBox.style.display = 'block';
         photosReady = false;
         photosFailed = true;
-      } finally {
-        // Riabilita confirmBtn
-        if(confirmBtn) {
-          confirmBtn.disabled = false;
+        photosSearchPromise = null;
+      });
+    }
+    
+    // Funzione chiamata dopo la selezione della lingua
+    async function proceedAfterLanguageSelection() {
+      console.log('[CONFIRM_FLOW] proceedAfterLanguageSelection called');
+      
+      // Mostra feedback
+      const langFeedback = document.getElementById('langFeedback');
+      const langFeedbackText = document.getElementById('langFeedbackText');
+      if(langFeedback && langFeedbackText) {
+        langFeedbackText.textContent = t('language_selected', { langName: langNames[selectedLanguage] });
+        langFeedback.style.display = 'block';
+      }
+      
+      // Se le foto sono già pronte, vai subito all'album
+      if(photosReady && allPhotos.length > 0) {
+        console.log('[CONFIRM_FLOW] Photos already ready, going to album');
+        const langLoading = document.getElementById('langLoading');
+        const langErrorBox = document.getElementById('langErrorBox');
+        if(langLoading) {
+          langLoading.style.display = 'none';
+          langLoading.style.pointerEvents = 'none';
         }
-        // Nascondi confirmLoadingIndicator
-        if(confirmLoadingIndicator) {
-          confirmLoadingIndicator.style.display = 'none';
+        if(langErrorBox) {
+          langErrorBox.style.display = 'none';
+          langErrorBox.style.pointerEvents = 'none';
         }
+        
+        showScreen('album');
+        await displayPhotos();
+        updateCart();
+        if(allPhotos.length > 0) {
+          showStickyOfferBar();
+        }
+        return;
+      }
+      
+      // Se le foto sono fallite, mostra errore
+      if(photosFailed) {
+        console.log('[CONFIRM_FLOW] Photos failed, showing error');
+        const langLoading = document.getElementById('langLoading');
+        const langErrorBox = document.getElementById('langErrorBox');
+        if(langLoading) {
+          langLoading.style.display = 'none';
+          langLoading.style.pointerEvents = 'none';
+        }
+        if(langErrorBox) {
+          langErrorBox.style.display = 'block';
+          langErrorBox.style.pointerEvents = 'auto';
+        }
+        return;
+      }
+      
+      // Foto non ancora pronte: mostra loading e aspetta
+      console.log('[CONFIRM_FLOW] Photos not ready yet, showing loading');
+      const langLoading = document.getElementById('langLoading');
+      const langErrorBox = document.getElementById('langErrorBox');
+      if(langLoading) {
+        langLoading.style.display = 'flex';
+        langLoading.style.pointerEvents = 'auto';
+      }
+      if(langErrorBox) {
+        langErrorBox.style.display = 'none';
+        langErrorBox.style.pointerEvents = 'none';
+      }
+      
+      // Se la ricerca non è ancora partita, avviala
+      if(!photosSearchPromise) {
+        startPhotosSearchInBackground();
+      }
+      
+      // Aspetta che la ricerca finisca
+      try {
+        await photosSearchPromise;
+        photosSearchPromise = null;
+        
+        // Controlla di nuovo lo stato dopo l'attesa
+        if(photosReady && allPhotos.length > 0) {
+          // Foto pronte, vai all'album
+          if(langLoading) {
+            langLoading.style.display = 'none';
+            langLoading.style.pointerEvents = 'none';
+          }
+          if(langErrorBox) {
+            langErrorBox.style.display = 'none';
+            langErrorBox.style.pointerEvents = 'none';
+          }
+          
+          showScreen('album');
+          await displayPhotos();
+          updateCart();
+          if(allPhotos.length > 0) {
+            showStickyOfferBar();
+          }
+        } else {
+          // Foto fallite o non trovate
+          if(langLoading) {
+            langLoading.style.display = 'none';
+            langLoading.style.pointerEvents = 'none';
+          }
+          if(langErrorBox) {
+            langErrorBox.style.display = 'block';
+            langErrorBox.style.pointerEvents = 'auto';
+          }
+        }
+      } catch(err) {
+        console.error('[CONFIRM_FLOW] Error waiting for photos:', err);
+        if(langLoading) {
+          langLoading.style.display = 'none';
+          langLoading.style.pointerEvents = 'none';
+        }
+        if(langErrorBox) {
+          langErrorBox.style.display = 'block';
+          langErrorBox.style.pointerEvents = 'auto';
+        }
+      }
+    }
+    
+    async function confirmSelfie() {
+      try {
+        console.log('[CONFIRM_FLOW] Confirm button clicked');
+        
+        // NON mostrare loading qui
+        const confirmLoading = document.getElementById('confirmLoadingIndicator');
+        if (confirmLoading) {
+          confirmLoading.style.display = 'none';
+          confirmLoading.style.pointerEvents = 'none';
+        }
+
+        // Stop camera per evitare blocchi su iOS
+        try {
+          if (window._cameraStream) {
+            window._cameraStream.getTracks().forEach(t => t.stop());
+            window._cameraStream = null;
+          }
+          if (typeof cameraStream !== 'undefined' && cameraStream) {
+            cameraStream.getTracks().forEach(t => t.stop());
+            cameraStream = null;
+          }
+        } catch(e) {
+          console.warn('[CAMERA] stop failed', e);
+        }
+
+        // Marca selfie come completato
+        selfieCompleted = true;
+
+        // Avvia ricerca foto in background (senza await)
+        startPhotosSearchInBackground();
+
+        // Vai subito alla schermata lingua
+        showScreen('language');
+        
+        // Nascondi tutti gli overlay inizialmente
+        const langLoading = document.getElementById('langLoading');
+        const langErrorBox = document.getElementById('langErrorBox');
+        const langFeedback = document.getElementById('langFeedback');
+        if(langLoading) {
+          langLoading.style.display = 'none';
+          langLoading.style.pointerEvents = 'none';
+        }
+        if(langErrorBox) {
+          langErrorBox.style.display = 'none';
+          langErrorBox.style.pointerEvents = 'none';
+        }
+        if(langFeedback) {
+          langFeedback.style.display = 'none';
+        }
+
+        // Se la lingua era già stata scelta in questa sessione, non richiederla
+        if (selectedLanguage) {
+          setLanguage(selectedLanguage);
+          proceedAfterLanguageSelection();
+        }
+      } catch (e) {
+        console.error('[CONFIRM] error', e);
       }
     }
 
@@ -4406,27 +4673,11 @@
       }
 
       // NON tornare a selfie screen - restiamo sulla language screen
-      // Gestiamo il loading nella language screen invece
-      const langLoading = document.getElementById('langLoading');
-      const langErrorBox = document.getElementById('langErrorBox');
-      
-      // Assicurati di essere sulla language screen
-      if(currentScreen !== 'language') {
-        showScreen('language');
-      }
-      
-      // Mostra langLoading e nascondi langErrorBox
-      if(langLoading) langLoading.style.display = 'flex';
-      if(langErrorBox) langErrorBox.style.display = 'none';
+      // NON mostrare loading qui - sarà gestito da proceedAfterLanguageSelection()
+      // Solo aggiorniamo gli stati quando la ricerca finisce
       
       try {
-        console.log("STEP selfie->match_selfie");
-        console.log("Inizio matchPhotos: invio selfie al server...");
-        
-        // Aggiorna progress
-        if(uploadProgressBar) uploadProgressBar.style.width = '30%';
-        if(uploadPercentage) uploadPercentage.textContent = '30%';
-        if(uploadStatusText) uploadStatusText.textContent = 'Sending selfie to server...';
+        console.log("[CONFIRM_FLOW] Inizio matchPhotos: invio selfie al server...");
         
       const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
@@ -4437,10 +4688,11 @@
         // Promise per gestire la risposta
         const uploadPromise = new Promise((resolve, reject) => {
           xhr.upload.addEventListener('progress', (e) => {
+            // Progress gestito nella language screen, non qui
             if(e.lengthComputable) {
-              const percent = Math.round((e.loaded / e.total) * 50) + 30; // 30-80%
-              if(uploadProgressBar) uploadProgressBar.style.width = percent + '%';
-              if(uploadPercentage) uploadPercentage.textContent = percent + '%';
+              // Log opzionale per debug
+              const percent = Math.round((e.loaded / e.total) * 100);
+              console.log(`[CONFIRM_FLOW] Upload progress: ${percent}%`);
             }
           });
           
@@ -4491,11 +4743,6 @@
           xhr.send(fd);
         });
         
-        // Aggiorna progress
-        if(uploadProgressBar) uploadProgressBar.style.width = '80%';
-        if(uploadPercentage) uploadPercentage.textContent = '80%';
-        if(uploadStatusText) uploadStatusText.textContent = 'Analyzing photos...';
-        
         await uploadPromise;
         
         const res = xhr;
@@ -4514,18 +4761,16 @@
           console.error("[CONFIRM_FLOW] ❌ Errore HTTP:", res.status, res.statusText);
           console.error("[CONFIRM_FLOW] Response text completo:", res.responseText);
           
-          // Imposta stato errore
+          // Imposta stato errore (il loading sarà gestito da proceedAfterLanguageSelection)
           photosReady = false;
           photosFailed = true;
-          
-          // Nascondi langLoading e mostra langErrorBox
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) langErrorBox.style.display = 'block';
+          photosSearchPromise = null;
           return;
         }
         
-        // Nascondi langLoading (gestito nella language screen)
-        if(langLoading) langLoading.style.display = 'none';
+        // Foto trovate - aggiorna stato (il loading sarà gestito da proceedAfterLanguageSelection)
+        photosReady = true;
+        photosFailed = false;
         
         // Verifica che la risposta non sia vuota
         if(!res.responseText || res.responseText.trim() === '') {
@@ -4579,17 +4824,12 @@
           console.warn("[CONFIRM_FLOW] ⚠️ Nessuna foto trovata - allIds è vuoto");
           photosReady = false;
           photosFailed = true;
-          
-          // Nascondi langLoading e mostra langErrorBox
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) langErrorBox.style.display = 'block';
+          photosSearchPromise = null;
           return;
         }
         
         // Se ci sono foto, imposta stato pronto
         console.log(`[CONFIRM_FLOW] ✅ Trovate ${allIds.length} foto`);
-        photosReady = true;
-        photosFailed = false;
         
         // Converti allIds in formato allPhotos
         const photos = data.results || data.matches || [];
@@ -4634,24 +4874,10 @@
           photosLoadedCount = 0;
           paidPhotos = [];
           
-          // Nascondi langLoading (foto pronte, resta su language screen per scelta lingua)
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) langErrorBox.style.display = 'none';
-          
-          // Se lingua già selezionata, vai all'album
-          if(selectedLanguage) {
-            showScreen('album');
-            await displayPhotos();
-            
-            // Aggiorna carrello
-            updateCart();
-            
-            // Mostra sticky offer bar se ci sono foto non pagate
-            if(allPhotos.length > 0) {
-              showStickyOfferBar();
-            }
-          }
-          // Altrimenti resta sulla language screen (l'utente sceglierà la lingua)
+          // Imposta stato pronto (il loading sarà gestito da proceedAfterLanguageSelection)
+          photosReady = true;
+          photosFailed = false;
+          photosSearchPromise = null; // Reset promise quando finisce con successo
         } else {
           // Questo blocco viene raggiunto solo se data.ok è false MA allIds.length > 0
           // In questo caso, mostra comunque l'album usando allIds
@@ -4670,23 +4896,29 @@
             }));
             photosLoadedCount = 0;
             paidPhotos = [];
-            showScreen('album');
-          await displayPhotos();
-            updateCart();
-            if(allPhotos.length > 0) {
-              showStickyOfferBar();
+            
+            // Imposta stato pronto anche in questo caso
+            photosReady = true;
+            photosFailed = false;
+            photosSearchPromise = null;
+            
+            // Se lingua già selezionata, vai all'album, altrimenti resta su language screen
+            if(selectedLanguage) {
+              showScreen('album');
+              await displayPhotos();
+              updateCart();
+              if(allPhotos.length > 0) {
+                showStickyOfferBar();
+              }
             }
             return;
           }
           
-          // Solo se davvero non ci sono foto, mostra errore nella language screen
+          // Solo se davvero non ci sono foto, imposta stato errore
           console.warn("[CONFIRM_FLOW] ⚠️ Nessuna foto trovata - allIds è vuoto e data.ok è false");
           photosReady = false;
           photosFailed = true;
-          
-          // Nascondi langLoading e mostra langErrorBox
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) langErrorBox.style.display = 'block';
+          photosSearchPromise = null;
           
           // Controlla se ci sono foto già acquistate da mostrare (stateless: disabilitato)
           if(false && userEmail) {
@@ -4748,15 +4980,10 @@
         console.error("[CONFIRM_FLOW] Tipo errore:", err.name, "Messaggio:", err.message);
         console.error("[CONFIRM_FLOW] Error type:", err.type, "Status:", err.status);
         
-        // Imposta stato errore
+        // Imposta stato errore (il loading sarà gestito da proceedAfterLanguageSelection)
         photosReady = false;
         photosFailed = true;
-        
-        // Nascondi langLoading e mostra langErrorBox nella language screen
-        const langLoading = document.getElementById('langLoading');
-        const langErrorBox = document.getElementById('langErrorBox');
-        if(langLoading) langLoading.style.display = 'none';
-        if(langErrorBox) langErrorBox.style.display = 'block';
+        photosSearchPromise = null;
       }
     }
 
