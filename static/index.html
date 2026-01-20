@@ -3066,6 +3066,7 @@
       // Aggiorna padding quando si cambia schermata
       if(screenName === 'album') {
         setTimeout(() => {
+          updateStickyAllOffer(); // Aggiorna sticky bar quando si mostra l'album
           updateNudgeBar();
           updateBottomPadding();
         }, 100);
@@ -3121,6 +3122,24 @@
     let userEmail = null;
     let familyMembers = []; // Lista membri famiglia (stateless: sempre vuoto)
     let activeFamilyMode = false; // Modalità aggiunta membro famiglia (disabilitata)
+    let isAddingFamilyMember = false; // Flag per aggiunta membro senza email
+    let albumPhotosAll = []; // Array completo di tutte le foto (merge di tutti i selfie)
+    
+    // Funzione per merge unico di foto (evita duplicati)
+    function mergeUnique(existingPhotos, newPhotos) {
+      const existingIds = new Set(existingPhotos.map(p => p.photo_id || p.photoId || p.r2_key));
+      const merged = [...existingPhotos];
+      
+      newPhotos.forEach(newPhoto => {
+        const newId = newPhoto.photo_id || newPhoto.photoId || newPhoto.r2_key;
+        if(newId && !existingIds.has(newId)) {
+          merged.push(newPhoto);
+          existingIds.add(newId);
+        }
+      });
+      
+      return merged;
+    }
     
     // ========== INIZIALIZZAZIONE SEMPLIFICATA ==========
     // Separazione netta tra flusso base e flusso post-pagamento
@@ -3821,6 +3840,7 @@
     window.stickyClickLock = false;
     
     // Funzione robusta per gestire click sticky bar (cross-device)
+    // Semplificata: apre solo il carrello
     function onStickyOfferClick() {
       console.log('[STICKY] onStickyOfferClick called');
       // Previeni doppio trigger
@@ -3833,116 +3853,21 @@
         window.stickyClickLock = false;
       }, 300);
       
-      try {
-        // Verifica che siamo nella schermata album
-        const albumScreen = document.getElementById('albumScreen');
-        if(!albumScreen || !albumScreen.classList.contains('active')) {
-          console.warn('[STICKY] Album screen not active');
-          window.stickyClickLock = false;
-          return;
+      // Apri solo il carrello
+      const cartModal = document.getElementById('cartModal');
+      if(cartModal) {
+        cartModal.classList.add('active');
+        if(typeof updateCartModal === 'function') {
+          updateCartModal();
         }
-        
-        console.log('[STICKY] Album screen active, proceeding...');
-        
-        // Evita che il modal celebrativo si attivi durante la selezione massiva
-        const hadDealFlag = (typeof dealUnlockedShown !== 'undefined');
-        const prevDealFlag = hadDealFlag ? dealUnlockedShown : null;
-        if(hadDealFlag) dealUnlockedShown = true;
-        
-        // Seleziona tutte le foto non ancora selezionate
-        // Usa allPhotos se disponibile, altrimenti i bottoni nella griglia
-        let photosToAdd = [];
-        
-        if(allPhotos && allPhotos.length > 0) {
-          console.log('[STICKY] Using allPhotos array, count:', allPhotos.length);
-          // Usa allPhotos come fonte affidabile
-          allPhotos.forEach(photo => {
-            // Escludi foto pagate
-            if(paidPhotos && paidPhotos.includes(photo.photo_id)) {
-              return;
-            }
-            // Aggiungi solo se non è già nel carrello
-            if(!currentCart.photo_ids || !currentCart.photo_ids.includes(photo.photo_id)) {
-              photosToAdd.push(photo.photo_id);
-            }
-          });
-        } else {
-          console.log('[STICKY] Using fallback: querySelectorAll for buttons');
-          // Fallback: usa i bottoni nella griglia
-          const grid = document.getElementById('albumGrid');
-          if(grid) {
-            const btns = grid.querySelectorAll('.add-to-cart-btn');
-            btns.forEach(btn => {
-              if(btn && !btn.classList.contains('is-added')) {
-                const photoId = btn.dataset.photoId || btn.dataset.photo_id || btn.getAttribute('data-photo-id');
-                if(photoId && (!currentCart.photo_ids || !currentCart.photo_ids.includes(photoId))) {
-                  photosToAdd.push(photoId);
-                }
-              }
-            });
-          }
-        }
-        
-        console.log('[STICKY] Photos to add:', photosToAdd.length);
-        
-        // Aggiungi tutte le foto al carrello
-        if(photosToAdd.length > 0) {
-          photosToAdd.forEach(photoId => {
-            if(typeof addToCart === 'function') {
-              addToCart(photoId);
-            } else {
-              // Fallback: simula click sul bottone
-              const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
-              if(!btn) {
-                // Prova anche cercando tutti i bottoni e confrontando l'ID
-                const allBtns = document.querySelectorAll('.add-to-cart-btn');
-                allBtns.forEach(b => {
-                  const btnPhotoId = b.dataset.photoId || b.dataset.photo_id || b.getAttribute('data-photo-id');
-                  if(btnPhotoId === photoId && !b.classList.contains('is-added')) {
-                    b.click();
-                  }
-                });
-              } else if(!btn.classList.contains('is-added')) {
-                btn.click();
-              }
-            }
-          });
-        }
-        
-        // Ripristina il flag del celebrativo
-        if(hadDealFlag) dealUnlockedShown = prevDealFlag;
-        
-        // Apri il carrello
-        console.log('[STICKY] Opening cart modal...');
-        const cartModal = document.getElementById('cartModal');
-        if(cartModal) {
-          cartModal.classList.add('active');
-          if(typeof updateCartModal === 'function') {
-            updateCartModal();
-          }
-          updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
-          console.log('[STICKY] Cart modal opened');
-        } else {
-          // Fallback: usa il bottone carrello
-          const cartBtn = document.getElementById('albumCartBtn');
-          if(cartBtn) {
-            cartBtn.click();
-            console.log('[STICKY] Cart opened via button click');
-          }
-        }
-      } catch(e) {
-        console.error('[STICKY] onStickyOfferClick error', e);
-        // Fallback: almeno apri il carrello
-        const cartModal = document.getElementById('cartModal');
-        if(cartModal) {
-          cartModal.classList.add('active');
-          if(typeof updateCartModal === 'function') {
-            updateCartModal();
-          }
-          updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
-        } else {
-          const cartBtn = document.getElementById('albumCartBtn');
-          if(cartBtn) cartBtn.click();
+        updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
+        console.log('[STICKY] Cart modal opened');
+      } else {
+        // Fallback: usa il bottone carrello
+        const cartBtn = document.getElementById('albumCartBtn');
+        if(cartBtn) {
+          cartBtn.click();
+          console.log('[STICKY] Cart opened via button click');
         }
       }
     }
@@ -4073,23 +3998,19 @@
     const addFamilyBtn = document.getElementById('addFamilyBtn');
     if(addFamilyBtn) {
       addFamilyBtn.addEventListener('click', async () => {
-        if(!userEmail) {
-          alert('Email not found');
-          return;
-        }
-        
         // Verifica limite membri
         if(familyMembers.length >= 8) {
           alert('You have already added the maximum number of members (8).');
           return;
         }
         
-        // Attiva modalità family
+        // Attiva modalità aggiunta membro (senza email)
+        isAddingFamilyMember = true;
         activeFamilyMode = true;
         
         // Aggiorna header
         const headerText = document.getElementById('selfieHeaderText');
-        if(headerText) headerText.textContent = 'Family member selfie';
+        if(headerText) headerText.textContent = t('family_member_selfie');
         
         // Mostra schermata selfie
         showScreen('selfie');
@@ -4100,9 +4021,10 @@
         } catch(e) {
           console.error('Error starting camera for family member:', e);
           alert('Error accessing camera');
+          isAddingFamilyMember = false;
           activeFamilyMode = false;
           const headerText2 = document.getElementById('selfieHeaderText');
-          if(headerText2) headerText2.textContent = 'Take your selfie';
+          if(headerText2) headerText2.textContent = t('take_your_selfie');
         }
       });
     }
@@ -4515,10 +4437,11 @@
         const chip = document.createElement('div');
         chip.className = 'member-chip';
         
-        // Se il membro ha un avatar_url, usalo, altrimenti usa un placeholder
-        if(member.avatar_url) {
+        // Se il membro ha un avatar o avatar_url, usalo, altrimenti usa un placeholder
+        const avatarUrl = member.avatar || member.avatar_url;
+        if(avatarUrl) {
           const img = document.createElement('img');
-          img.src = member.avatar_url;
+          img.src = avatarUrl;
           img.alt = member.name || `Member ${index + 1}`;
           chip.appendChild(img);
         } else {
@@ -4958,104 +4881,92 @@
         return;
       }
           
-          // Se siamo in modalità family member, chiama /family/add_member
-          if(activeFamilyMode) {
-            if(!userEmail) {
-              alert('Email not found');
-              activeFamilyMode = false;
-              return;
-            }
-            
+          // Se siamo in modalità aggiunta membro famiglia (senza email)
+          if(isAddingFamilyMember) {
             // Verifica limite membri
             if(familyMembers.length >= 8) {
               alert('You have already added the maximum number of members (8).');
+              isAddingFamilyMember = false;
               activeFamilyMode = false;
               showScreen('album');
               return;
             }
             
-            // Mostra loading
-            const uploadStatus = document.getElementById('uploadStatus');
-            if(uploadStatus) {
-              uploadStatus.style.display = 'block';
-              uploadStatus.querySelector('.upload-status-text').textContent = 'Adding family member...';
+            // Salva blob per match_selfie
+            capturedBlob = blob;
+            
+            // Salva preview per avatar
+            const url = URL.createObjectURL(blob);
+            const confirmPreview = document.getElementById('confirmPreview');
+            if(confirmPreview) {
+              confirmPreview.src = url;
             }
             
+            // Mostra schermata language (o vai direttamente a match se non serve lingua)
+            // Per semplicità, chiama direttamente matchPhotos
             try {
-              const formData = new FormData();
-              formData.append('selfie', blob, 'member_selfie.jpg');
+              // Reset stati
+              photosReady = false;
+              photosFailed = false;
+              photosSearchPromise = null;
               
-              const res = await fetch(`/family/add_member?email=${encodeURIComponent(userEmail)}`, {
-                method: 'POST',
-                body: formData
+              // Avvia match in background
+              photosSearchPromise = matchPhotos().catch(err => {
+                console.error('[FAMILY_MEMBER] Error in matchPhotos:', err);
+                photosReady = false;
+                photosFailed = true;
+                photosSearchPromise = null;
+                isAddingFamilyMember = false;
+                activeFamilyMode = false;
+                alert('Error matching photos. Please try again.');
               });
               
-              const data = await res.json();
+              // Aspetta che matchPhotos finisca
+              await photosSearchPromise;
               
-              if(data.ok) {
-                // Successo: ricarica membri e album
-                familyMembersLoaded = false; // Reset per forzare ricaricamento
-                await loadFamilyMembersOnce();
-                
-                // Refresh album
-                const photosRes = await fetch(`/user/photos?email=${encodeURIComponent(userEmail)}`);
-                const photosData = await photosRes.json();
-                if(photosData.ok) {
-                  const hasFound = photosData.found_photos && photosData.found_photos.length > 0;
-                  const hasPaid = photosData.paid_photos && photosData.paid_photos.length > 0;
-                  let photosToShow = [];
-                  if(hasFound) {
-                    photosToShow = photosData.found_photos.map(p => ({
-                      photo_id: p.photo_id,
-                      score: 0,
-                      has_face: true,
-                      paid: p.status === 'paid'
-                    }));
-                  }
-                  if(hasPaid && photosData.paid_photos) {
-                    const foundIds = new Set(photosToShow.map(p => p.photo_id));
-                    photosData.paid_photos.forEach(id => {
-                      if(!foundIds.has(id)) {
-                        photosToShow.push({photo_id: id, score: 0, has_face: true, paid: true});
-                      }
-                    });
-                  }
-                  allPhotos = photosToShow;
-                  photosLoaded = false;
-                  await displayPhotos();
+              if(photosReady && allPhotos.length > 0) {
+                // Salva avatar del membro aggiunto
+                if(confirmPreview && confirmPreview.src) {
+                  const memberAvatar = {
+                    id: 'member_' + Date.now(),
+                    avatar: confirmPreview.src,
+                    timestamp: Date.now()
+                  };
+                  familyMembers.push(memberAvatar);
+                  // Aggiorna barra membri
+                  renderMemberChips();
                 }
                 
-                // Reset modalità e torna all'album
+                // Reset flag
+                isAddingFamilyMember = false;
                 activeFamilyMode = false;
-                const headerText = document.getElementById('selfieHeaderText');
-                if(headerText) headerText.textContent = 'Take your selfie';
                 
+                // Aggiorna header
+                const headerText = document.getElementById('selfieHeaderText');
+                if(headerText) headerText.textContent = t('take_your_selfie');
+                
+                // Mostra album con foto merge
                 showScreen('album');
-                
-                // Nascondi loading
-                if(uploadStatus) uploadStatus.style.display = 'none';
-              } else {
-                // Errore: mostra messaggio
-                const errorMsg = data.detail || 'Error adding member';
-                if(errorMsg.includes('Maximum') && errorMsg.includes('members')) {
-                  alert('You have already added the maximum number of members (8).');
-                } else if(errorMsg.includes('No face detected')) {
-                  alert('No face detected in selfie. Please try again.');
-                } else {
-                  alert(errorMsg);
+                await displayPhotos();
+                updateCart();
+                if(allPhotos.length > 0) {
+                  showStickyOfferBar();
                 }
+              } else {
+                // Errore: nessuna foto trovata
+                alert('No photos found. Please try again.');
+                isAddingFamilyMember = false;
                 activeFamilyMode = false;
                 const headerText = document.getElementById('selfieHeaderText');
-                if(headerText) headerText.textContent = 'Take your selfie';
-                if(uploadStatus) uploadStatus.style.display = 'none';
+                if(headerText) headerText.textContent = t('take_your_selfie');
               }
             } catch(e) {
-              console.error('Error adding family member:', e);
-              alert('Error adding member');
+              console.error('Error in family member flow:', e);
+              alert('Error processing selfie. Please try again.');
+              isAddingFamilyMember = false;
               activeFamilyMode = false;
               const headerText = document.getElementById('selfieHeaderText');
-              if(headerText) headerText.textContent = 'Take your selfie';
-              if(uploadStatus) uploadStatus.style.display = 'none';
+              if(headerText) headerText.textContent = t('take_your_selfie');
             }
             return;
           }
@@ -5192,6 +5103,28 @@
           if(langErrorBox) {
             langErrorBox.style.display = 'none';
             langErrorBox.style.pointerEvents = 'none';
+          }
+          
+          // Se stiamo aggiungendo un membro famiglia, gestisci avatar e reset flag
+          if(isAddingFamilyMember) {
+            // Salva avatar del membro aggiunto
+            const confirmPreview = document.getElementById('confirmPreview');
+            if(confirmPreview && confirmPreview.src) {
+              const memberAvatar = {
+                id: 'member_' + Date.now(),
+                avatar: confirmPreview.src,
+                timestamp: Date.now()
+              };
+              familyMembers.push(memberAvatar);
+              // Aggiorna barra membri
+              renderMemberChips();
+            }
+            // Reset flag
+            isAddingFamilyMember = false;
+            activeFamilyMode = false;
+            // Aggiorna header
+            const headerText = document.getElementById('selfieHeaderText');
+            if(headerText) headerText.textContent = t('take_your_selfie');
           }
           
           showScreen('album');
@@ -5539,8 +5472,9 @@
           console.log(`[CONFIRM_FLOW] Trovate ${photos.length} foto`);
           
           // Converti allIds in formato allPhotos
+          let newPhotos = [];
           if (photos.length > 0) {
-            allPhotos = photos.map(p => ({
+            newPhotos = photos.map(p => ({
               photo_id: p.photo_id || p.photoId || p.get?.('photo_id'),
               score: p.score || p.get?.('score', 0) || 0,
               has_face: true,
@@ -5551,12 +5485,23 @@
             }));
           } else {
             // Se non abbiamo oggetti completi, crea oggetti semplici da allIds
-            allPhotos = allIds.map(photoId => ({
+            newPhotos = allIds.map(photoId => ({
               photo_id: photoId,
               score: 0,
               has_face: true,
               paid: false
             }));
+          }
+          
+          // Se stiamo aggiungendo un membro famiglia, fai merge invece di replace
+          if(isAddingFamilyMember) {
+            albumPhotosAll = mergeUnique(albumPhotosAll, newPhotos);
+            allPhotos = albumPhotosAll;
+            console.log(`[CONFIRM_FLOW] Merge completato: ${albumPhotosAll.length} foto totali (${newPhotos.length} nuove)`);
+          } else {
+            // Primo selfie: inizializza albumPhotosAll
+            albumPhotosAll = newPhotos;
+            allPhotos = newPhotos;
           }
           
           // Assicurati che tutti gli allIds siano presenti in allPhotos
@@ -6159,31 +6104,10 @@
       }, 2000);
       
       // Aggiorna sticky bar e nudge bar
+      bindStickyOfferClick();
       updateStickyAllOffer();
       updateNudgeBar();
       updateBottomPadding(); // Aggiorna padding dopo displayPhotos
-      
-      // Renderizza chip membri su mobile
-      renderMemberChips();
-      
-      // Mostra sticky bar se ci sono foto
-      if(allPhotos.length > 0) {
-        const stickyBar = document.getElementById('stickyOfferBar');
-        if(stickyBar) {
-          stickyBar.classList.add('active');
-          stickyBar.style.display = 'flex';
-        }
-      } else {
-        // Nascondi sticky bar se non ci sono foto
-        const stickyBar = document.getElementById('stickyOfferBar');
-        if(stickyBar) {
-          stickyBar.classList.remove('active');
-          stickyBar.style.display = 'none';
-        }
-      }
-      
-      // Aggiorna padding dopo che i banner sono stati renderizzati
-      setTimeout(() => updateBottomPadding(), 100);
       
       // Renderizza chip membri su mobile
       renderMemberChips();
@@ -6895,6 +6819,8 @@
       const bar = document.getElementById('stickyOfferBar');
       if (!bar) return;
       bar.style.display = '';
+      // Richiama updateStickyAllOffer per aggiornare i testi e attivare se necessario
+      updateStickyAllOffer();
     }
     
     function showNudgeBarIfAllowed() {
@@ -6904,38 +6830,51 @@
     }
     
     function updateStickyAllOffer() {
-      // Blocco di sicurezza: nascondi se siamo nel tab listino prezzi
-      const pricesTabIsActive = document.getElementById('pricesTab')?.classList.contains('active');
-      if(pricesTabIsActive) {
-        hideStickyOfferBar();
+      const bar = document.getElementById('stickyOfferBar');
+      const foundEl = document.getElementById('stickyOfferFoundText');
+      const ctaEl = document.getElementById('stickyOfferCtaText');
+      if(!bar || !foundEl || !ctaEl) return;
+
+      // SOLO album grid, MAI listino
+      const albumScreen = document.getElementById('albumScreen');
+      const pricesList = document.getElementById('pricesList');
+      const onAlbum = albumScreen && albumScreen.classList.contains('active');
+      const onPrices = pricesList && pricesList.classList.contains('active');
+
+      if(!onAlbum || onPrices || !allPhotos || allPhotos.length <= 0){
+        bar.classList.remove('active');
+        bar.style.display = 'none';
         return;
       }
-      
-      if(!allPhotos || allPhotos.length <= 0) {
-        const stickyBar = document.getElementById('stickyOfferBar');
-        if(stickyBar) {
-          stickyBar.classList.remove('active');
-          stickyBar.style.display = 'none';
-        }
-        return;
-      }
-      
+
       const totalPhotos = allPhotos.length;
-      const priceEuros = computePrice(totalPhotos).toFixed(2);
-      
-      // Aggiorna testo "X foto trovate"
-      const stickyFoundEl = document.getElementById('stickyOfferFoundText');
-      if(stickyFoundEl) {
-        stickyFoundEl.textContent = tr('sticky_found_photos', { count: String(totalPhotos) });
-      }
-      
-      // Aggiorna testo "Acquistale tutte a €X"
-      const stickyCtaEl = document.getElementById('stickyOfferCtaText');
-      if(stickyCtaEl) {
-        // Rimuovi "€" e spazi dal prezzo per passarlo come numero
-        const priceStr = priceEuros.replace(/€/g, '').trim();
-        stickyCtaEl.textContent = tr('sticky_buy_all_for', { price: priceStr });
-      }
+      const priceEuros = computePrice(totalPhotos);
+      const priceStr = Number(priceEuros || 0).toFixed(0);
+
+      // Testi tradotti
+      foundEl.textContent = tr('sticky_found_photos', { count: totalPhotos });
+      ctaEl.textContent = tr('sticky_buy_all_for', { price: priceStr });
+
+      // Attiva il banner: aggiungi classe active e imposta display
+      bar.classList.add('active');
+      bar.style.display = 'flex'; // Mostra esplicitamente il banner
+    }
+    
+    function bindStickyOfferClick(){
+      const bar = document.getElementById('stickyOfferBar');
+      if(!bar) return;
+      if(bar.__bound) return;
+      bar.__bound = true;
+
+      bar.addEventListener('click', () => {
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          if(typeof updateCartModal === 'function') {
+            updateCartModal();
+          }
+        }
+      });
     }
     
     // Formatta numero con virgola italiana, max 2 decimali, rimuove zeri inutili
