@@ -859,6 +859,11 @@
       
       /* Mobile: mantieni stili base per members bar, nessuna modifica necessaria */
       
+      /* Nascondi deal pill desktop su mobile */
+      #dealPillDesktop {
+        display: none;
+      }
+      
       .album-profile{
         display: none; /* Nascondi su mobile */
       }
@@ -922,6 +927,11 @@
       /* Desktop: deal pill nell'header */
       .album-header .deal-pill{
         display: flex;
+        max-width: 360px;
+      }
+      .album-header .deal-pill-top,
+      .album-header .deal-pill-bottom{
+        white-space: normal;
       }
     }
     
@@ -1845,6 +1855,13 @@
     <div class="album-header">
       <button class="album-back" id="albumBackBtn">←</button>
       <div class="album-header-title" id="albumHeaderTitle">Metaproos S.L</div>
+
+      <!-- Deal pill (desktop/tablet) -->
+      <div id="dealPillDesktop" class="deal-pill" aria-label="Deal" style="margin-left:10px;">
+        <div class="deal-pill-top" data-i18n="dealpill_top">Sblocca la maxi offerta</div>
+        <div class="deal-pill-bottom" data-i18n="dealpill_bottom">Scegli 6 foto, dalla 7ª paghi €1 ciascuna</div>
+      </div>
+
       <button class="album-cart" id="albumCartBtn">
         🛒 <span id="albumCartCount">0</span> - <span id="albumCartPrice">€0</span>
       </button>
@@ -1853,8 +1870,8 @@
     <!-- Mini Banner Deal (sotto header, mobile) -->
     <div id="albumTopMiniBar" class="album-top-mini-bar">
       <div id="dealPill" class="deal-pill">
-        <div class="deal-pill-top" data-i18n="dealpill_top">Sblocca il vero affare</div>
-        <div class="deal-pill-bottom" data-i18n="dealpill_bottom">Dalla 7ª: €1.00 a foto</div>
+        <div class="deal-pill-top" data-i18n="dealpill_top">Sblocca la maxi offerta</div>
+        <div class="deal-pill-bottom" data-i18n="dealpill_bottom">Scegli 6 foto, dalla 7ª paghi €1 ciascuna</div>
       </div>
     </div>
     
@@ -2498,11 +2515,13 @@
       // Cart modal
       updateCartModal();
       
-      // Deal pill
-      const dealPillTop = document.querySelector('.deal-pill-top');
-      const dealPillBottom = document.querySelector('.deal-pill-bottom');
-      if(dealPillTop) dealPillTop.textContent = t('dealpill_top');
-      if(dealPillBottom) dealPillBottom.textContent = t('dealpill_bottom');
+      // Deal pill (aggiorna sia mobile che desktop)
+      document.querySelectorAll('.deal-pill-top').forEach(el => {
+        el.textContent = t('dealpill_top');
+      });
+      document.querySelectorAll('.deal-pill-bottom').forEach(el => {
+        el.textContent = t('dealpill_bottom');
+      });
       
       // Deal modal (celebrativo)
       const dealTitle = document.querySelector('.deal-title');
