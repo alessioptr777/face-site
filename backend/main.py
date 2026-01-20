@@ -5569,7 +5569,7 @@ async def match_selfie(
             }
         
         # Aggiorna temporaneamente meta_rows
-        meta_rows = current_meta_rows
+            meta_rows = current_meta_rows
         
         # ========== SINGLE-PASS MATCHING ==========
         n_faces_index = faiss_index.ntotal

@@ -1045,6 +1045,35 @@
       border-color: var(--purple);
     }
     
+    /* Premium / Top deal */
+    .price-item.topdeal{
+      background: linear-gradient(135deg, rgba(10,10,14,0.95) 0%, rgba(24,18,40,0.92) 55%, rgba(10,10,14,0.95) 100%);
+      border: 1.5px solid rgba(255, 215, 120, 0.6);
+      box-shadow:
+        0 0 0 1px rgba(255, 215, 120, 0.18) inset,
+        0 10px 26px rgba(0,0,0,.35),
+        0 0 18px rgba(255, 215, 120, 0.22);
+    }
+    
+    .price-item.topdeal .price-item-count{
+      color: rgba(255,255,255,0.98);
+    }
+    
+    .price-item.topdeal .price-item-desc{
+      color: rgba(255, 215, 120, 0.92);
+      font-weight: 600;
+    }
+    
+    .price-item.topdeal .price-item-value{
+      color: rgba(255, 215, 120, 0.98);
+    }
+    
+    .price-item.topdeal .price-item-badge{
+      background: linear-gradient(135deg, rgba(255, 235, 170, 0.98), rgba(255, 215, 120, 0.98));
+      color: rgba(30, 18, 45, 1);
+      font-weight: 800;
+    }
+    
     .price-item-info{
       flex: 1;
     }
@@ -1879,58 +1908,34 @@
       
       <div class="price-item">
         <div class="price-item-info">
-          <div class="price-item-count">1 <span>photo</span></div>
-          <div class="price-item-desc">Single photo</div>
+          <div class="price-item-count" data-i18n="price_1_title">1 photo</div>
+          <div class="price-item-desc" data-i18n="price_1_desc">Single photo</div>
         </div>
-        <div class="price-item-value">€25</div>
+        <div class="price-item-value">€18</div>
       </div>
 
-      <div class="price-item">
+      <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">2 <span>photos</span></div>
-          <div class="price-item-desc">Double</div>
+          <div class="price-item-count"><span data-i18n="price_3_title">3 photos</span> <span class="price-item-badge" data-i18n="badge_discount">DISCOUNT</span></div>
+          <div class="price-item-desc" data-i18n="price_3_desc">Special offer</div>
         </div>
-        <div class="price-item-value">€40</div>
+        <div class="price-item-value">€39</div>
       </div>
       
       <div class="price-item highlight">
         <div class="price-item-info">
-          <div class="price-item-count">3 <span>photos</span> <span class="price-item-badge">Discount</span></div>
-          <div class="price-item-desc">Special offer</div>
-      </div>
-        <div class="price-item-value">€35</div>
-    </div>
-
-      <div class="price-item">
-        <div class="price-item-info">
-          <div class="price-item-count">4 <span>photos</span></div>
-          <div class="price-item-desc">Package</div>
+          <div class="price-item-count"><span data-i18n="price_6_title">6 photos</span> <span class="price-item-badge" data-i18n="badge_most_chosen">MOST CHOSEN</span></div>
+          <div class="price-item-desc" data-i18n="price_6_desc">Best choice</div>
         </div>
-        <div class="price-item-value">€40</div>
+        <div class="price-item-value">€47</div>
       </div>
       
-      <div class="price-item">
+      <div class="price-item highlight topdeal">
         <div class="price-item-info">
-          <div class="price-item-count">5 <span >photos</span></div>
-          <div class="price-item-desc" >Package</div>
+          <div class="price-item-count"><span data-i18n="price_maxi_title">Maxi offerta</span> <span class="price-item-badge">TOP</span></div>
+          <div class="price-item-desc" data-i18n="price_maxi_desc">Dalla 7ª foto €1 ciascuna</div>
         </div>
-        <div class="price-item-value">€45</div>
-      </div>
-      
-      <div class="price-item highlight">
-        <div class="price-item-info">
-          <div class="price-item-count">6-11 <span >photos</span> <span class="price-item-badge" >Best</span></div>
-          <div class="price-item-desc" >Complete package</div>
-        </div>
-        <div class="price-item-value">€50</div>
-      </div>
-      
-      <div class="price-item highlight">
-        <div class="price-item-info">
-          <div class="price-item-count">12+ <span >photos</span> <span class="price-item-badge" >Top</span></div>
-          <div class="price-item-desc" >All photos at the best price</div>
-        </div>
-        <div class="price-item-value">€60</div>
+        <div class="price-item-value">€1</div>
       </div>
     </div>
     
@@ -2011,7 +2016,7 @@
           <span id="cartTotal">€0.00</span>
         </div>
         <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled data-i18n="cart_checkout">💳 Checkout</button>
-        <button class="btn-retake" id="closeCartBtn" style="width: 100%;" data-i18n="cart_close">Chiudi</button>
+        <button class="btn-retake" id="closeCartBtn" style="width: 100%;" data-i18n="cart_continue_selection">Continua la selezione</button>
       </div>
     </div>
   </div>
@@ -2081,6 +2086,7 @@
         cart_total: "Total:",
         cart_checkout: "💳 Checkout",
         cart_close: "Close",
+        cart_continue_selection: "Continue selecting",
         cart_loading: "⏳ Loading...",
         cart_go_payment: "💳 Go to Payment",
         lightbox_download: "📥 Download",
@@ -2089,11 +2095,11 @@
         lightbox_ios_hint: "📱 Hold the image and tap 'Save to Photos'",
         lightbox_purchase_hint: "Purchase to download photos without watermark",
         deal_title: "Congratulations! You unlocked the maxi deal",
-        deal_subtitle: "Each extra photo costs €1.00",
+        deal_subtitle: "From the 7th photo you pay €1 each",
         deal_continue: "Continue selection",
         nudge_selected_all: "You selected everything",
         nudge_go_checkout: "Go to checkout",
-        nudge_deal_unlocked: "From now on the next photos cost only €1.00 each",
+        nudge_deal_unlocked: "From the 7th photo you pay €1 each",
         nudge_add_more: "Add more or go to checkout",
         nudge_add_one: "Add 1 photo: you pay only €{price}",
         nudge_add_many: "Add {count} photos: only €{price} each",
@@ -2120,6 +2126,17 @@
         discount: "Discount",
         best: "Best",
         top: "Top",
+        price_1_title: "1 photo",
+        price_1_desc: "Single photo",
+        price_3_title: "3 photos",
+        price_3_desc: "Special offer",
+        badge_discount: "DISCOUNT",
+        price_6_title: "6 photos",
+        price_6_desc: "Best choice",
+        badge_most_chosen: "MOST CHOSEN",
+        price_maxi_title: "Maxi deal",
+        price_maxi_desc: "From the 7th photo €1 each",
+        price_note_maxi: "Maxi deal: from the 7th photo €1 each",
         paid_countdown: "Your paid photos will expire in <strong>{days}</strong> days",
         error_download: "Error downloading photo. Please try again.",
         error_checkout: "Error during checkout. Please try again.",
@@ -2158,6 +2175,7 @@
         cart_total: "Total:",
         cart_checkout: "💳 Pagar",
         cart_close: "Cerrar",
+        cart_continue_selection: "Seguir seleccionando",
         cart_loading: "⏳ Cargando...",
         cart_go_payment: "💳 Ir al pago",
         lightbox_download: "📥 Descargar",
@@ -2166,11 +2184,11 @@
         lightbox_ios_hint: "📱 Mantén presionada la imagen y toca 'Guardar en Fotos'",
         lightbox_purchase_hint: "Compra para descargar fotos sin marca de agua",
         deal_title: "¡Felicidades! Has desbloqueado la maxi oferta",
-        deal_subtitle: "Cada foto extra cuesta €1.00",
+        deal_subtitle: "Desde la 7ª foto pagas €1 cada una",
         deal_continue: "Continuar selección",
         nudge_selected_all: "Seleccionaste todo",
         nudge_go_checkout: "Ir al pago",
-        nudge_deal_unlocked: "De ahora en adelante las próximas fotos cuestan solo €1.00 cada una",
+        nudge_deal_unlocked: "Desde la 7ª foto pagas €1 cada una",
         nudge_add_more: "Añade más o ve al pago",
         nudge_add_one: "Añade 1 foto: pagas solo €{price}",
         nudge_add_many: "Añade {count} fotos: solo €{price} cada una",
@@ -2197,6 +2215,17 @@
         discount: "Descuento",
         best: "Mejor",
         top: "Top",
+        price_1_title: "1 foto",
+        price_1_desc: "Foto individual",
+        price_3_title: "3 fotos",
+        price_3_desc: "Oferta especial",
+        badge_discount: "DISCOUNT",
+        price_6_title: "6 fotos",
+        price_6_desc: "Mejor opción",
+        badge_most_chosen: "MOST CHOSEN",
+        price_maxi_title: "Maxi oferta",
+        price_maxi_desc: "Desde la 7ª foto €1 cada una",
+        price_note_maxi: "Maxi oferta: desde la 7ª foto €1 cada una",
         paid_countdown: "Tus fotos pagadas expirarán en <strong>{days}</strong> días",
         error_download: "Error al descargar la foto. Por favor, inténtalo de nuevo.",
         error_checkout: "Error durante el pago. Por favor, inténtalo de nuevo.",
@@ -2235,6 +2264,7 @@
         cart_total: "Totale:",
         cart_checkout: "💳 Checkout",
         cart_close: "Chiudi",
+        cart_continue_selection: "Continua la selezione",
         cart_loading: "⏳ Caricamento...",
         cart_go_payment: "💳 Vai al Pagamento",
         lightbox_download: "📥 Download",
@@ -2243,11 +2273,11 @@
         lightbox_ios_hint: "📱 Tieni premuto sull'immagine e tocca 'Salva in Foto'",
         lightbox_purchase_hint: "Acquista per scaricare le foto senza watermark",
         deal_title: "Complimenti! Hai sbloccato la maxi offerta",
-        deal_subtitle: "Ogni foto extra costa €1.00",
+        deal_subtitle: "Dalla 7ª foto paghi €1 ciascuna",
         deal_continue: "Continua la selezione",
         nudge_selected_all: "Hai selezionato tutto",
         nudge_go_checkout: "Vai al checkout",
-        nudge_deal_unlocked: "Da ora in poi le prossime foto costano solo €1.00 ciascuna",
+        nudge_deal_unlocked: "Dalla 7ª foto paghi €1 ciascuna",
         nudge_add_more: "Aggiungine altre o vai al checkout",
         nudge_add_one: "Aggiungi 1 foto: la paghi solo €{price}",
         nudge_add_many: "Aggiungi {count} foto: solo €{price} ciascuna",
@@ -2274,6 +2304,17 @@
         discount: "Sconto",
         best: "Migliore",
         top: "Top",
+        price_1_title: "1 foto",
+        price_1_desc: "Foto singola",
+        price_3_title: "3 foto",
+        price_3_desc: "Offerta speciale",
+        badge_discount: "DISCOUNT",
+        price_6_title: "6 foto",
+        price_6_desc: "Scelta migliore",
+        badge_most_chosen: "MOST CHOSEN",
+        price_maxi_title: "Maxi offerta",
+        price_maxi_desc: "Dalla 7ª foto €1 ciascuna",
+        price_note_maxi: "Maxi offerta: dalla 7ª foto €1 ciascuna",
         paid_countdown: "Le tue foto pagate scadranno tra <strong>{days}</strong> giorni",
         error_download: "Errore nel download della foto. Riprova.",
         error_checkout: "Errore durante il checkout. Riprova.",
@@ -2312,6 +2353,7 @@
         cart_total: "Total:",
         cart_checkout: "💳 Paiement",
         cart_close: "Fermer",
+        cart_continue_selection: "Continuer la sélection",
         cart_loading: "⏳ Chargement...",
         cart_go_payment: "💳 Aller au paiement",
         lightbox_download: "📥 Télécharger",
@@ -2320,11 +2362,11 @@
         lightbox_ios_hint: "📱 Maintenez l'image et appuyez sur 'Enregistrer dans Photos'",
         lightbox_purchase_hint: "Achetez pour télécharger les photos sans filigrane",
         deal_title: "Félicitations! Tu as débloqué la maxi offre",
-        deal_subtitle: "Chaque photo extra coûte €1.00",
+        deal_subtitle: "Dès la 7e photo tu paies €1 chacune",
         deal_continue: "Continuer la sélection",
         nudge_selected_all: "Vous avez tout sélectionné",
         nudge_go_checkout: "Aller au paiement",
-        nudge_deal_unlocked: "À partir de maintenant, les prochaines photos coûtent seulement €1.00 chacune",
+        nudge_deal_unlocked: "Dès la 7e photo tu paies €1 chacune",
         nudge_add_more: "Ajoutez-en plus ou allez au paiement",
         nudge_add_one: "Ajoutez 1 photo: vous payez seulement €{price}",
         nudge_add_many: "Ajoutez {count} photos: seulement €{price} chacune",
@@ -2351,6 +2393,17 @@
         discount: "Réduction",
         best: "Meilleur",
         top: "Top",
+        price_1_title: "1 photo",
+        price_1_desc: "Photo unique",
+        price_3_title: "3 photos",
+        price_3_desc: "Offre spéciale",
+        badge_discount: "DISCOUNT",
+        price_6_title: "6 photos",
+        price_6_desc: "Meilleur choix",
+        badge_most_chosen: "MOST CHOSEN",
+        price_maxi_title: "Maxi offre",
+        price_maxi_desc: "Dès la 7e photo €1 chacune",
+        price_note_maxi: "Maxi offre: dès la 7e photo €1 chacune",
         paid_countdown: "Vos photos payées expireront dans <strong>{days}</strong> jours",
         error_download: "Erreur lors du téléchargement de la photo. Veuillez réessayer.",
         error_checkout: "Erreur lors du paiement. Veuillez réessayer.",
@@ -2389,6 +2442,7 @@
         cart_total: "Gesamt:",
         cart_checkout: "💳 Zur Kasse",
         cart_close: "Schließen",
+        cart_continue_selection: "Auswahl fortsetzen",
         cart_loading: "⏳ Wird geladen...",
         cart_go_payment: "💳 Zur Zahlung",
         lightbox_download: "📥 Herunterladen",
@@ -2397,11 +2451,11 @@
         lightbox_ios_hint: "📱 Bild gedrückt halten und 'In Fotos speichern' tippen",
         lightbox_purchase_hint: "Kaufen, um Fotos ohne Wasserzeichen herunterzuladen",
         deal_title: "Glückwunsch! Du hast das Maxi-Angebot freigeschaltet",
-        deal_subtitle: "Jedes extra Foto kostet €1.00",
+        deal_subtitle: "Ab dem 7. Foto zahlst du €1 pro Stück",
         deal_continue: "Auswahl fortsetzen",
         nudge_selected_all: "Du hast alles ausgewählt",
         nudge_go_checkout: "Zur Kasse",
-        nudge_deal_unlocked: "Ab jetzt kosten die nächsten Fotos nur noch €1.00 pro Stück",
+        nudge_deal_unlocked: "Ab dem 7. Foto zahlst du €1 pro Stück",
         nudge_add_more: "Füge mehr hinzu oder gehe zur Kasse",
         nudge_add_one: "Füge 1 Foto hinzu: du zahlst nur €{price}",
         nudge_add_many: "Füge {count} Fotos hinzu: nur €{price} pro Stück",
@@ -2428,6 +2482,17 @@
         discount: "Rabatt",
         best: "Beste",
         top: "Top",
+        price_1_title: "1 Foto",
+        price_1_desc: "Einzelfoto",
+        price_3_title: "3 Fotos",
+        price_3_desc: "Sonderangebot",
+        badge_discount: "DISCOUNT",
+        price_6_title: "6 Fotos",
+        price_6_desc: "Beste Wahl",
+        badge_most_chosen: "MOST CHOSEN",
+        price_maxi_title: "Maxi-Angebot",
+        price_maxi_desc: "Ab dem 7. Foto €1 pro Stück",
+        price_note_maxi: "Maxi-Angebot: ab dem 7. Foto €1 pro Stück",
         paid_countdown: "Deine bezahlten Fotos laufen in <strong>{days}</strong> Tagen ab",
         error_download: "Fehler beim Herunterladen des Fotos. Bitte versuche es erneut.",
         error_checkout: "Fehler beim Checkout. Bitte versuche es erneut.",
@@ -2438,6 +2503,95 @@
         close: "Schließen",
         next: "Weiter",
         prev: "Zurück"
+      },
+      nl: {
+        welcome_title: "Vind je foto's!",
+        welcome_take_selfie: "Maak een selfie",
+        language_title: "Kies je taal",
+        language_subtitle: "Kies een taal om door te gaan",
+        language_selected: "✅ {langName} geselecteerd",
+        finding_photos: "Je foto's zoeken…",
+        loading_photos: "Foto's laden...",
+        no_photos_found: "Nog geen foto's gevonden. Ze worden mogelijk nog verwerkt.",
+        retake_selfie: "Selfie opnieuw maken",
+        take_your_selfie: "Maak je selfie",
+        family_member_selfie: "Familielid selfie",
+        confirm_selfie: "Bevestig selfie",
+        take_again: "Opnieuw maken",
+        camera_not_available: "Camera niet beschikbaar",
+        retry: "Opnieuw proberen",
+        enable_camera: "Schakel cameratoegang in om je selfie te maken",
+        start_camera: "Start camera",
+        switch_camera: "Wissel camera",
+        album_my_content: "Mijn inhoud",
+        album_price_list: "Prijslijst ↗",
+        album_photo_count: "Je hebt {count} foto's gevonden",
+        cart_title: "🛒 Winkelwagen",
+        cart_empty: "Winkelwagen is leeg",
+        cart_total: "Totaal:",
+        cart_checkout: "💳 Afrekenen",
+        cart_close: "Sluiten",
+        cart_continue_selection: "Verder selecteren",
+        cart_loading: "⏳ Laden...",
+        cart_go_payment: "💳 Ga naar betaling",
+        lightbox_download: "📥 Downloaden",
+        lightbox_add_to_cart: "Toevoegen aan winkelwagen",
+        lightbox_remove_from_cart: "Verwijderen uit winkelwagen",
+        lightbox_ios_hint: "📱 Houd de afbeelding ingedrukt en tik op 'Opslaan in Foto's'",
+        lightbox_purchase_hint: "Koop om foto's zonder watermerk te downloaden",
+        deal_title: "Gefeliciteerd! Je hebt de maxi-deal ontgrendeld",
+        deal_subtitle: "Vanaf de 7e foto betaal je €1 per stuk",
+        deal_continue: "Verder selecteren",
+        nudge_selected_all: "Je hebt alles geselecteerd",
+        nudge_go_checkout: "Ga naar afrekenen",
+        nudge_deal_unlocked: "Vanaf de 7e foto betaal je €1 per stuk",
+        nudge_add_more: "Voeg meer toe of ga naar afrekenen",
+        nudge_add_one: "Voeg 1 foto toe: je betaalt slechts €{price}",
+        nudge_add_many: "Voeg {count} foto's toe: slechts €{price} per stuk",
+        nudge_unlock_package: "Ontgrendel het {count} foto's pakket",
+        sticky_take_all: "Neem ze allemaal",
+        sticky_unlock_all: "Alles ontgrendelen",
+        sticky_found_photos: "{count} foto's gevonden",
+        sticky_buy_all_for: "Koop alle voor €{price}",
+        dealpill_top: "Ontgrendel de maxi-deal",
+        dealpill_bottom: "Selecteer 6 foto's, vanaf de 7e betaal je €1 per foto",
+        add_family_member: "👥 Familielid toevoegen",
+        added_members: "Toegevoegde leden",
+        add_member: "👥 Lid toevoegen",
+        price_list_title: "Prijslijst",
+        price_list_subtitle: "Kies het aanbod dat je bevalt",
+        photo: "Foto",
+        photos: "Foto's",
+        single_photo: "Enkele foto",
+        double: "Dubbel",
+        special_offer: "Speciale aanbieding",
+        package: "Pakket",
+        complete_package: "Compleet pakket",
+        all_photos_best: "Alle foto's tegen de beste prijs",
+        discount: "Korting",
+        best: "Beste",
+        top: "Top",
+        price_1_title: "1 foto",
+        price_1_desc: "Enkele foto",
+        price_3_title: "3 foto's",
+        price_3_desc: "Speciale aanbieding",
+        badge_discount: "DISCOUNT",
+        price_6_title: "6 foto's",
+        price_6_desc: "Beste keuze",
+        badge_most_chosen: "MOST CHOSEN",
+        price_maxi_title: "Maxi-deal",
+        price_maxi_desc: "Vanaf de 7e foto €1 per stuk",
+        price_note_maxi: "Maxi-deal: vanaf de 7e foto €1 per stuk",
+        paid_countdown: "Je betaalde foto's verlopen over <strong>{days}</strong> dagen",
+        error_download: "Fout bij het downloaden van de foto. Probeer het opnieuw.",
+        error_checkout: "Fout bij het afrekenen. Probeer het opnieuw.",
+        checkout_loading: "Laden...",
+        no_face_detected: "Geen gezicht gedetecteerd in de selfie. Probeer het opnieuw.",
+        checking_photos: "Je foto's controleren...",
+        continue: "Doorgaan",
+        close: "Sluiten",
+        next: "Volgende",
+        prev: "Vorige"
       }
     };
     
@@ -3632,9 +3786,170 @@
     const albumBackBtn = document.getElementById("albumBackBtn");
     if(albumBackBtn) {
       albumBackBtn.addEventListener("click", () => {
+        // Controlla se siamo nel tab "Listino prezzi"
+        const pricesTab = document.getElementById("pricesTab");
+        const pricesList = document.getElementById("pricesList");
+        const myContentTab = document.getElementById("myContentTab");
+        const albumGrid = document.getElementById("albumGrid");
+        
+        const isInPricesList = (pricesTab && pricesTab.classList.contains('active')) || 
+                               (pricesList && pricesList.classList.contains('active'));
+        
+        if(isInPricesList) {
+          // Se siamo nel listino, torna alla griglia foto invece di uscire dall'album
+          if(pricesList) pricesList.classList.remove('active');
+          if(albumGrid) albumGrid.style.display = 'grid';
+          if(myContentTab) myContentTab.classList.add('active');
+          if(pricesTab) pricesTab.classList.remove('active');
+          // Mostra sticky e nudge quando si torna alla griglia foto
+          showStickyOfferBarIfAllowed();
+          showNudgeBarIfAllowed();
+          // Richiama le funzioni esistenti per aggiornare UI/checkout/nudge/sticky
+          updateStickyAllOffer();
+          updateNudgeBar();
+          updateBottomPadding();
+          return; // Non chiamare showScreen('welcome')
+        }
+        
+        // Comportamento normale: esci dall'album
         showScreen('welcome');
       });
     }
+    
+    // Sticky offer click: add ALL photos to cart, open cart, then go to checkout if possible
+    // Flag per evitare doppio trigger su mobile/iOS (esposto in window per accesso cross-scope)
+    window.stickyClickLock = false;
+    
+    // Funzione robusta per gestire click sticky bar (cross-device)
+    function onStickyOfferClick() {
+      console.log('[STICKY] onStickyOfferClick called');
+      // Previeni doppio trigger
+      if(window.stickyClickLock) {
+        console.log('[STICKY] Click locked, ignoring');
+        return;
+      }
+      window.stickyClickLock = true;
+      setTimeout(() => {
+        window.stickyClickLock = false;
+      }, 300);
+      
+      try {
+        // Verifica che siamo nella schermata album
+        const albumScreen = document.getElementById('albumScreen');
+        if(!albumScreen || !albumScreen.classList.contains('active')) {
+          console.warn('[STICKY] Album screen not active');
+          window.stickyClickLock = false;
+          return;
+        }
+        
+        console.log('[STICKY] Album screen active, proceeding...');
+        
+        // Evita che il modal celebrativo si attivi durante la selezione massiva
+        const hadDealFlag = (typeof dealUnlockedShown !== 'undefined');
+        const prevDealFlag = hadDealFlag ? dealUnlockedShown : null;
+        if(hadDealFlag) dealUnlockedShown = true;
+        
+        // Seleziona tutte le foto non ancora selezionate
+        // Usa allPhotos se disponibile, altrimenti i bottoni nella griglia
+        let photosToAdd = [];
+        
+        if(allPhotos && allPhotos.length > 0) {
+          console.log('[STICKY] Using allPhotos array, count:', allPhotos.length);
+          // Usa allPhotos come fonte affidabile
+          allPhotos.forEach(photo => {
+            // Escludi foto pagate
+            if(paidPhotos && paidPhotos.includes(photo.photo_id)) {
+              return;
+            }
+            // Aggiungi solo se non è già nel carrello
+            if(!currentCart.photo_ids || !currentCart.photo_ids.includes(photo.photo_id)) {
+              photosToAdd.push(photo.photo_id);
+            }
+          });
+        } else {
+          console.log('[STICKY] Using fallback: querySelectorAll for buttons');
+          // Fallback: usa i bottoni nella griglia
+          const grid = document.getElementById('albumGrid');
+          if(grid) {
+            const btns = grid.querySelectorAll('.add-to-cart-btn');
+            btns.forEach(btn => {
+              if(btn && !btn.classList.contains('is-added')) {
+                const photoId = btn.dataset.photoId || btn.dataset.photo_id || btn.getAttribute('data-photo-id');
+                if(photoId && (!currentCart.photo_ids || !currentCart.photo_ids.includes(photoId))) {
+                  photosToAdd.push(photoId);
+                }
+              }
+            });
+          }
+        }
+        
+        console.log('[STICKY] Photos to add:', photosToAdd.length);
+        
+        // Aggiungi tutte le foto al carrello
+        if(photosToAdd.length > 0) {
+          photosToAdd.forEach(photoId => {
+            if(typeof addToCart === 'function') {
+              addToCart(photoId);
+            } else {
+              // Fallback: simula click sul bottone
+              const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
+              if(!btn) {
+                // Prova anche cercando tutti i bottoni e confrontando l'ID
+                const allBtns = document.querySelectorAll('.add-to-cart-btn');
+                allBtns.forEach(b => {
+                  const btnPhotoId = b.dataset.photoId || b.dataset.photo_id || b.getAttribute('data-photo-id');
+                  if(btnPhotoId === photoId && !b.classList.contains('is-added')) {
+                    b.click();
+                  }
+                });
+              } else if(!btn.classList.contains('is-added')) {
+                btn.click();
+              }
+            }
+          });
+        }
+        
+        // Ripristina il flag del celebrativo
+        if(hadDealFlag) dealUnlockedShown = prevDealFlag;
+        
+        // Apri il carrello
+        console.log('[STICKY] Opening cart modal...');
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          if(typeof updateCartModal === 'function') {
+            updateCartModal();
+          }
+          updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
+          console.log('[STICKY] Cart modal opened');
+        } else {
+          // Fallback: usa il bottone carrello
+          const cartBtn = document.getElementById('albumCartBtn');
+          if(cartBtn) {
+            cartBtn.click();
+            console.log('[STICKY] Cart opened via button click');
+          }
+        }
+      } catch(e) {
+        console.error('[STICKY] onStickyOfferClick error', e);
+        // Fallback: almeno apri il carrello
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          if(typeof updateCartModal === 'function') {
+            updateCartModal();
+          }
+          updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
+        } else {
+          const cartBtn = document.getElementById('albumCartBtn');
+          if(cartBtn) cartBtn.click();
+        }
+      }
+    }
+    
+    // Esponi la funzione in window per compatibilità
+    window.onStickyOfferClick = onStickyOfferClick;
+    console.log('[STICKY] onStickyOfferClick function defined and exposed to window');
     
     if(albumCartBtn) {
       albumCartBtn.addEventListener("click", () => {
@@ -3642,14 +3957,17 @@
         if(cartModal) {
           cartModal.classList.add('active');
           updateCartModal();
+          updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
         }
       });
       
       // Event listener robusto per sticky offer bar (cross-device)
       const stickyOfferBar = document.getElementById('stickyOfferBar');
       if(stickyOfferBar) {
+        console.log('[STICKY] Sticky bar found, attaching event listeners');
         // Wrapper function che chiama onStickyOfferClick se disponibile
-        const handleStickyClick = () => {
+        const handleStickyClick = (e) => {
+          console.log('[STICKY] handleStickyClick triggered', e.type);
           if(typeof window.onStickyOfferClick === 'function') {
             window.onStickyOfferClick();
           } else if(typeof onStickyOfferClick === 'function') {
@@ -3661,6 +3979,7 @@
         
         // Binding click (desktop e mobile)
         stickyOfferBar.addEventListener('click', handleStickyClick, { passive: true });
+        console.log('[STICKY] Click listener attached');
         
         // Binding touchend per mobile/iOS (evita doppio trigger con flag)
         let touchStartTime = 0;
@@ -3675,10 +3994,13 @@
             const lock = window.stickyClickLock || false;
             if(!lock) {
               e.preventDefault();
-              handleStickyClick();
+              handleStickyClick(e);
             }
           }
         }, { passive: false });
+        console.log('[STICKY] Touch listeners attached');
+      } else {
+        console.warn('[STICKY] Sticky bar element not found!');
       }
       
       // Event listener per nudge checkout button (se non già presente)
@@ -3798,6 +4120,13 @@
         pricesTab.classList.remove('active');
         if(albumGrid) albumGrid.style.display = 'grid';
         pricesList.classList.remove('active');
+        // Mostra sticky e nudge quando si torna alla griglia foto
+        showStickyOfferBarIfAllowed();
+        showNudgeBarIfAllowed();
+        // Richiama le funzioni esistenti per aggiornare UI/checkout/nudge/sticky
+        updateStickyAllOffer();
+        updateNudgeBar();
+        updateBottomPadding();
       });
       
       pricesTab.addEventListener("click", () => {
@@ -3805,12 +4134,17 @@
         myContentTab.classList.remove('active');
         if(albumGrid) albumGrid.style.display = 'none';
         pricesList.classList.add('active');
+        // Nascondi sticky e nudge quando si va al listino prezzi
+        hideStickyOfferBar();
+        hideNudgeBar();
+        updateBottomPadding();
       });
     }
     
     if(closeCartBtn && cartModal) {
       closeCartBtn.addEventListener("click", () => {
         cartModal.classList.remove('active');
+        updateNudgeBar(); // Mostra nudge bar quando si chiude il carrello (se siamo nella schermata album)
       });
     }
     const checkoutBtn = document.getElementById("checkoutBtn");
@@ -3823,6 +4157,7 @@
       cartModal.addEventListener('click', (e) => {
         if(e.target.id === 'cartModal') {
           cartModal.classList.remove('active');
+          updateNudgeBar(); // Mostra nudge bar quando si chiude il carrello (se siamo nella schermata album)
         }
       });
     }
@@ -6540,7 +6875,42 @@
     }
     
     // Aggiorna sticky bar con offerta "Prendile tutte"
+    // Funzioni utility per gestire visibilità banner in base al tab attivo
+    function hideStickyOfferBar() {
+      const bar = document.getElementById('stickyOfferBar');
+      if (!bar) return;
+      bar.classList.remove('active');
+      bar.style.display = 'none';
+    }
+    
+    function hideNudgeBar() {
+      const n = document.getElementById('nudgeBar');
+      if (!n) return;
+      n.classList.remove('active');
+      n.style.display = 'none';
+    }
+    
+    function showStickyOfferBarIfAllowed() {
+      // Non forziamo nulla: rimetti display vuoto e lasci che la logica esistente decida se attivarlo
+      const bar = document.getElementById('stickyOfferBar');
+      if (!bar) return;
+      bar.style.display = '';
+    }
+    
+    function showNudgeBarIfAllowed() {
+      const n = document.getElementById('nudgeBar');
+      if (!n) return;
+      n.style.display = '';
+    }
+    
     function updateStickyAllOffer() {
+      // Blocco di sicurezza: nascondi se siamo nel tab listino prezzi
+      const pricesTabIsActive = document.getElementById('pricesTab')?.classList.contains('active');
+      if(pricesTabIsActive) {
+        hideStickyOfferBar();
+        return;
+      }
+      
       if(!allPhotos || allPhotos.length <= 0) {
         const stickyBar = document.getElementById('stickyOfferBar');
         if(stickyBar) {
@@ -6583,6 +6953,13 @@
     
     // Aggiorna nudge bar con suggerimento upgrade
     function updateNudgeBar(forcePop = false) {
+      // Blocco di sicurezza: nascondi se siamo nel tab listino prezzi
+      const pricesTabIsActive = document.getElementById('pricesTab')?.classList.contains('active');
+      if(pricesTabIsActive) {
+        hideNudgeBar();
+        return;
+      }
+      
       const nudgeBar = document.getElementById('nudgeBar');
       const nudgeLine1 = document.getElementById('nudgeLine1');
       const nudgeLine2 = document.getElementById('nudgeLine2');
@@ -6594,6 +6971,15 @@
       
       // Nascondi se non siamo nell'album
       if(currentScreen !== 'album') {
+        nudgeBar.classList.remove('active');
+        nudgeBar.style.display = 'none';
+        updateBottomPadding();
+        return;
+      }
+      
+      // Nascondi se il carrello è aperto
+      const cartModal = document.getElementById('cartModal');
+      if(cartModal && cartModal.classList.contains('active')) {
         nudgeBar.classList.remove('active');
         nudgeBar.style.display = 'none';
         updateBottomPadding();
@@ -6620,6 +7006,7 @@
           if(cartModal) {
             cartModal.classList.add('active');
             updateCartModal();
+            updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
           }
         };
         nudgeBar.classList.add('active');
@@ -6641,6 +7028,7 @@
           if(cartModal) {
             cartModal.classList.add('active');
             updateCartModal();
+            updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
           }
         };
         nudgeBar.classList.add('active');
@@ -7070,118 +7458,3 @@
   </div>
 </body>
 </html>
-
-
-    // Sticky offer click: add ALL photos to cart, open cart, then go to checkout if possible
-    // Flag per evitare doppio trigger su mobile/iOS (esposto in window per accesso cross-scope)
-    window.stickyClickLock = false;
-    
-    // Funzione robusta per gestire click sticky bar (cross-device)
-    function onStickyOfferClick() {
-      // Previeni doppio trigger
-      if(window.stickyClickLock) {
-        return;
-      }
-      window.stickyClickLock = true;
-      setTimeout(() => {
-        window.stickyClickLock = false;
-      }, 300);
-      
-      try {
-        // Verifica che siamo nella schermata album
-        const albumScreen = document.getElementById('albumScreen');
-        if(!albumScreen || !albumScreen.classList.contains('active')) {
-          console.warn('[STICKY] Album screen not active');
-          window.stickyClickLock = false;
-          return;
-        }
-        
-        // Evita che il modal celebrativo si attivi durante la selezione massiva
-        const hadDealFlag = (typeof dealUnlockedShown !== 'undefined');
-        const prevDealFlag = hadDealFlag ? dealUnlockedShown : null;
-        if(hadDealFlag) dealUnlockedShown = true;
-        
-        // Seleziona tutte le foto non ancora selezionate
-        // Usa allPhotos se disponibile, altrimenti i bottoni nella griglia
-        let photosToAdd = [];
-        
-        if(allPhotos && allPhotos.length > 0) {
-          // Usa allPhotos come fonte affidabile
-          allPhotos.forEach(photo => {
-            // Escludi foto pagate
-            if(paidPhotos && paidPhotos.includes(photo.photo_id)) {
-              return;
-            }
-            // Aggiungi solo se non è già nel carrello
-            if(!currentCart.photo_ids || !currentCart.photo_ids.includes(photo.photo_id)) {
-              photosToAdd.push(photo.photo_id);
-            }
-          });
-        } else {
-          // Fallback: usa i bottoni nella griglia
-          const grid = document.getElementById('albumGrid');
-          if(grid) {
-            const btns = grid.querySelectorAll('.add-to-cart-btn');
-            btns.forEach(btn => {
-              if(btn && !btn.classList.contains('is-added')) {
-                const photoId = btn.dataset.photoId;
-                if(photoId && (!currentCart.photo_ids || !currentCart.photo_ids.includes(photoId))) {
-                  photosToAdd.push(photoId);
-                }
-              }
-            });
-          }
-        }
-        
-        // Aggiungi tutte le foto al carrello
-        if(photosToAdd.length > 0) {
-          photosToAdd.forEach(photoId => {
-            if(typeof addToCart === 'function') {
-              addToCart(photoId);
-            } else {
-              // Fallback: simula click sul bottone
-              const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"], .add-to-cart-btn[data-photoid="${photoId}"]`);
-              if(!btn) {
-                // Prova anche con camelCase
-                const allBtns = document.querySelectorAll('.add-to-cart-btn');
-                allBtns.forEach(b => {
-                  if(b.dataset.photoId === photoId && !b.classList.contains('is-added')) {
-                    b.click();
-                  }
-                });
-              } else if(!btn.classList.contains('is-added')) {
-                btn.click();
-              }
-            }
-          });
-        }
-        
-        // Ripristina il flag del celebrativo
-        if(hadDealFlag) dealUnlockedShown = prevDealFlag;
-        
-        // Apri il carrello
-        const cartModal = document.getElementById('cartModal');
-        if(cartModal) {
-          cartModal.classList.add('active');
-          updateCartModal();
-        } else {
-          // Fallback: usa il bottone carrello
-          const cartBtn = document.getElementById('albumCartBtn');
-          if(cartBtn) cartBtn.click();
-        }
-      } catch(e) {
-        console.error('[STICKY] onStickyOfferClick error', e);
-        // Fallback: almeno apri il carrello
-        const cartModal = document.getElementById('cartModal');
-        if(cartModal) {
-          cartModal.classList.add('active');
-          updateCartModal();
-        } else {
-          const cartBtn = document.getElementById('albumCartBtn');
-          if(cartBtn) cartBtn.click();
-        }
-      }
-    }
-    
-    // Esponi la funzione in window per compatibilità
-    window.onStickyOfferClick = onStickyOfferClick;
