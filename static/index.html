@@ -701,6 +701,34 @@
     }
     
     /* Member Chips Row - Cross-device (mobile + desktop) */
+    .member-chip{
+      position: relative;
+    }
+    
+    .member-remove{
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid rgba(0,0,0,0.35);
+      background: rgba(0,0,0,0.65);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-tap-highlight-color: transparent;
+      z-index: 10;
+    }
+    .member-remove:active{
+      transform: scale(0.96);
+    }
+    
     .member-chips-row,
     .members-bar{
       display: flex;
@@ -2833,6 +2861,77 @@
     // Conferma selfie: mostra subito la schermata lingua e avvia ricerca foto in background
     document.getElementById('confirmBtn').addEventListener('click', async () => {
       try {
+        // Se stiamo aggiungendo un membro, salta la lingua e vai direttamente al match
+        if(isAddingFamilyMember) {
+          // Avvia ricerca foto in background (usa currentLang già selezionata)
+          startPhotosSearchInBackground();
+          
+          // Aspetta che matchPhotos finisca
+          if(photosSearchPromise) {
+            await photosSearchPromise;
+          }
+          
+          // Gestisci il risultato dopo che matchPhotos è completato
+          if(photosReady && allPhotos.length > 0) {
+            const confirmPreview = document.getElementById('confirmPreview');
+            if(confirmPreview && confirmPreview.src) {
+              // Trova le foto nuove aggiunte (quelle che erano in newPhotos prima del merge)
+              const beforeCount = albumPhotosAll.length - allPhotos.length;
+              const newPhotosForMember = allPhotos.slice(beforeCount < 0 ? 0 : beforeCount);
+              
+              // Crea nuovo membro e aggiungilo (NON sovrascrivere members[0])
+              const memberPhotos = newPhotosForMember.map(p => p.photo_id || p.id || p.url || p.filename).filter(Boolean);
+              const newMember = {
+                id: 'member_' + Date.now(),
+                avatarDataUrl: confirmPreview.src,
+                timestamp: Date.now(),
+                photoKeys: memberPhotos
+              };
+              members.push(newMember);
+              
+              // Aggiorna anche familyMembers per compatibilità
+              const memberAvatar = {
+                id: newMember.id,
+                avatar: confirmPreview.src,
+                timestamp: newMember.timestamp,
+                photos: memberPhotos
+              };
+              familyMembers.push(memberAvatar);
+              
+              // Ricostruisci album da tutti i membri
+              rebuildAlbumFromMembers();
+              
+              // Aggiorna barra membri
+              renderMemberChips();
+            }
+            
+            // Reset flag
+            isAddingFamilyMember = false;
+            activeFamilyMode = false;
+            
+            // Aggiorna header
+            const headerText = document.getElementById('selfieHeaderText');
+            if(headerText) headerText.textContent = t('take_your_selfie');
+            
+            // Mostra album con foto merge
+            showScreen('album');
+            await displayPhotos();
+            updateCart();
+            if(allPhotos.length > 0) {
+              showStickyOfferBar();
+            }
+          } else {
+            // Errore: nessuna foto trovata
+            alert('No photos found. Please try again.');
+            isAddingFamilyMember = false;
+            activeFamilyMode = false;
+            const headerText = document.getElementById('selfieHeaderText');
+            if(headerText) headerText.textContent = t('take_your_selfie');
+          }
+          return;
+        }
+        
+        // Flow normale per il primo selfie: vai alla lingua
         // Vai subito alla lingua (piu' logico per l'utente)
         showScreen('language');
 
@@ -3124,6 +3223,7 @@
     let activeFamilyMode = false; // Modalità aggiunta membro famiglia (disabilitata)
     let isAddingFamilyMember = false; // Flag per aggiunta membro senza email
     let albumPhotosAll = []; // Array completo di tutte le foto (merge di tutti i selfie)
+    let members = []; // Array di membri: members[0] è il main member, gli altri sono aggiunti
     
     // Funzione per merge unico di foto (evita duplicati)
     function mergeUnique(existingPhotos, newPhotos) {
@@ -4416,33 +4516,50 @@
       // Array di membri da mostrare (max 4 totali: principale + 3 aggiunti)
       const membersToShow = [];
       
-      // Aggiungi avatar principale se disponibile
-      const mainPersonAvatar = document.getElementById('mainPersonAvatar');
-      if(mainPersonAvatar && mainPersonAvatar.src && mainPersonAvatar.src !== window.location.href) {
+      // Aggiungi main member (members[0]) se presente
+      if(members.length > 0 && members[0] && members[0].avatarDataUrl) {
         const mainChip = document.createElement('div');
         mainChip.className = 'member-chip';
+        mainChip.setAttribute('data-member-index', '0');
         const img = document.createElement('img');
-        img.src = mainPersonAvatar.src;
+        img.src = members[0].avatarDataUrl;
         img.alt = 'Main person';
         mainChip.appendChild(img);
         memberChipsRow.appendChild(mainChip);
-        membersToShow.push({ type: 'main', avatar: mainPersonAvatar.src });
+        membersToShow.push({ type: 'main', avatar: members[0].avatarDataUrl });
+      } else {
+        // Fallback: usa mainPersonAvatar se members[0] non esiste
+        const mainPersonAvatar = document.getElementById('mainPersonAvatar');
+        if(mainPersonAvatar && mainPersonAvatar.src && mainPersonAvatar.src !== window.location.href) {
+          const mainChip = document.createElement('div');
+          mainChip.className = 'member-chip';
+          mainChip.setAttribute('data-member-index', '0');
+          const img = document.createElement('img');
+          img.src = mainPersonAvatar.src;
+          img.alt = 'Main person';
+          mainChip.appendChild(img);
+          memberChipsRow.appendChild(mainChip);
+          membersToShow.push({ type: 'main', avatar: mainPersonAvatar.src });
+        }
       }
       
-      // Aggiungi membri famiglia (max 3 per arrivare a 4 totali)
+      // Aggiungi membri aggiunti (dal secondo in poi, max 3 per arrivare a 4 totali)
       const maxAdditional = 3;
-      const membersToAdd = familyMembers.slice(0, maxAdditional);
+      const membersToAdd = members.slice(1, maxAdditional + 1); // Salta members[0], prendi i successivi
       
       membersToAdd.forEach((member, index) => {
+        // index qui è relativo a membersToAdd (0-based), ma l'indice reale è index + 1 (perché saltiamo members[0])
+        const realIndex = index + 1;
         const chip = document.createElement('div');
         chip.className = 'member-chip';
+        chip.setAttribute('data-member-index', realIndex);
         
-        // Se il membro ha un avatar o avatar_url, usalo, altrimenti usa un placeholder
-        const avatarUrl = member.avatar || member.avatar_url;
+        // Se il membro ha un avatarDataUrl o avatar, usalo
+        const avatarUrl = member.avatarDataUrl || member.avatar || member.avatar_url;
         if(avatarUrl) {
           const img = document.createElement('img');
           img.src = avatarUrl;
-          img.alt = member.name || `Member ${index + 1}`;
+          img.alt = member.name || `Member ${realIndex + 1}`;
           chip.appendChild(img);
         } else {
           // Placeholder con iniziale o icona
@@ -4452,12 +4569,21 @@
           chip.style.color = 'rgba(255,255,255,0.8)';
         }
         
+        // Aggiungi bottone rimozione (tutti i membri aggiunti sono rimovibili, members[0] no)
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'member-remove';
+        removeBtn.type = 'button';
+        removeBtn.setAttribute('aria-label', 'Remove member');
+        removeBtn.setAttribute('data-remove-index', realIndex);
+        removeBtn.textContent = '×';
+        chip.appendChild(removeBtn);
+        
         memberChipsRow.appendChild(chip);
       });
       
       // Aggiungi chip "+" per aggiungere membro (solo se non abbiamo raggiunto il limite UI di 4)
-      const totalChips = (mainPersonAvatar && mainPersonAvatar.src && mainPersonAvatar.src !== window.location.href ? 1 : 0) + membersToAdd.length;
-      if(totalChips < 4 && familyMembers.length < 8) {
+      const totalChips = (members.length > 0 && members[0] ? 1 : 0) + membersToAdd.length;
+      if(totalChips < 4 && members.length < 8) {
         const plusChip = document.createElement('div');
         plusChip.className = 'member-chip plus';
         plusChip.textContent = '+';
@@ -4470,6 +4596,137 @@
           }
         });
         memberChipsRow.appendChild(plusChip);
+      }
+      
+      // Event delegation per rimozione membri
+      if(!memberChipsRow.dataset.removeListenerAttached) {
+        memberChipsRow.dataset.removeListenerAttached = '1';
+        memberChipsRow.addEventListener('click', (e) => {
+          const btn = e.target?.closest?.('.member-remove');
+          if(!btn) return;
+          
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const idx = parseInt(btn.getAttribute('data-remove-index') || '', 10);
+          if(!Number.isFinite(idx) || idx <= 0) return; // membro 0 non cancellabile
+          
+          removeMemberAndRefresh(idx);
+        });
+      }
+    }
+    
+    // Ricostruisce l'album dall'unione delle foto di tutti i membri (con dedupe)
+    function rebuildAlbumFromMembers() {
+      const seen = new Set();
+      const merged = [];
+      
+      for(const m of members) {
+        if(!m || !m.photoKeys) continue;
+        const photoKeys = m.photoKeys;
+        
+        for(const key of photoKeys) {
+          if(!key || seen.has(key)) continue;
+          seen.add(key);
+          
+          // Trova l'oggetto foto completo da allPhotos o albumPhotosAll
+          const photoObj = allPhotos.find(p => {
+            const pKey = p.photo_id || p.id || p.url || p.filename;
+            return pKey === key;
+          }) || albumPhotosAll.find(p => {
+            const pKey = p.photo_id || p.id || p.url || p.filename;
+            return pKey === key;
+          });
+          
+          if(photoObj) {
+            merged.push(photoObj);
+          } else {
+            // Se non trovato, crea un oggetto minimo
+            merged.push({
+              photo_id: key,
+              id: key,
+              score: 0,
+              has_face: true,
+              paid: false
+            });
+          }
+        }
+      }
+      
+      // Assegna alla variabile reale che usa la griglia
+      albumPhotosAll = merged;
+      allPhotos = merged;
+      
+      console.log(`[REBUILD] Album ricostruito: ${merged.length} foto da ${members.length} membri`);
+    }
+    
+    // Rimuove un membro e aggiorna griglia/carrello
+    function removeMemberAndRefresh(idx) {
+      try {
+        console.log('[REMOVE_MEMBER] Removing member at index', idx);
+        
+        // 1) Rimuovi membro dall'array
+        if(idx < 0 || idx >= familyMembers.length) {
+          console.warn('[REMOVE_MEMBER] Invalid index:', idx);
+          return;
+        }
+        
+        const removed = familyMembers.splice(idx, 1)[0];
+        if(!removed) {
+          console.warn('[REMOVE_MEMBER] No member found at index:', idx);
+          return;
+        }
+        
+        // 2) Ricava le foto del membro rimosso
+        const removedPhotos = removed.photos || [];
+        const removedKeys = new Set(removedPhotos.filter(Boolean));
+        
+        console.log('[REMOVE_MEMBER] Removed member photos:', removedKeys.size);
+        
+        // 3) Rimuovi dalla lista che alimenta la griglia
+        if(removedKeys.size > 0) {
+          const beforeCount = allPhotos.length;
+          allPhotos = allPhotos.filter(p => {
+            const key = p.photo_id || p.id || p.url || p.filename;
+            return !removedKeys.has(key);
+          });
+          const removedCount = beforeCount - allPhotos.length;
+          console.log('[REMOVE_MEMBER] Removed', removedCount, 'photos from grid');
+          
+          // Aggiorna anche albumPhotosAll
+          albumPhotosAll = albumPhotosAll.filter(p => {
+            const key = p.photo_id || p.id || p.url || p.filename;
+            return !removedKeys.has(key);
+          });
+        }
+        
+        // 4) Rimuovi dal carrello le foto eliminate (se presenti)
+        if(currentCart && currentCart.photo_ids) {
+          const beforeCartCount = currentCart.photo_ids.length;
+          currentCart.photo_ids = currentCart.photo_ids.filter(photoId => {
+            return !removedKeys.has(photoId);
+          });
+          const removedFromCart = beforeCartCount - currentCart.photo_ids.length;
+          
+          if(removedFromCart > 0) {
+            console.log('[REMOVE_MEMBER] Removed', removedFromCart, 'photos from cart');
+            // Ricalcola totale carrello
+            updateCart();
+          }
+        }
+        
+        // 5) Aggiorna UI: chips + griglia + carrello
+        renderMemberChips();
+        displayPhotos().then(() => {
+          updateCart();
+          updateStickyAllOffer();
+          updateNudgeBar();
+        });
+        
+        console.log('[REMOVE_MEMBER] Member removed successfully');
+      } catch(err) {
+        console.error('[REMOVE_MEMBER] Error removing member:', err);
+        alert('Error removing member. Please try again.');
       }
     }
     
@@ -4902,73 +5159,17 @@
               confirmPreview.src = url;
             }
             
-            // Mostra schermata language (o vai direttamente a match se non serve lingua)
-            // Per semplicità, chiama direttamente matchPhotos
-            try {
-              // Reset stati
-              photosReady = false;
-              photosFailed = false;
-              photosSearchPromise = null;
-              
-              // Avvia match in background
-              photosSearchPromise = matchPhotos().catch(err => {
-                console.error('[FAMILY_MEMBER] Error in matchPhotos:', err);
-                photosReady = false;
-                photosFailed = true;
-                photosSearchPromise = null;
-                isAddingFamilyMember = false;
-                activeFamilyMode = false;
-                alert('Error matching photos. Please try again.');
-              });
-              
-              // Aspetta che matchPhotos finisca
-              await photosSearchPromise;
-              
-              if(photosReady && allPhotos.length > 0) {
-                // Salva avatar del membro aggiunto
-                if(confirmPreview && confirmPreview.src) {
-                  const memberAvatar = {
-                    id: 'member_' + Date.now(),
-                    avatar: confirmPreview.src,
-                    timestamp: Date.now()
-                  };
-                  familyMembers.push(memberAvatar);
-                  // Aggiorna barra membri
-                  renderMemberChips();
-                }
-                
-                // Reset flag
-                isAddingFamilyMember = false;
-                activeFamilyMode = false;
-                
-                // Aggiorna header
-                const headerText = document.getElementById('selfieHeaderText');
-                if(headerText) headerText.textContent = t('take_your_selfie');
-                
-                // Mostra album con foto merge
-                showScreen('album');
-                await displayPhotos();
-                updateCart();
-                if(allPhotos.length > 0) {
-                  showStickyOfferBar();
-                }
-              } else {
-                // Errore: nessuna foto trovata
-                alert('No photos found. Please try again.');
-                isAddingFamilyMember = false;
-                activeFamilyMode = false;
-                const headerText = document.getElementById('selfieHeaderText');
-                if(headerText) headerText.textContent = t('take_your_selfie');
-              }
-            } catch(e) {
-              console.error('Error in family member flow:', e);
-              alert('Error processing selfie. Please try again.');
-              isAddingFamilyMember = false;
-              activeFamilyMode = false;
-              const headerText = document.getElementById('selfieHeaderText');
-              if(headerText) headerText.textContent = t('take_your_selfie');
-            }
-            return;
+            // Vai direttamente a confirm (come il primo selfie)
+            // L'utente deve cliccare "Conferma" per procedere
+            showScreen('confirm');
+            
+            // NON avviare matchPhotos automaticamente
+            // Il click su confirmBtn gestirà il flow (come nel primo selfie)
+            // Reset stati per il prossimo match
+            photosReady = false;
+            photosFailed = false;
+            photosSearchPromise = null;
+            return; // Ferma qui, aspetta il click su confirmBtn
           }
           
           // Logica normale per selfie principale
@@ -5107,15 +5308,35 @@
           
           // Se stiamo aggiungendo un membro famiglia, gestisci avatar e reset flag
           if(isAddingFamilyMember) {
-            // Salva avatar del membro aggiunto
+            // Salva nuovo membro (NON toccare members[0])
             const confirmPreview = document.getElementById('confirmPreview');
             if(confirmPreview && confirmPreview.src) {
-              const memberAvatar = {
+              // Usa le foto salvate temporaneamente durante il merge
+              const memberPhotos = window._lastMemberPhotos || [];
+              
+              // Crea nuovo membro e aggiungilo (NON sovrascrivere members[0])
+              const newMember = {
                 id: 'member_' + Date.now(),
+                avatarDataUrl: confirmPreview.src,
+                timestamp: Date.now(),
+                photoKeys: memberPhotos
+              };
+              members.push(newMember);
+              
+              // Aggiorna anche familyMembers per compatibilità con il codice esistente
+              const memberAvatar = {
+                id: newMember.id,
                 avatar: confirmPreview.src,
-                timestamp: Date.now()
+                timestamp: newMember.timestamp,
+                photos: memberPhotos
               };
               familyMembers.push(memberAvatar);
+              
+              // Ricostruisci album da tutti i membri
+              rebuildAlbumFromMembers();
+              
+              // Pulisci variabile temporanea
+              window._lastMemberPhotos = null;
               // Aggiorna barra membri
               renderMemberChips();
             }
@@ -5495,13 +5716,49 @@
           
           // Se stiamo aggiungendo un membro famiglia, fai merge invece di replace
           if(isAddingFamilyMember) {
+            // Salva le foto esistenti prima del merge per identificare quelle nuove
+            const existingPhotoIds = new Set(albumPhotosAll.map(p => p.photo_id || p.id || p.url || p.filename));
             albumPhotosAll = mergeUnique(albumPhotosAll, newPhotos);
             allPhotos = albumPhotosAll;
+            
+            // Identifica le foto nuove aggiunte
+            const newPhotoIds = allPhotos
+              .map(p => p.photo_id || p.id || p.url || p.filename)
+              .filter(id => id && !existingPhotoIds.has(id));
+            
+            // Salva le foto nuove in una variabile temporanea per associarle al membro
+            window._lastMemberPhotos = newPhotoIds;
+            
             console.log(`[CONFIRM_FLOW] Merge completato: ${albumPhotosAll.length} foto totali (${newPhotos.length} nuove)`);
           } else {
-            // Primo selfie: inizializza albumPhotosAll
-            albumPhotosAll = newPhotos;
-            allPhotos = newPhotos;
+            // Primo selfie: crea o aggiorna main member (members[0])
+            const confirmPreview = document.getElementById('confirmPreview');
+            const mainPersonAvatar = document.getElementById('mainPersonAvatar');
+            const avatarDataUrl = confirmPreview?.src || mainPersonAvatar?.src;
+            
+            // Estrai le chiavi delle foto
+            const photoKeys = newPhotos.map(p => p.photo_id || p.id || p.url || p.filename).filter(Boolean);
+            
+            // Crea o aggiorna main member
+            if(members.length === 0 || !members[0]) {
+              members[0] = {
+                id: 'main_' + Date.now(),
+                avatarDataUrl: avatarDataUrl || null,
+                photoKeys: photoKeys
+              };
+            } else {
+              // Aggiorna main member mantenendo le foto esistenti (merge)
+              const existingKeys = new Set(members[0].photoKeys || []);
+              const newKeys = photoKeys.filter(k => !existingKeys.has(k));
+              members[0].photoKeys = [...(members[0].photoKeys || []), ...newKeys];
+              if(avatarDataUrl) {
+                members[0].avatarDataUrl = avatarDataUrl;
+              }
+            }
+            
+            // Ricostruisci album da tutti i membri
+            rebuildAlbumFromMembers();
+            window._lastMemberPhotos = null;
           }
           
           // Assicurati che tutti gli allIds siano presenti in allPhotos
