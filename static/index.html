@@ -1342,27 +1342,40 @@
     }
     
     /* Sticky Offer Bar */
+    /* Sticky Offer Bar (pill button) */
     .sticky-offer-bar{
       position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
+      left: 12px;
+      right: 12px;
+      max-width: 650px;
+      margin: 0 auto;
+      bottom: calc(12px + env(safe-area-inset-bottom));
+
       background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
-      padding: 8px 12px;
-      padding-bottom: calc(8px + env(safe-area-inset-bottom)); /* Safe area iPhone */
-      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
-      z-index: 1000; /* Z-index più alto per essere sopra tutto */
+      border-radius: 18px;
+      padding: 12px 16px;
+
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+
+      z-index: 1000;
       display: none;
-      transform: translateY(100%);
-      transition: transform 0.3s ease-out;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      /* Assicura che rimanga fisso durante lo scroll con accelerazione hardware */
+      transform: translateY(140%);
+      transition: transform 0.28s ease-out;
+
       will-change: transform;
       -webkit-transform: translateZ(0);
-      transform: translateZ(0) translateY(100%);
-      min-height: 60px; /* Altezza minima ridotta */
+      transform: translateZ(0) translateY(140%);
+
+      min-height: 62px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      pointer-events: auto;
+      touch-action: manipulation;
     }
-    
+
+.sticky-offer-bar *{ pointer-events: none; }
     .sticky-offer-bar.active{
       transform: translateZ(0) translateY(0);
     }
@@ -1373,61 +1386,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      animation: slideUp 0.4s ease-out forwards;
-    }
-    
-    @keyframes slideUp {
-      from {
-        transform: translateY(100%);
-      }
-      to {
-        transform: translateY(0);
-      }
-    }
-    
-    .sticky-offer-content{
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    
-    .sticky-offer-text{
-      font-size: 12px;
-      font-weight: 600;
-      color: white;
-      line-height: 1.2;
-    }
-    
-    .sticky-offer-price{
-      font-size: 16px;
-      font-weight: 700;
-      color: white;
-    }
-    
-    .sticky-offer-actions{
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .sticky-offer-btn{
-      background: white;
-      color: var(--purple);
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: transform 0.2s, opacity 0.2s;
-    }
-    
-    .sticky-offer-btn:active{
-      transform: scale(0.95);
-      opacity: 0.8;
+      gap: 14px;
     }
     
     .sticky-offer-close{
@@ -1999,14 +1958,19 @@
   </div>
   
   <!-- Sticky Offer Bar -->
-  <div class="sticky-offer-bar" id="stickyOfferBar">
-      <div class="sticky-offer-content">
-      <div class="sticky-offer-text" id="stickyOfferText" data-i18n="sticky_take_all">Prendile tutte</div>
-      <div class="sticky-offer-price" id="stickyOfferPrice">€0</div>
+  <!-- Sticky Offer Bar (pill button) -->
+  <div class="sticky-offer-bar" id="stickyOfferBar" role="button" aria-label="Buy all photos">
+    <div class="sticky-offer-content" style="flex:1; display:flex; flex-direction:column; gap:4px; min-width:0;">
+      <div id="stickyOfferFoundText"
+           style="font-size:12px; font-weight:800; color:rgba(255,255,255,.95); line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        0 photos found
+      </div>
+      <div id="stickyOfferCtaText"
+           style="font-size:14px; font-weight:900; color:#fff; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        Buy all for €0
+      </div>
     </div>
-    <div class="sticky-offer-actions">
-      <button class="sticky-offer-btn" id="stickyOfferBuyBtn" data-i18n="sticky_unlock_all">Sblocca tutte</button>
-    </div>
+    <div aria-hidden="true" style="font-size:22px; font-weight:900; color:rgba(255,255,255,.9); line-height:1; padding-left:6px;">›</div>
   </div>
   
   <!-- Paid Photos Countdown Banner -->
@@ -2136,6 +2100,8 @@
         nudge_unlock_package: "Unlock the {count} photo package",
         sticky_take_all: "Take them all",
         sticky_unlock_all: "Unlock all",
+        sticky_found_photos: "{count} photos found",
+        sticky_buy_all_for: "Buy all for €{price}",
         dealpill_top: "Unlock the maxi deal",
         dealpill_bottom: "Pick 6 photos, from the 7th you pay €1 each",
         add_family_member: "👥 Add family member",
@@ -2211,6 +2177,8 @@
         nudge_unlock_package: "Desbloquea el paquete de {count} fotos",
         sticky_take_all: "Tómalas todas",
         sticky_unlock_all: "Desbloquear todas",
+        sticky_found_photos: "{count} fotos encontradas",
+        sticky_buy_all_for: "Cómpralas todas por €{price}",
         dealpill_top: "Desbloquea la maxi oferta",
         dealpill_bottom: "Elige 6 fotos, desde la 7ª pagas €1 cada una",
         add_family_member: "👥 Añadir miembro de la familia",
@@ -2286,6 +2254,8 @@
         nudge_unlock_package: "Sblocchi il pacchetto da {count} foto",
         sticky_take_all: "Prendile tutte",
         sticky_unlock_all: "Sblocca tutte",
+        sticky_found_photos: "{count} foto trovate",
+        sticky_buy_all_for: "Acquistale tutte a €{price}",
         dealpill_top: "Sblocca la maxi offerta",
         dealpill_bottom: "Scegli 6 foto, dalla 7ª paghi €1 ciascuna",
         add_family_member: "👥 Aggiungi membro famiglia",
@@ -2361,6 +2331,8 @@
         nudge_unlock_package: "Débloquez le pack de {count} photos",
         sticky_take_all: "Prenez-les toutes",
         sticky_unlock_all: "Débloquer toutes",
+        sticky_found_photos: "{count} photos trouvées",
+        sticky_buy_all_for: "Achetez-les toutes pour €{price}",
         dealpill_top: "Débloque la maxi offre",
         dealpill_bottom: "Choisis 6 photos, dès la 7e tu paies 1€ chacune",
         add_family_member: "👥 Ajouter un membre de la famille",
@@ -2436,6 +2408,8 @@
         nudge_unlock_package: "Schalte das {count} Fotos Paket frei",
         sticky_take_all: "Nimm sie alle",
         sticky_unlock_all: "Alle freischalten",
+        sticky_found_photos: "{count} Fotos gefunden",
+        sticky_buy_all_for: "Kaufe alle für €{price}",
         dealpill_top: "Schalte das Maxi-Angebot frei",
         dealpill_bottom: "Wähle 6 Fotos, ab dem 7. zahlst du €1 pro Foto",
         add_family_member: "👥 Familienmitglied hinzufügen",
@@ -2477,6 +2451,14 @@
       return result;
     }
     
+    // Helper traduzione con sostituzione variabili (alias per compatibilità)
+    function tr(key, vars = {}) {
+      const dict = (I18N && I18N[currentLang]) ? I18N[currentLang] : (I18N && I18N.en ? I18N.en : {});
+      const fallback = (I18N && I18N.en) ? I18N.en : {};
+      let s = (dict && dict[key]) || (fallback && fallback[key]) || key;
+      return String(s).replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : `{${k}}`));
+    }
+    
     // Applica traduzioni a elementi con data-i18n
     function applyTranslations() {
       // Testi normali
@@ -2509,7 +2491,7 @@
       // Nudge bar
       updateNudgeBar();
       
-      // Sticky bar
+      // Sticky bar (aggiorna anche quando cambia lingua)
       updateStickyAllOffer();
       
       // Cart modal
@@ -3662,6 +3644,42 @@
           updateCartModal();
         }
       });
+      
+      // Event listener robusto per sticky offer bar (cross-device)
+      const stickyOfferBar = document.getElementById('stickyOfferBar');
+      if(stickyOfferBar) {
+        // Wrapper function che chiama onStickyOfferClick se disponibile
+        const handleStickyClick = () => {
+          if(typeof window.onStickyOfferClick === 'function') {
+            window.onStickyOfferClick();
+          } else if(typeof onStickyOfferClick === 'function') {
+            onStickyOfferClick();
+          } else {
+            console.warn('[STICKY] onStickyOfferClick not available');
+          }
+        };
+        
+        // Binding click (desktop e mobile)
+        stickyOfferBar.addEventListener('click', handleStickyClick, { passive: true });
+        
+        // Binding touchend per mobile/iOS (evita doppio trigger con flag)
+        let touchStartTime = 0;
+        stickyOfferBar.addEventListener('touchstart', (e) => {
+          touchStartTime = Date.now();
+        }, { passive: true });
+        
+        stickyOfferBar.addEventListener('touchend', (e) => {
+          const touchDuration = Date.now() - touchStartTime;
+          // Solo se il touch è stato breve (< 300ms) per evitare scroll
+          if(touchDuration < 300) {
+            const lock = window.stickyClickLock || false;
+            if(!lock) {
+              e.preventDefault();
+              handleStickyClick();
+            }
+          }
+        }, { passive: false });
+      }
       
       // Event listener per nudge checkout button (se non già presente)
       const nudgeCheckoutBtn = document.getElementById('nudgeCheckoutBtn');
@@ -5838,9 +5856,8 @@
 
     function showStickyOfferBar(photoCount) {
       const stickyBar = document.getElementById('stickyOfferBar');
-      const stickyText = document.getElementById('stickyOfferText');
-      const stickyPrice = document.getElementById('stickyOfferPrice');
-      const stickyBuyBtn = document.getElementById('stickyOfferBuyBtn');
+      const stickyFoundEl = document.getElementById('stickyOfferFoundText');
+      const stickyCtaEl = document.getElementById('stickyOfferCtaText');
       const photoCountBanner = document.getElementById('albumPhotoCount');
       const photoCountNumber = document.getElementById('photoCountNumber');
       const albumScreen = document.getElementById('albumScreen');
@@ -5876,36 +5893,18 @@
       const priceCents = calculatePrice(photoCount);
       const priceEuros = (priceCents / 100).toFixed(2);
       
-      // Messaggio personalizzato in base al numero di foto
-      let message = "";
-      if(photoCount === 1) {
-        message = 'Prendi la tua foto';
-      } else {
-        message = `Prendi tutte le ${photoCount} foto`;
+      // Aggiorna testo "X foto trovate"
+      if(stickyFoundEl) {
+        stickyFoundEl.textContent = tr('sticky_found_photos', { count: String(photoCount) });
       }
       
-      if(stickyText) {
-        stickyText.textContent = message;
+      // Aggiorna testo "Acquistale tutte a €X"
+      if(stickyCtaEl) {
+        const priceStr = priceEuros.replace(/€/g, '').trim();
+        stickyCtaEl.textContent = tr('sticky_buy_all_for', { price: priceStr });
       }
       
-      if(stickyPrice) {
-        stickyPrice.textContent = `€${priceEuros}`;
-      }
-      
-      if(stickyBuyBtn) {
-        stickyBuyBtn.textContent = 'Sblocca tutte';
-        stickyBuyBtn.style.padding = '10px 24px';
-        stickyBuyBtn.style.fontSize = '14px';
-        stickyBuyBtn.style.fontWeight = '700';
-      }
-      
-      // Event listener per pulsante acquista (se non già presente)
-      if(stickyBuyBtn && !stickyBuyBtn.dataset.listenerAdded) {
-        stickyBuyBtn.addEventListener('click', () => {
-          startCheckoutForAllPhotos(); // Checkout per tutte le foto
-        });
-        stickyBuyBtn.dataset.listenerAdded = 'true';
-      }
+      // I testi sono già stati aggiornati sopra con tr()
       
       // Pulsante chiudi rimosso - il banner rimane sempre visibile
       
@@ -6551,17 +6550,21 @@
         return;
       }
       
-      const N = allPhotos.length;
-      const priceEuros = computePrice(N).toFixed(2);
+      const totalPhotos = allPhotos.length;
+      const priceEuros = computePrice(totalPhotos).toFixed(2);
       
-      const stickyText = document.getElementById('stickyOfferText');
-      const stickyPrice = document.getElementById('stickyOfferPrice');
-      
-      if(stickyText) {
-        stickyText.textContent = 'Prendile tutte';
+      // Aggiorna testo "X foto trovate"
+      const stickyFoundEl = document.getElementById('stickyOfferFoundText');
+      if(stickyFoundEl) {
+        stickyFoundEl.textContent = tr('sticky_found_photos', { count: String(totalPhotos) });
       }
-      if(stickyPrice) {
-        stickyPrice.textContent = `€${priceEuros}`;
+      
+      // Aggiorna testo "Acquistale tutte a €X"
+      const stickyCtaEl = document.getElementById('stickyOfferCtaText');
+      if(stickyCtaEl) {
+        // Rimuovi "€" e spazi dal prezzo per passarlo come numero
+        const priceStr = priceEuros.replace(/€/g, '').trim();
+        stickyCtaEl.textContent = tr('sticky_buy_all_for', { price: priceStr });
       }
     }
     
@@ -7068,3 +7071,117 @@
 </body>
 </html>
 
+
+    // Sticky offer click: add ALL photos to cart, open cart, then go to checkout if possible
+    // Flag per evitare doppio trigger su mobile/iOS (esposto in window per accesso cross-scope)
+    window.stickyClickLock = false;
+    
+    // Funzione robusta per gestire click sticky bar (cross-device)
+    function onStickyOfferClick() {
+      // Previeni doppio trigger
+      if(window.stickyClickLock) {
+        return;
+      }
+      window.stickyClickLock = true;
+      setTimeout(() => {
+        window.stickyClickLock = false;
+      }, 300);
+      
+      try {
+        // Verifica che siamo nella schermata album
+        const albumScreen = document.getElementById('albumScreen');
+        if(!albumScreen || !albumScreen.classList.contains('active')) {
+          console.warn('[STICKY] Album screen not active');
+          window.stickyClickLock = false;
+          return;
+        }
+        
+        // Evita che il modal celebrativo si attivi durante la selezione massiva
+        const hadDealFlag = (typeof dealUnlockedShown !== 'undefined');
+        const prevDealFlag = hadDealFlag ? dealUnlockedShown : null;
+        if(hadDealFlag) dealUnlockedShown = true;
+        
+        // Seleziona tutte le foto non ancora selezionate
+        // Usa allPhotos se disponibile, altrimenti i bottoni nella griglia
+        let photosToAdd = [];
+        
+        if(allPhotos && allPhotos.length > 0) {
+          // Usa allPhotos come fonte affidabile
+          allPhotos.forEach(photo => {
+            // Escludi foto pagate
+            if(paidPhotos && paidPhotos.includes(photo.photo_id)) {
+              return;
+            }
+            // Aggiungi solo se non è già nel carrello
+            if(!currentCart.photo_ids || !currentCart.photo_ids.includes(photo.photo_id)) {
+              photosToAdd.push(photo.photo_id);
+            }
+          });
+        } else {
+          // Fallback: usa i bottoni nella griglia
+          const grid = document.getElementById('albumGrid');
+          if(grid) {
+            const btns = grid.querySelectorAll('.add-to-cart-btn');
+            btns.forEach(btn => {
+              if(btn && !btn.classList.contains('is-added')) {
+                const photoId = btn.dataset.photoId;
+                if(photoId && (!currentCart.photo_ids || !currentCart.photo_ids.includes(photoId))) {
+                  photosToAdd.push(photoId);
+                }
+              }
+            });
+          }
+        }
+        
+        // Aggiungi tutte le foto al carrello
+        if(photosToAdd.length > 0) {
+          photosToAdd.forEach(photoId => {
+            if(typeof addToCart === 'function') {
+              addToCart(photoId);
+            } else {
+              // Fallback: simula click sul bottone
+              const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"], .add-to-cart-btn[data-photoid="${photoId}"]`);
+              if(!btn) {
+                // Prova anche con camelCase
+                const allBtns = document.querySelectorAll('.add-to-cart-btn');
+                allBtns.forEach(b => {
+                  if(b.dataset.photoId === photoId && !b.classList.contains('is-added')) {
+                    b.click();
+                  }
+                });
+              } else if(!btn.classList.contains('is-added')) {
+                btn.click();
+              }
+            }
+          });
+        }
+        
+        // Ripristina il flag del celebrativo
+        if(hadDealFlag) dealUnlockedShown = prevDealFlag;
+        
+        // Apri il carrello
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          updateCartModal();
+        } else {
+          // Fallback: usa il bottone carrello
+          const cartBtn = document.getElementById('albumCartBtn');
+          if(cartBtn) cartBtn.click();
+        }
+      } catch(e) {
+        console.error('[STICKY] onStickyOfferClick error', e);
+        // Fallback: almeno apri il carrello
+        const cartModal = document.getElementById('cartModal');
+        if(cartModal) {
+          cartModal.classList.add('active');
+          updateCartModal();
+        } else {
+          const cartBtn = document.getElementById('albumCartBtn');
+          if(cartBtn) cartBtn.click();
+        }
+      }
+    }
+    
+    // Esponi la funzione in window per compatibilità
+    window.onStickyOfferClick = onStickyOfferClick;
