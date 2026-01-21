@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Payment completed</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding: 40px 20px 30px;
+        }
+        .success-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 18px;
+            opacity: 0.9;
+            margin-bottom: 30px;
+        }
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            font-size: 18px;
+        }
+        .error {
+            text-align: center;
+            padding: 60px 20px;
+            background: rgba(255, 0, 0, 0.2);
+            border-radius: 12px;
+            margin: 20px;
+        }
+        .photos-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 20px 0;
+        }
+        .photo-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+        }
+        .photo-img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            max-height: 300px;
+            object-fit: contain;
+            background: rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            -webkit-touch-callout: default;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .photo-actions {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
+        .btn-open, .btn-download {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        .btn-open {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+        .btn-download {
+            background: rgba(255, 255, 255, 0.9);
+            color: #5f58ff;
+        }
+        .btn-open:active, .btn-download:active {
+            transform: scale(0.95);
+            opacity: 0.8;
+        }
+        .btn-download-desktop {
+            display: none;
+        }
+        @media (min-width: 768px) {
+            .btn-download-desktop {
+                display: block;
+            }
+        }
+        .back-button {
+            display: block;
+            width: 100%;
+            max-width: 400px;
+            margin: 40px auto;
+            padding: 16px 24px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            text-align: center;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .back-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        .photo-viewer {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .photo-viewer.active {
+            display: flex;
+        }
+        .photo-viewer img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            -webkit-touch-callout: default;
+        }
+        .photo-viewer-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 44px;
+            height: 44px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 50%;
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="success-icon">✅</div>
+            <h1 id="successTitle">Payment completed</h1>
+            <p class="subtitle" id="successSubtitle">Your photos are ready to download</p>
+        </div>
+        
+        <div id="loading" class="loading">Loading your photos...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="photosContainer" style="display: none;">
+            <div class="photos-grid" id="photosGrid"></div>
+            <a href="/" class="back-button" id="backButton">Back to photos</a>
+        </div>
+    </div>
+    
+    <div class="photo-viewer" id="photoViewer">
+        <button class="photo-viewer-close" id="viewerClose">×</button>
+        <img id="viewerImage" src="" alt="Photo">
+    </div>
+    
+    <script>
+        // I18N translations
+        const I18N = {
+            en: {
+                success_title: "Payment completed",
+                success_subtitle: "Your photos are ready to download",
+                loading_photos: "Loading your photos...",
+                error_loading: "Error loading photos. Please try again.",
+                btn_open: "Open",
+                btn_download: "Download",
+                btn_back: "Back to photos"
+            },
+            it: {
+                success_title: "Pagamento completato",
+                success_subtitle: "Le tue foto sono pronte per il download",
+                loading_photos: "Caricamento delle tue foto...",
+                error_loading: "Errore nel caricamento delle foto. Riprova.",
+                btn_open: "Apri",
+                btn_download: "Scarica",
+                btn_back: "Torna alle foto"
+            },
+            es: {
+                success_title: "Pago completado",
+                success_subtitle: "Tus fotos están listas para descargar",
+                loading_photos: "Cargando tus fotos...",
+                error_loading: "Error al cargar las fotos. Inténtalo de nuevo.",
+                btn_open: "Abrir",
+                btn_download: "Descargar",
+                btn_back: "Volver a las fotos"
+            },
+            fr: {
+                success_title: "Paiement terminé",
+                success_subtitle: "Vos photos sont prêtes à télécharger",
+                loading_photos: "Chargement de vos photos...",
+                error_loading: "Erreur lors du chargement des photos. Réessayez.",
+                btn_open: "Ouvrir",
+                btn_download: "Télécharger",
+                btn_back: "Retour aux photos"
+            },
+            de: {
+                success_title: "Zahlung abgeschlossen",
+                success_subtitle: "Ihre Fotos sind zum Download bereit",
+                loading_photos: "Lade Ihre Fotos...",
+                error_loading: "Fehler beim Laden der Fotos. Bitte versuchen Sie es erneut.",
+                btn_open: "Öffnen",
+                btn_download: "Herunterladen",
+                btn_back: "Zurück zu den Fotos"
+            },
+            nl: {
+                success_title: "Betaling voltooid",
+                success_subtitle: "Uw foto's zijn klaar om te downloaden",
+                loading_photos: "Uw foto's laden...",
+                error_loading: "Fout bij het laden van de foto's. Probeer het opnieuw.",
+                btn_open: "Openen",
+                btn_download: "Downloaden",
+                btn_back: "Terug naar foto's"
+            }
+        };
+        
+        // Detect language from URL or localStorage
+        function getLanguage() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const lang = urlParams.get('lang') || localStorage.getItem('selectedLanguage') || 'en';
+            return I18N[lang] ? lang : 'en';
+        }
+        
+        function t(key) {
+            const lang = getLanguage();
+            return I18N[lang]?.[key] || I18N.en[key] || key;
+        }
+        
+        // Detect if we're in DEV mode (localhost)
+        function isDevMode() {
+            const hostname = window.location.hostname;
+            return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+        }
+        
+        // Detect if we're in DEV mode (localhost)
+        function isDevMode() {
+            const hostname = window.location.hostname;
+            return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+        }
+        
+        // Get session_id from URL
+        function getSessionId() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('session_id');
+        }
+        
+        // Load paid photos from /stripe/verify or /dev/mock-success
+        async function loadPaidPhotos() {
+            const sessionId = getSessionId();
+            const devMode = isDevMode();
+            
+            // In DEV mode, if no session_id, use mock endpoint
+            if (devMode && !sessionId) {
+                try {
+                    const res = await fetch('/dev/mock-success');
+                    if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                    }
+                    
+                    const data = await res.json();
+                    if (!data.ok || (!data.photo_ids && !data.paid_photos)) {
+                        showError('No photos found in mock data');
+                        return;
+                    }
+                    
+                    // Show dev mode indicator
+                    showDevModeIndicator();
+                    
+                    // Store email globally
+                    customerEmail = data.customer_email || null;
+                    
+                    // Use paid_photos if available, otherwise use photo_ids
+                    const photoIds = data.paid_photos ? data.paid_photos.map(p => p.photo_id) : data.photo_ids;
+                    renderPhotos(photoIds, customerEmail);
+                    return;
+                } catch (error) {
+                    console.error('Error loading mock photos:', error);
+                    showError('Error loading mock photos: ' + error.message);
+                    return;
+                }
+            }
+            
+            // PROD mode or DEV with session_id: use /stripe/verify
+            if (!sessionId) {
+                if (devMode) {
+                    // In DEV, show button to load mock data
+                    showDevModeIndicator();
+                    return;
+                } else {
+                    showError('No session ID found in URL');
+                    return;
+                }
+            }
+            
+            try {
+                const res = await fetch(`/stripe/verify?session_id=${encodeURIComponent(sessionId)}`);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                
+                const data = await res.json();
+                console.log('[SUCCESS] /stripe/verify response:', data);
+                
+                if (!data.ok) {
+                    console.error('[SUCCESS] Response not ok:', data);
+                    showError('Payment verification failed: ' + (data.detail || 'Unknown error'));
+                    return;
+                }
+                
+                if (!data.photo_ids || data.photo_ids.length === 0) {
+                    console.warn('[SUCCESS] No photo_ids in response:', data);
+                    showError('No paid photos found for this session');
+                    return;
+                }
+                
+                // Store email globally
+                customerEmail = data.customer_email || null;
+                
+                renderPhotos(data.photo_ids, customerEmail);
+            } catch (error) {
+                console.error('Error loading paid photos:', error);
+                showError(t('error_loading'));
+            }
+        }
+        
+        // Show dev mode indicator and mock button
+        function showDevModeIndicator() {
+            const header = document.querySelector('.header');
+            if (!header) return;
+            
+            const devBanner = document.createElement('div');
+            devBanner.id = 'devBanner';
+            devBanner.style.cssText = 'background: rgba(255, 193, 7, 0.2); border: 2px solid rgba(255, 193, 7, 0.5); border-radius: 12px; padding: 15px; margin: 20px 0; text-align: center;';
+            devBanner.innerHTML = `
+                <p style="margin: 0 0 10px; font-weight: 600; font-size: 16px;">🧪 Modalità test</p>
+                <button id="mockOrderBtn" style="padding: 10px 20px; background: rgba(255, 193, 7, 0.9); color: #000; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    Simula ordine pagato
+                </button>
+            `;
+            
+            header.appendChild(devBanner);
+            
+            document.getElementById('mockOrderBtn').onclick = async () => {
+                try {
+                    document.getElementById('loading').style.display = 'block';
+                    document.getElementById('error').style.display = 'none';
+                    document.getElementById('photosContainer').style.display = 'none';
+                    
+                    const res = await fetch('/dev/mock-success');
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    
+                    const data = await res.json();
+                    if (!data.ok) throw new Error('Mock data error');
+                    
+                    customerEmail = data.customer_email || null;
+                    const photoIds = data.paid_photos ? data.paid_photos.map(p => p.photo_id) : data.photo_ids;
+                    renderPhotos(photoIds, customerEmail);
+                } catch (error) {
+                    console.error('Error loading mock:', error);
+                    showError('Error loading mock: ' + error.message);
+                }
+            };
+        }
+        
+        // Render photos grid
+        function renderPhotos(photoIds, email) {
+            const grid = document.getElementById('photosGrid');
+            grid.innerHTML = '';
+            
+            photoIds.forEach(photoId => {
+                // Build photo URL (full quality, no watermark)
+                const photoUrl = email 
+                    ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
+                    : `/photo/${encodeURIComponent(photoId)}?paid=true`;
+                
+                const photoItem = document.createElement('div');
+                photoItem.className = 'photo-item';
+                
+                const img = document.createElement('img');
+                img.src = photoUrl;
+                img.alt = 'Photo';
+                img.className = 'photo-img';
+                img.loading = 'lazy';
+                img.onclick = () => openPhotoViewer(photoUrl);
+                
+                const actions = document.createElement('div');
+                actions.className = 'photo-actions';
+                
+                const btnOpen = document.createElement('button');
+                btnOpen.className = 'btn-open';
+                btnOpen.textContent = t('btn_open');
+                btnOpen.onclick = () => openPhotoViewer(photoUrl);
+                
+                const btnDownload = document.createElement('button');
+                btnDownload.className = 'btn-download btn-download-desktop';
+                btnDownload.textContent = t('btn_download');
+                btnDownload.onclick = () => downloadPhoto(photoUrl, photoId);
+                
+                actions.appendChild(btnOpen);
+                actions.appendChild(btnDownload);
+                
+                photoItem.appendChild(img);
+                photoItem.appendChild(actions);
+                grid.appendChild(photoItem);
+            });
+            
+            // Update translations
+            document.getElementById('successTitle').textContent = t('success_title');
+            document.getElementById('successSubtitle').textContent = t('success_subtitle');
+            const backButton = document.getElementById('backButton');
+            backButton.textContent = t('btn_back');
+            
+            // Update back button URL with email if available
+            if (email) {
+                backButton.href = `/?email=${encodeURIComponent(email)}&view_album=true`;
+            } else {
+                backButton.href = '/';
+            }
+            
+            // Show photos container
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('photosContainer').style.display = 'block';
+        }
+        
+        // Open photo in viewer (for iPhone press & hold)
+        function openPhotoViewer(photoUrl) {
+            const viewer = document.getElementById('photoViewer');
+            const viewerImage = document.getElementById('viewerImage');
+            viewerImage.src = photoUrl;
+            viewer.classList.add('active');
+        }
+        
+        // Close photo viewer
+        document.getElementById('viewerClose').onclick = () => {
+            document.getElementById('photoViewer').classList.remove('active');
+        };
+        
+        // Download photo (desktop)
+        function downloadPhoto(photoUrl, photoId) {
+            const link = document.createElement('a');
+            link.href = photoUrl;
+            link.download = `photo_${photoId}.jpg`;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        // Show error
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+        }
+        
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadPaidPhotos();
+        });
+    </script>
+</body>
+</html>

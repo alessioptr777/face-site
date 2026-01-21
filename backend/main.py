@@ -174,8 +174,21 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 USE_STRIPE = STRIPE_AVAILABLE and bool(STRIPE_SECRET_KEY)
-STRIPE_TEST_MODE = os.getenv("STRIPE_TEST_MODE", "0") == "1"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+
+# Attiva TEST MODE automaticamente in localhost se Stripe non è configurato
+STRIPE_TEST_MODE_ENV = os.getenv("STRIPE_TEST_MODE", "0") == "1"
+# Se non è esplicitamente disabilitato e Stripe non è disponibile, attiva TEST MODE in localhost
+if not STRIPE_TEST_MODE_ENV and not USE_STRIPE:
+    # Rileva se siamo in localhost controllando PUBLIC_BASE_URL
+    is_localhost = "localhost" in PUBLIC_BASE_URL or "127.0.0.1" in PUBLIC_BASE_URL or "0.0.0.0" in PUBLIC_BASE_URL
+    if is_localhost:
+        STRIPE_TEST_MODE = True
+        logger.info("🔧 Auto-enabled STRIPE_TEST_MODE for localhost (Stripe not configured)")
+    else:
+        STRIPE_TEST_MODE = False
+else:
+    STRIPE_TEST_MODE = STRIPE_TEST_MODE_ENV
 
 # Storage per sessioni test (solo in test mode)
 # Chiave: session_id, Valore: {"photo_ids": [...], "customer_email": "..."}
@@ -556,6 +569,67 @@ def debug_index_status():
         "faiss_loaded": faiss_index is not None,
         "meta_loaded": len(meta_rows) > 0
     }
+
+@app.get("/dev/mock-success")
+async def dev_mock_success():
+    """Endpoint mock per sviluppo locale - restituisce dati simulati di ordine pagato"""
+    try:
+        # Prendi alcune foto disponibili (da R2 o da PHOTOS_DIR)
+        photo_ids = []
+        
+        if R2_ONLY_MODE and r2_client:
+            # Se R2_ONLY_MODE, lista foto da R2
+            try:
+                keys_set = await get_r2_keys_set_cached()
+                # Prendi 8 foto a caso (escludi file di sistema)
+                photo_keys = [k for k in keys_set if not k.startswith('faces.') and not k.startswith('wm/') and not k.startswith('thumbs/')]
+                photo_keys = [k for k in photo_keys if any(k.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.heic'])]
+                photo_ids = photo_keys[:8]
+            except Exception as e:
+                logger.warning(f"Error getting R2 keys for mock: {e}")
+        elif PHOTOS_DIR.exists():
+            # Se PHOTOS_DIR esiste, prendi foto da lì
+            try:
+                photo_files = list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.jpeg")) + list(PHOTOS_DIR.glob("*.png"))
+                photo_files = [f for f in photo_files if not f.name.endswith('_watermarked.jpg')]
+                photo_ids = [f.name for f in photo_files[:8]]
+            except Exception as e:
+                logger.warning(f"Error listing photos for mock: {e}")
+        
+        # Se non abbiamo foto, crea ID mock
+        if not photo_ids:
+            photo_ids = [f"mock_photo_{i+1}.jpg" for i in range(8)]
+        
+        # Costruisci paid_photos con URL
+        from urllib.parse import quote
+        paid_photos = []
+        for photo_id in photo_ids:
+            # Usa gli stessi URL pattern del progetto
+            photo_id_encoded = quote(photo_id, safe='')
+            thumb_url = f"/photo/{photo_id_encoded}?variant=thumb"
+            full_url = f"/photo/{photo_id_encoded}?paid=true"
+            
+            paid_photos.append({
+                "photo_id": photo_id,
+                "thumb_url": thumb_url,
+                "full_url": full_url
+            })
+        
+        return {
+            "ok": True,
+            "status": "paid",
+            "order_code": "TEST-ORDER-1234",
+            "customer_email": "test@example.com",
+            "session_id": "mock_session_dev",
+            "photo_ids": photo_ids,  # Per compatibilità con /stripe/verify
+            "paid_photos": paid_photos,  # Formato esteso con URL
+            "payment_status": "paid",
+            "amount_total": 4700,  # 47 euro in centesimi
+            "currency": "eur"
+        }
+    except Exception as e:
+        logger.error(f"Error in dev/mock-success: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Mock error: {str(e)}")
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -6428,6 +6502,7 @@ async def create_checkout_new(
     
     # TEST MODE: simula Stripe senza chiamate reali
     if STRIPE_TEST_MODE:
+        import time
         fake_session = f"test_{int(time.time())}"
         # Salva photo_ids per questo fake session_id (per /stripe/verify)
         test_sessions[fake_session] = {
@@ -6437,8 +6512,12 @@ async def create_checkout_new(
             "amount_total": price_cents,
             "currency": currency
         }
-        redirect_url = f"{PUBLIC_BASE_URL}/?success=1&session_id={fake_session}"
-        logger.info(f"[TEST_MODE] create_checkout -> {redirect_url}, saved {len(photo_ids)} photo_ids")
+        logger.info(f"[TEST_MODE] create_checkout -> saved session {fake_session} with {len(photo_ids)} photo_ids")
+        logger.info(f"[TEST_MODE] Photo IDs: {photo_ids[:5] if len(photo_ids) > 5 else photo_ids}...")
+        logger.info(f"[TEST_MODE] Total test sessions in memory: {len(test_sessions)}")
+        # In test mode, reindirizza alla pagina success invece della home
+        redirect_url = f"{PUBLIC_BASE_URL}/checkout/success?session_id={fake_session}"
+        logger.info(f"[TEST_MODE] create_checkout -> redirecting to: {redirect_url}")
         return {
             "url": redirect_url,
             "mode": "test",
@@ -6502,10 +6581,19 @@ async def verify_stripe_session(
     
     # TEST MODE: gestisci session_id di test
     if STRIPE_TEST_MODE and session_id.startswith("test_"):
+        logger.info(f"[TEST_MODE] verify_stripe_session called with session_id: {session_id}")
+        logger.info(f"[TEST_MODE] Available test sessions: {list(test_sessions.keys())}")
+        
         if session_id in test_sessions:
             session_data = test_sessions[session_id]
-            photo_ids = session_data["photo_ids"]
+            photo_ids = session_data.get("photo_ids", [])
             customer_email = session_data.get("customer_email")
+            
+            logger.info(f"[TEST_MODE] Found session: {session_id}, photo_ids count: {len(photo_ids)}")
+            
+            if not photo_ids:
+                logger.warning(f"[TEST_MODE] Session {session_id} has no photo_ids")
+                raise HTTPException(status_code=400, detail="No photo_ids found in test session")
             
             # IMPORTANTE: Salva le foto come pagate nel database (per velocità: verifica immediata in /photo)
             if customer_email and photo_ids:
@@ -6529,6 +6617,7 @@ async def verify_stripe_session(
             }
         else:
             logger.warning(f"[TEST_MODE] Session not found: {session_id}")
+            logger.warning(f"[TEST_MODE] Available sessions: {list(test_sessions.keys())}")
             raise HTTPException(status_code=404, detail=f"Test session not found: {session_id}")
     
     # PRODUZIONE: Stripe reale
@@ -6670,64 +6759,26 @@ async def create_checkout(
 async def checkout_success(
     request: Request,
     session_id: str = Query(..., description="Stripe session ID"),
-    cart_session: str = Query(..., description="Cart session ID")
+    cart_session: Optional[str] = Query(None, description="Cart session ID (optional)")
 ):
-    """Pagina di successo dopo pagamento - mostra foto direttamente"""
-    try:
-        download_token = None
-        order_data = {}
-        photo_ids = []
-        email = None
-        
-        # Il session_id è lo Stripe session ID (order_id)
-        stripe_session_id = session_id
-        
-        # Prova prima dal database (più affidabile)
+    """Pagina di successo dopo pagamento - serve pagina separata success.html"""
+    # Servi la pagina success.html con i parametri nella query string
+    # La pagina stessa chiamerà /stripe/verify per ottenere le foto
+    success_html_path = STATIC_DIR / "success.html"
+    if success_html_path.exists():
+        return FileResponse(success_html_path)
+    else:
+        # Fallback: genera HTML inline (compatibilità)
         try:
-            row = await _db_execute_one(
-                "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = $1",
-                (stripe_session_id,)
-            )
-            if row:
-                download_token = row['download_token']
-                photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                email = row['email']
-                logger.info(f"Order found in database: {stripe_session_id} - {len(photo_ids)} photos for {email}")
-        except Exception as e:
-            logger.error(f"Error getting order from database: {e}")
-        
-        # Se non trovato nel database, prova dal file JSON
-        if not download_token:
-            order_file = ORDERS_DIR / f"{stripe_session_id}.json"
-            if order_file.exists():
-                try:
-                    with open(order_file, 'r', encoding='utf-8') as f:
-                        order_data = json.load(f)
-                        download_token = order_data.get('download_token')
-                        photo_ids = order_data.get('photo_ids', [])
-                        email = order_data.get('email')
-                        logger.info(f"Order found in file: {stripe_session_id} - {len(photo_ids)} photos for {email}")
-                except Exception as e:
-                    logger.error(f"Error reading order file: {e}")
-        
-        # Se ancora non trovato, aspetta un po' (il webhook potrebbe essere in ritardo)
-        if not download_token:
-            logger.warning(f"Order not found yet: {stripe_session_id}. Webhook might be delayed.")
-            # Prova a recuperare email direttamente da Stripe come fallback
-            if not email and USE_STRIPE:
-                try:
-                    stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
-                    email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
-                    photo_ids_str = stripe_session.get('metadata', {}).get('photo_ids', '')
-                    if photo_ids_str:
-                        photo_ids = photo_ids_str.split(',')
-                    logger.info(f"Retrieved email from Stripe session: {email}")
-                except Exception as e:
-                    logger.error(f"Error retrieving Stripe session: {e}")
+            download_token = None
+            order_data = {}
+            photo_ids = []
+            email = None
             
-            # Aspetta 2 secondi e riprova dal database
-            import asyncio
-            await asyncio.sleep(2)
+            # Il session_id è lo Stripe session ID (order_id)
+            stripe_session_id = session_id
+            
+            # Prova prima dal database (più affidabile)
             try:
                 row = await _db_execute_one(
                     "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = $1",
@@ -6736,77 +6787,122 @@ async def checkout_success(
                 if row:
                     download_token = row['download_token']
                     photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
-                    if not email:  # Usa email dal database se non già recuperata
-                        email = row['email']
-                    logger.info(f"Order found after retry: {stripe_session_id}")
+                    email = row['email']
+                    logger.info(f"Order found in database: {stripe_session_id} - {len(photo_ids)} photos for {email}")
             except Exception as e:
-                logger.error(f"Error retrying order from database: {e}")
-        
-        # Se non abbiamo email ma abbiamo photo_ids, prova a recuperarla da Stripe
-        if not email and photo_ids and USE_STRIPE:
-            try:
-                stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
-                email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
-                if email:
-                    logger.info(f"Recovered email from Stripe session in success page: {email}")
-                    # Se abbiamo email e photo_ids ma non ordine nel DB, crealo ora
-                    if not download_token:
-                        logger.info(f"Creating order manually in success page: {email} - {len(photo_ids)} photos")
-                        # Recupera amount da Stripe session se disponibile
-                        amount_cents = 0
-                        try:
-                            if stripe_session.get('amount_total'):
-                                amount_cents = stripe_session.get('amount_total')
-                        except:
-                            pass
-                        download_token = await _create_order(email, stripe_session_id, stripe_session_id, photo_ids, amount_cents)
-                        if download_token:
-                            logger.info(f"Order created successfully in success page: {download_token}")
-                        else:
-                            logger.error(f"Failed to create order in success page for {email}")
-            except Exception as e:
-                logger.error(f"Error recovering email from Stripe in success page: {e}")
-        
-        base_url = str(request.base_url).rstrip('/')
-        
-        # Genera HTML per le foto (mostra direttamente)
-        photos_html = ""
-        if photo_ids:
-            for photo_id in photo_ids:
-                # Usa il token e paid=true per assicurarsi che sia servita senza watermark
-                photo_url_params = []
-                if download_token:
-                    photo_url_params.append(f"token={download_token}")
-                if email:
-                    photo_url_params.append(f"email={email}")
-                photo_url_params.append("paid=true")  # Forza paid=true per foto pagate
-                photo_url = f"/photo/{photo_id}?{'&'.join(photo_url_params)}"
-                # Escape per JavaScript
-                photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '\\"')
-                email_escaped = (email or "").replace("'", "\\'").replace('"', '\\"')
-                photos_html += f"""
-                <div class="photo-item">
-                    <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;">
-                    <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Download</button>
-                </div>
-                """
-        
-        # Prepara le parti HTML che contengono backslash (non possono essere in f-string)
-        if photos_html:
-            photos_section = f'<div class="photos-grid">{photos_html}</div>'
-        else:
-            photos_section = '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'
-        
-        # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
-        if email:
-            album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
-            album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
-        else:
-            album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
-            album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
-        
-        # Pagina con foto mostrate direttamente
-        html_content = f"""
+                logger.error(f"Error getting order from database: {e}")
+            
+            # Se non trovato nel database, prova dal file JSON
+            if not download_token:
+                order_file = ORDERS_DIR / f"{stripe_session_id}.json"
+                if order_file.exists():
+                    try:
+                        with open(order_file, 'r', encoding='utf-8') as f:
+                            order_data = json.load(f)
+                            download_token = order_data.get('download_token')
+                            photo_ids = order_data.get('photo_ids', [])
+                            email = order_data.get('email')
+                            logger.info(f"Order found in file: {stripe_session_id} - {len(photo_ids)} photos for {email}")
+                    except Exception as e:
+                        logger.error(f"Error reading order file: {e}")
+            
+            # Se ancora non trovato, aspetta un po' (il webhook potrebbe essere in ritardo)
+            if not download_token:
+                logger.warning(f"Order not found yet: {stripe_session_id}. Webhook might be delayed.")
+                # Prova a recuperare email direttamente da Stripe come fallback
+                if not email and USE_STRIPE:
+                    try:
+                        stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
+                        email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
+                        photo_ids_str = stripe_session.get('metadata', {}).get('photo_ids', '')
+                        if photo_ids_str:
+                            photo_ids = photo_ids_str.split(',')
+                        logger.info(f"Retrieved email from Stripe session: {email}")
+                    except Exception as e:
+                        logger.error(f"Error retrieving Stripe session: {e}")
+                
+                # Aspetta 2 secondi e riprova dal database
+                import asyncio
+                await asyncio.sleep(2)
+                try:
+                    row = await _db_execute_one(
+                        "SELECT download_token, photo_ids, email FROM orders WHERE stripe_session_id = $1",
+                        (stripe_session_id,)
+                    )
+                    if row:
+                        download_token = row['download_token']
+                        photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                        if not email:  # Usa email dal database se non già recuperata
+                            email = row['email']
+                        logger.info(f"Order found after retry: {stripe_session_id}")
+                except Exception as e:
+                    logger.error(f"Error retrying order from database: {e}")
+            
+            # Se non abbiamo email ma abbiamo photo_ids, prova a recuperarla da Stripe
+            if not email and photo_ids and USE_STRIPE:
+                try:
+                    stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
+                    email = stripe_session.get('customer_email') or stripe_session.get('customer_details', {}).get('email') or stripe_session.get('metadata', {}).get('email')
+                    if email:
+                        logger.info(f"Recovered email from Stripe session in success page: {email}")
+                        # Se abbiamo email e photo_ids ma non ordine nel DB, crealo ora
+                        if not download_token:
+                            logger.info(f"Creating order manually in success page: {email} - {len(photo_ids)} photos")
+                            # Recupera amount da Stripe session se disponibile
+                            amount_cents = 0
+                            try:
+                                if stripe_session.get('amount_total'):
+                                    amount_cents = stripe_session.get('amount_total')
+                            except:
+                                pass
+                            download_token = await _create_order(email, stripe_session_id, stripe_session_id, photo_ids, amount_cents)
+                            if download_token:
+                                logger.info(f"Order created successfully in success page: {download_token}")
+                            else:
+                                logger.error(f"Failed to create order in success page for {email}")
+                except Exception as e:
+                    logger.error(f"Error recovering email from Stripe in success page: {e}")
+            
+            base_url = str(request.base_url).rstrip('/')
+            
+            # Genera HTML per le foto (mostra direttamente)
+            photos_html = ""
+            if photo_ids:
+                for photo_id in photo_ids:
+                    # Usa il token e paid=true per assicurarsi che sia servita senza watermark
+                    photo_url_params = []
+                    if download_token:
+                        photo_url_params.append(f"token={download_token}")
+                    if email:
+                        photo_url_params.append(f"email={email}")
+                    photo_url_params.append("paid=true")  # Forza paid=true per foto pagate
+                    photo_url = f"/photo/{photo_id}?{'&'.join(photo_url_params)}"
+                    # Escape per JavaScript
+                    photo_id_escaped = photo_id.replace("'", "\\'").replace('"', '\\"')
+                    email_escaped = (email or "").replace("'", "\\'").replace('"', '\\"')
+                    photos_html += f"""
+                    <div class="photo-item">
+                        <img src="{photo_url}" alt="Photo" loading="lazy" class="photo-img" style="cursor: pointer; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;">
+                        <button class="download-btn download-btn-desktop" onclick="downloadPhotoSuccess('{photo_id_escaped}', '{email_escaped}', this)" style="display: none;">📥 Download</button>
+                    </div>
+                    """
+            
+            # Prepara le parti HTML che contengono backslash (non possono essere in f-string)
+            if photos_html:
+                photos_section = f'<div class="photos-grid">{photos_html}</div>'
+            else:
+                photos_section = '<p style="margin: 20px 0; opacity: 0.8; font-size: 18px;">Le foto verranno caricate a breve. Se non compaiono, clicca su "VAI ALL\'ALBUM COMPLETO" qui sotto.</p>'
+            
+            # Link intelligente: se ha email, porta direttamente all'album (con parametro view_album per forzare visualizzazione anche se ha foto pagate)
+            if email:
+                album_button_top = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
+                album_button_bottom = f'<a href="/?email={email}&view_album=true" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
+            else:
+                album_button_top = '<a href="/" class="main-button" style="margin-top: 0; margin-bottom: 30px;">📸 Back to album</a>'
+                album_button_bottom = '<a href="/" class="main-button" style="margin-top: 30px; margin-bottom: 0;">📸 Back to album</a>'
+            
+            # Pagina con foto mostrate direttamente
+            html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -7172,10 +7268,10 @@ async def checkout_success(
         </body>
         </html>
         """
-        
-        return HTMLResponse(html_content)
-    except Exception as e:
-        logger.error(f"Error in checkout success page: {e}")
+            
+            return HTMLResponse(html_content)
+        except Exception as e:
+            logger.error(f"Error in checkout success page: {e}")
         # Fallback semplice
         return HTMLResponse("""
         <!DOCTYPE html>
