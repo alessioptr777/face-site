@@ -462,11 +462,14 @@
             document.getElementById('photosContainer').style.display = 'block';
         }
         
-        // Open photo in viewer (for iPhone press & hold)
+        // Open photo in viewer (cross-platform: inline display)
         function openPhotoViewer(photoUrl) {
+            // Usa URL relativo con parametro per visualizzazione inline
             const viewer = document.getElementById('photoViewer');
             const viewerImage = document.getElementById('viewerImage');
-            viewerImage.src = photoUrl;
+            // Assicurati che l'URL sia relativo e senza download=true
+            const openUrl = photoUrl.replace(/[?&]download=true/, '').replace(/&download=true/, '');
+            viewerImage.src = openUrl;
             viewer.classList.add('active');
         }
         
@@ -475,15 +478,38 @@
             document.getElementById('photoViewer').classList.remove('active');
         };
         
-        // Download photo (desktop)
-        function downloadPhoto(photoUrl, photoId) {
-            const link = document.createElement('a');
-            link.href = photoUrl;
-            link.download = `photo_${photoId}.jpg`;
-            link.target = '_blank';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+        // Download photo (cross-platform: attachment download)
+        async function downloadPhoto(photoUrl, photoId) {
+            try {
+                // Costruisci URL con download=true per forzare Content-Disposition: attachment
+                const downloadUrl = photoUrl.includes('?') 
+                    ? `${photoUrl}&download=true`
+                    : `${photoUrl}?download=true`;
+                
+                // Cross-platform download
+                const response = await fetch(downloadUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                
+                // Usa link temporaneo per download
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Cleanup
+                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Error downloading photo. Please try again.');
+            }
         }
         
         // Show error

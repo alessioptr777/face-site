@@ -3766,8 +3766,9 @@ async def serve_photo(
     # Render: deve essere SEMPRE settato per avere foto istantanee.
     is_render = (os.getenv("RENDER", "").lower() == "true") or bool(os.getenv("RENDER_SERVICE_ID"))
 
-    # Se R2_PUBLIC_BASE_URL è configurato, usa SEMPRE redirect (produzione).
-    if R2_PUBLIC_BASE_URL:
+    # Se R2_PUBLIC_BASE_URL è configurato e NON serve download forzato, usa redirect (produzione).
+    # Se serve download forzato, serviamo direttamente per controllare Content-Disposition.
+    if R2_PUBLIC_BASE_URL and not download:
         public_url = _get_r2_public_url(object_key)
 
         # Track download se pagato (solo per originals/*)
@@ -3776,15 +3777,12 @@ async def serve_photo(
             _track_download(Path(original_key).name)
 
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
-        if download:
-            from pathlib import Path
-            headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
-
-        logger.info(f"[PHOTO] Redirecting to: {object_key}")
+        logger.info(f"[PHOTO] Redirecting to R2 public URL: {object_key}")
         return RedirectResponse(url=public_url, status_code=302, headers=headers)
 
-    # DEV only: se manca R2_PUBLIC_BASE_URL, stream bytes localmente.
-    if is_render:
+    # Se serve download forzato OPPURE manca R2_PUBLIC_BASE_URL, serviamo direttamente.
+    # Questo ci permette di controllare Content-Disposition e Content-Type correttamente.
+    if is_render and not R2_PUBLIC_BASE_URL:
         logger.error("[PHOTO] R2_PUBLIC_BASE_URL missing on Render (must be configured)")
         raise HTTPException(status_code=500, detail="R2_PUBLIC_BASE_URL not configured (required on Render)")
 
@@ -3795,20 +3793,34 @@ async def serve_photo(
             from pathlib import Path
             _track_download(Path(original_key).name)
 
-        headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+        # Headers cross-platform corretti
+        from pathlib import Path
+        filename = Path(original_key).name
+        
+        headers = {
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Content-Type": "image/jpeg"  # Sempre esplicito per compatibilità cross-platform
+        }
+        
+        # Content-Disposition: inline per visualizzazione, attachment per download
         if download:
-            from pathlib import Path
-            headers["Content-Disposition"] = f'attachment; filename="{Path(original_key).name}"'
+            headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        else:
+            headers["Content-Disposition"] = f'inline; filename="{filename}"'
 
-        logger.info(f"[PHOTO] Streaming bytes (dev): {object_key}")
+        logger.info(f"[PHOTO] Streaming bytes: {object_key}, download={download}")
         return Response(content=photo_bytes, media_type="image/jpeg", headers=headers)
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', '')
         if error_code in ('404', 'NoSuchKey'):
             logger.warning(f"[PHOTO] Missing R2 object: {object_key}")
-            raise HTTPException(status_code=404, detail="Photo not found")
+            # 404 pulito: restituisce solo status code senza body HTML/JSON
+            # Questo evita che i browser tentino di renderizzare HTML/JSON come immagine
+            return Response(status_code=404, content=b"", media_type="image/jpeg")
         logger.error(f"[PHOTO] R2 error for {object_key}: {error_code or type(e).__name__}")
         raise HTTPException(status_code=503, detail="R2 storage error")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[PHOTO] Unexpected error serving photo: {type(e).__name__}: {e}, key={object_key}")
         raise HTTPException(status_code=500, detail=f"Error serving photo: {str(e)}")
@@ -7791,9 +7803,26 @@ async def download_photo(
             # Traccia download
             _track_download(photo_id)
             
+            # Headers cross-platform corretti per download
+            from pathlib import Path
+            filename = Path(photo_id).name
+            headers = {
+                "Content-Type": "image/jpeg",
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "public, max-age=31536000, immutable"
+            }
+            
             logger.info(f"PHOTO SERVE: source=R2, filename={photo_id}")
             
-            return Response(content=photo_bytes, media_type="image/jpeg")
+            return Response(content=photo_bytes, media_type="image/jpeg", headers=headers)
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code in ('404', 'NoSuchKey'):
+                logger.warning(f"[DOWNLOAD] Missing R2 object: {photo_id}")
+                # 404 pulito per immagini
+                return Response(status_code=404, content=b"", media_type="image/jpeg")
+            logger.error(f"[DOWNLOAD] R2 error for {photo_id}: {error_code or type(e).__name__}")
+            raise HTTPException(status_code=503, detail="R2 storage error")
         except HTTPException:
             raise
         except Exception as e:
