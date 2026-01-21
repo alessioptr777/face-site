@@ -6553,7 +6553,7 @@ async def create_checkout_new(
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=f'{base_url}/?success=1&session_id={{CHECKOUT_SESSION_ID}}',
+            success_url=f'{base_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}',
             cancel_url=f'{base_url}/',
             metadata={
                 'photo_ids': ','.join(photo_ids),

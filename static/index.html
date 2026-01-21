@@ -3274,31 +3274,19 @@
       initCart();
       
       // 1. Controlla se è ritorno dopo pagamento Stripe (success=1 e session_id)
+      // REDIRECT AUTOMATICO alla pagina success dedicata
       if (hasStripeSuccessParams()) {
         const urlParams = new URLSearchParams(window.location.search);
         const sessionId = urlParams.get('session_id');
         const token = urlParams.get('download_token');
         const sid = sessionId || token;
         
-        // Controlla se questo session_id è già stato "consumato" (anti-refresh)
         if (sid) {
-          const consumedKey = "stripe_consumed_" + sid;
-          if (sessionStorage.getItem(consumedKey) === "1") {
-            console.log('[StripeSuccess] Session ID already consumed, going to normal flow');
-            goToNormalFlowStart();
-            return;
-          }
-        }
-        
-        // Se non consumato, entra nel flusso post-pagamento
-        IS_STRIPE_SUCCESS_FLOW = true;
-        console.log('[StripeSuccess] Detected success params, entering post-payment flow');
-        
-        if (sid) {
-          // FLUSSO POST-PAGAMENTO: carica pagina download usando session_id
-          console.log('[StripeSuccess] Loading album after payment...');
-          await loadAlbumAfterPayment(sid);
-          return;
+          // Reindirizza automaticamente alla pagina success dedicata
+          console.log('[StripeSuccess] Redirecting to dedicated success page...');
+          const successUrl = `/checkout/success?session_id=${encodeURIComponent(sid)}`;
+          window.location.replace(successUrl);
+          return; // Esci subito, non continuare il flusso
         }
       }
       
