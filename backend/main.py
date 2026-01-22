@@ -513,7 +513,7 @@ else:
         logger.warning("   ⚠️  PHOTOS_DIR does not exist!")
 logger.info("=" * 80)
 
-app = FastAPI(title="Face Match API")
+app = FastAPI(title="Face Match API", version="2026-01-07-03-35")
 
 # Exception handler per non loggare 404 su favicon/apple-touch-icon (richieste automatiche browser)
 @app.exception_handler(HTTPException)
