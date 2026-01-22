@@ -6115,20 +6115,38 @@ async def match_selfie(
         
         all_results = filtered_results
         
+        # Estrai photo_ids (filename) da all_results
+        matched_photo_ids = []
+        for r in all_results:
+            photo_id = r.get("photo_id") or r.get("r2_key") or r.get("display_name")
+            if photo_id:
+                # Normalizza: rimuovi prefissi originals/, thumbs/, wm/
+                normalized = photo_id.replace("originals/", "").replace("thumbs/", "").replace("wm/", "").lstrip("/")
+                matched_photo_ids.append(normalized)
+        
+        # Log per debug
+        sample = matched_photo_ids[0] if matched_photo_ids else "none"
+        logger.info(f"[MATCH_RESPONSE] count={len(matched_photo_ids)} sample={sample}")
+        
         # Se non ci sono risultati
         if len(all_results) == 0:
             return {
                 "ok": True,
                 "count": 0,
+                "matched_photo_ids": [],
+                "photo_ids": [],  # Alias per compatibilità
                 "matches": [],
                 "results": [],
                 "matched_count": 0,
-                "message": "Nessuna foto trovata."
+                "message": "Nessuna foto trovata.",
+                "debug_reason": "Nessun match sopra la soglia minima"
             }
         
         return {
             "ok": True,
             "count": len(all_results),
+            "matched_photo_ids": matched_photo_ids,  # Lista di filename trovati
+            "photo_ids": matched_photo_ids,  # Alias identico per compatibilità
             "matches": all_results,
             "results": all_results,
             "matched_count": len(all_results),

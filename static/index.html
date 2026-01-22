@@ -5647,31 +5647,94 @@
           throw new Error(errorMsg);
         }
         
-        // Validazione: verifica che ci sia una lista di photo_ids
-        const mainIds = data.photo_ids || data.photoIds || data.matched_photo_ids || [];
-        const backIds = data.back_photos || data.backPhotos || [];
-        const resultsIds = [];
-        if (Array.isArray(data.results)) {
-          data.results.forEach(item => {
-            if (item.photo_id) resultsIds.push(item.photo_id);
-            else if (item.photoId) resultsIds.push(item.photoId);
-          });
+        // Leggi photo_ids con priorità: 1) matched_photo_ids, 2) photo_ids, 3) estrai da results/matches
+        let allIds = [];
+        
+        // Priorità 1: matched_photo_ids (nuovo formato standard)
+        if (Array.isArray(data.matched_photo_ids) && data.matched_photo_ids.length > 0) {
+          allIds = data.matched_photo_ids;
+          debugLog(`Usando matched_photo_ids: ${allIds.length}`);
         }
-        if (Array.isArray(data.matches)) {
-          data.matches.forEach(item => {
-            if (item.photo_id && !resultsIds.includes(item.photo_id)) resultsIds.push(item.photo_id);
-            else if (item.photoId && !resultsIds.includes(item.photoId)) resultsIds.push(item.photoId);
-          });
+        // Priorità 2: photo_ids (alias/compatibilità)
+        else if (Array.isArray(data.photo_ids) && data.photo_ids.length > 0) {
+          allIds = data.photo_ids;
+          debugLog(`Usando photo_ids: ${allIds.length}`);
+        }
+        // Priorità 3: estrai da results/matches (fallback)
+        else {
+          const resultsIds = [];
+          if (Array.isArray(data.results)) {
+            data.results.forEach(item => {
+              const pid = item.photo_id || item.photoId || item.r2_key || item.display_name;
+              if (pid) {
+                // Normalizza: rimuovi prefissi
+                let normalized = String(pid).replace("originals/", "").replace("thumbs/", "").replace("wm/", "");
+                if (normalized.startsWith("/")) normalized = normalized.substring(1);
+                resultsIds.push(normalized);
+              }
+            });
+          }
+          if (Array.isArray(data.matches)) {
+            data.matches.forEach(item => {
+              const pid = item.photo_id || item.photoId || item.r2_key || item.display_name;
+              if (pid && !resultsIds.includes(pid)) {
+                let normalized = String(pid).replace("originals/", "").replace("thumbs/", "").replace("wm/", "");
+                if (normalized.startsWith("/")) normalized = normalized.substring(1);
+                resultsIds.push(normalized);
+              }
+            });
+          }
+          allIds = [...new Set(resultsIds.filter(Boolean))];
+          debugLog(`Estratto da results/matches: ${allIds.length}`);
         }
         
-        const allIds = [...new Set([...(mainIds||[]), ...(backIds||[]), ...resultsIds].filter(Boolean))];
-        debugLog(`photo_ids: ${allIds.length}`);
+        // Log count ricevuto
+        const receivedCount = data.count || data.matched_count || allIds.length;
+        debugLog(`Count ricevuto: ${receivedCount}, photo_ids estratti: ${allIds.length}`);
+        console.log(`[MATCH_PHOTOS] Count=${receivedCount}, photo_ids=${allIds.length}`);
         
         // Se non ci sono photo_ids, mostra errore
         if (allIds.length === 0) {
-          const errorMsg = "Risposta inattesa: nessun photo_id trovato";
-          debugError({ data, errorMsg });
-          if(langLoadingText) langLoadingText.textContent = errorMsg;
+          const errorMsg = receivedCount > 0 
+            ? "Foto trovate ma anteprime non caricabili. Riprova."
+            : "Risposta inattesa: nessun photo_id trovato";
+          debugError({ data, errorMsg, receivedCount });
+          
+          // Se count > 0 ma allIds vuoto, mostra bottone "Riprova caricamento"
+          if (receivedCount > 0 && langErrorBox) {
+            const errorText = langErrorBox.querySelector('.lang-error-text');
+            if (errorText) {
+              errorText.innerHTML = `${errorMsg}<br><button id="retryLoadBtn" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
+              const retryBtn = document.getElementById('retryLoadBtn');
+              if (retryBtn) {
+                retryBtn.onclick = async () => {
+                  debugLog("Riprova caricamento foto...");
+                  if(langLoading) langLoading.style.display = 'flex';
+                  if(langErrorBox) langErrorBox.style.display = 'none';
+                  
+                  try {
+                    const photosRes = await fetch('/api/photos', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ variant: 'thumb', photo_ids: allIds })
+                    });
+                    if (photosRes.ok) {
+                      const photosData = await photosRes.json();
+                      if (photosData.photos && photosData.photos.length > 0) {
+                        // Ricarica con successo
+                        location.reload();
+                      }
+                    }
+                  } catch (e) {
+                    debugError(e);
+                  }
+                };
+              }
+            }
+          } else if (langLoadingText) {
+            langLoadingText.textContent = errorMsg;
+          }
+          
           photosReady = false;
           photosFailed = true;
           photosSearchPromise = null;

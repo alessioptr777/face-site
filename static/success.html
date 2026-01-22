@@ -347,7 +347,11 @@
                     showDevModeIndicator();
                     return;
                 } else {
-                    showError('No session ID or purchase token found');
+                    // NON mostrare pagina rotta: mostra messaggio chiaro e redirect
+                    showError('Nessun ordine trovato. Reindirizzamento alla galleria...');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 2000);
                     return;
                 }
             }
