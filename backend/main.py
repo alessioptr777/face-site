@@ -6855,6 +6855,108 @@ async def api_checkout_status(
         logger.error(f"[API_CHECKOUT_STATUS] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting checkout status: {str(e)}")
 
+@app.post("/api/photos")
+async def api_photos_post(
+    request: Request,
+    body: dict = Body(...)
+):
+    """
+    Endpoint POST per ottenere URL delle foto (thumb/wm/full).
+    Evita problemi con URL troppo lunghe in GET (Safari/Cloudflare limit).
+    
+    Body: {
+        "variant": "thumb" | "wm" | "full",
+        "photo_ids": ["photo1.jpg", "photo2.jpg", ...]
+    }
+    
+    Returns: {
+        "ok": true,
+        "photos": [
+            {
+                "photo_id": "...",
+                "filename": "...",
+                "url": "...",
+                "direct_url": "...",
+                "direct_thumb_url": "...",  # se variant=thumb
+                "direct_wm_url": "..."      # se variant=wm
+            },
+            ...
+        ]
+    }
+    """
+    from urllib.parse import quote
+    
+    try:
+        variant = body.get("variant", "thumb")
+        photo_ids = body.get("photo_ids", [])
+        
+        if not isinstance(photo_ids, list) or len(photo_ids) == 0:
+            raise HTTPException(status_code=400, detail="photo_ids must be a non-empty array")
+        
+        if variant not in ["thumb", "wm", "full"]:
+            raise HTTPException(status_code=400, detail="variant must be 'thumb', 'wm', or 'full'")
+        
+        logger.info(f"[API_PHOTOS_POST] variant={variant} ids={len(photo_ids)}")
+        
+        photos = []
+        for photo_id in photo_ids:
+            try:
+                # Normalizza photo_id
+                normalized_id = photo_id.lstrip('/').replace('originals/', '').replace('thumbs/', '').replace('wm/', '')
+                
+                # Costruisci URL
+                if variant == "thumb":
+                    object_key = f"thumbs/{normalized_id}"
+                    url = f"/photo/{quote(photo_id, safe='')}?variant=thumb"
+                elif variant == "wm":
+                    object_key = f"wm/{normalized_id}"
+                    url = f"/photo/{quote(photo_id, safe='')}?variant=wm"
+                else:  # full
+                    object_key = f"originals/{normalized_id}"
+                    url = f"/photo/{quote(photo_id, safe='')}"
+                
+                # Costruisci direct_url se R2_PUBLIC_BASE_URL disponibile
+                direct_url = None
+                direct_thumb_url = None
+                direct_wm_url = None
+                
+                if R2_PUBLIC_BASE_URL:
+                    try:
+                        direct_url = _get_r2_public_url(object_key)
+                        if variant == "thumb":
+                            direct_thumb_url = direct_url
+                        elif variant == "wm":
+                            direct_wm_url = direct_url
+                        else:
+                            direct_url = _get_r2_public_url(f"originals/{normalized_id}")
+                    except Exception as e:
+                        logger.warning(f"[API_PHOTOS_POST] Error building direct_url for {photo_id}: {e}")
+                
+                photos.append({
+                    "photo_id": photo_id,
+                    "filename": normalized_id,
+                    "url": url,
+                    "direct_url": direct_url,
+                    "direct_thumb_url": direct_thumb_url if variant == "thumb" else None,
+                    "direct_wm_url": direct_wm_url if variant == "wm" else None,
+                    "variant": variant
+                })
+            except Exception as e:
+                logger.warning(f"[API_PHOTOS_POST] Error processing photo_id {photo_id}: {e}")
+                # Continua con le altre foto anche se una fallisce
+                continue
+        
+        logger.info(f"[API_PHOTOS_POST] Returning {len(photos)} photos")
+        return {
+            "ok": True,
+            "photos": photos
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API_PHOTOS_POST] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting photos: {str(e)}")
+
 @app.post("/checkout")
 async def create_checkout(
     request: Request,

@@ -5528,7 +5528,9 @@
       }
       
       if(!capturedBlob) {
-        console.error("[CONFIRM_FLOW] capturedBlob è null!");
+        const errorMsg = "capturedBlob è null!";
+        debugError(errorMsg);
+        console.error("[CONFIRM_FLOW]", errorMsg);
         // NON tornare a selfie screen, mostra errore nella language screen
         const langLoading = document.getElementById('langLoading');
         const langErrorBox = document.getElementById('langErrorBox');
@@ -5539,14 +5541,17 @@
         return;
       }
 
-      // NON tornare a selfie screen - restiamo sulla language screen
-      // NON mostrare loading qui - sarà gestito da proceedAfterLanguageSelection()
-      // Solo aggiorniamo gli stati quando la ricerca finisce
+      // Mostra stato "Uploading selfie..."
+      debugLog("Uploading selfie...");
+      const langLoading = document.getElementById('langLoading');
+      const langLoadingText = document.getElementById('langLoadingText');
+      if(langLoadingText) langLoadingText.textContent = 'Caricamento selfie...';
       
       try {
-        console.log("[CONFIRM_FLOW] Inizio matchPhotos: invio selfie al server...");
+        const matchStartTime = Date.now();
+        debugLog("Inizio matchPhotos: invio selfie al server...");
         
-      const fd = new FormData();
+        const fd = new FormData();
         fd.append("selfie", capturedBlob, "selfie.jpg");
         
         // Simula progress durante upload (XMLHttpRequest per avere progress reale)
@@ -5555,11 +5560,9 @@
         // Promise per gestire la risposta
         const uploadPromise = new Promise((resolve, reject) => {
           xhr.upload.addEventListener('progress', (e) => {
-            // Progress gestito nella language screen, non qui
             if(e.lengthComputable) {
-              // Log opzionale per debug
               const percent = Math.round((e.loaded / e.total) * 100);
-              console.log(`[CONFIRM_FLOW] Upload progress: ${percent}%`);
+              debugLog(`Upload progress: ${percent}%`);
             }
           });
           
@@ -5567,7 +5570,6 @@
             if(xhr.status >= 200 && xhr.status < 300) {
               resolve(xhr);
             } else {
-              // Crea un errore con più informazioni
               const error = new Error(`HTTP ${xhr.status}: ${xhr.statusText}`);
               error.status = xhr.status;
               error.statusText = xhr.statusText;
@@ -5577,14 +5579,12 @@
           });
           
           xhr.addEventListener('error', (e) => {
-            console.error("XMLHttpRequest error event:", e);
             const error = new Error('Network error');
             error.type = 'network';
             reject(error);
           });
           
           xhr.addEventListener('timeout', () => {
-            console.error("XMLHttpRequest timeout");
             const error = new Error('Request timeout');
             error.type = 'timeout';
             reject(error);
@@ -5596,11 +5596,8 @@
             reject(error);
           });
           
-          // Imposta timeout di 120 secondi (Render può essere lento al risveglio)
           xhr.timeout = 120000;
           
-          // Aggiungi email se disponibile
-          // min_score non passato: usa default server (0.35) che è più sicuro
           let url = '/match_selfie?top_k_faces=120';
           if(userEmail) {
             url += `&email=${encodeURIComponent(userEmail)}`;
@@ -5612,62 +5609,47 @@
         
         await uploadPromise;
         
+        const matchEndTime = Date.now();
+        const matchDuration = matchEndTime - matchStartTime;
         const res = xhr;
-        console.log("✅ Risposta ricevuta, status:", res.status, "OK:", res.status >= 200 && res.status < 300);
-        console.log("Response text length:", res.responseText ? res.responseText.length : 0);
-        console.log("Response type:", res.responseType);
-        console.log("Response headers:", res.getAllResponseHeaders());
         
-        // Log primi caratteri della risposta per debug
-        if(res.responseText && res.responseText.length > 0) {
-          console.log("Response preview (primi 200 char):", res.responseText.substring(0, 200));
-        }
+        debugLog(`match_selfie: ${res.status} in ${matchDuration}ms`);
         
         // Controlla se la risposta è OK
         if(res.status < 200 || res.status >= 300) {
-          console.error("[CONFIRM_FLOW] ❌ Errore HTTP:", res.status, res.statusText);
-          console.error("[CONFIRM_FLOW] Response text completo:", res.responseText);
+          const errorMsg = `Errore HTTP: ${res.status} ${res.statusText}`;
+          debugError({ status: res.status, statusText: res.statusText, responseText: res.responseText });
+          console.error("[CONFIRM_FLOW] ❌", errorMsg);
           
-          // Imposta stato errore (il loading sarà gestito da proceedAfterLanguageSelection)
           photosReady = false;
           photosFailed = true;
           photosSearchPromise = null;
+          
+          // Mostra errore in pagina
+          if(langLoadingText) langLoadingText.textContent = `Errore: ${res.status}`;
           return;
         }
         
-        // Foto trovate - aggiorna stato (il loading sarà gestito da proceedAfterLanguageSelection)
-        photosReady = true;
-        photosFailed = false;
-        
         // Verifica che la risposta non sia vuota
         if(!res.responseText || res.responseText.trim() === '') {
-          console.error("Risposta vuota dal server");
-          throw new Error('Empty response from server');
+          const errorMsg = 'Risposta vuota dal server';
+          debugError(errorMsg);
+          throw new Error(errorMsg);
         }
         
         let data;
         try {
           data = JSON.parse(res.responseText);
-          console.log("[match_selfie] raw data", data);
+          debugLog(`JSON keys: ${Object.keys(data).join(', ')}`);
         } catch(parseError) {
-          console.error("Errore parsing JSON:", parseError);
-          console.error("Response text (primi 500 caratteri):", res.responseText.substring(0, 500));
-          throw new Error(`Invalid JSON response: ${parseError.message}`);
+          const errorMsg = `Invalid JSON: ${parseError.message}`;
+          debugError({ parseError, responsePreview: res.responseText.substring(0, 500) });
+          throw new Error(errorMsg);
         }
         
-        // Parsing robusto: estrai photo_ids da vari campi possibili
-        const mainIds =
-          data.photo_ids || data.photoIds ||
-          data.matched_photo_ids ||
-          (Array.isArray(data.matched_results) ? data.matched_results.map(x => x.photo_id || x.photoId).filter(Boolean) : []) ||
-          (Array.isArray(data.matchedResults) ? data.matchedResults.map(x => x.photo_id || x.photoId).filter(Boolean) : []) ||
-          [];
-        
-        const backIds =
-          data.back_photos || data.backPhotos ||
-          [];
-        
-        // Estrai anche da results/matches (array di oggetti)
+        // Validazione: verifica che ci sia una lista di photo_ids
+        const mainIds = data.photo_ids || data.photoIds || data.matched_photo_ids || [];
+        const backIds = data.back_photos || data.backPhotos || [];
         const resultsIds = [];
         if (Array.isArray(data.results)) {
           data.results.forEach(item => {
@@ -5682,49 +5664,94 @@
           });
         }
         
-        // Combina tutti gli ID unici
         const allIds = [...new Set([...(mainIds||[]), ...(backIds||[]), ...resultsIds].filter(Boolean))];
-        console.log("[match_selfie] allIds", allIds);
+        debugLog(`photo_ids: ${allIds.length}`);
         
-        // Se non ci sono foto, imposta stato errore
+        // Se non ci sono photo_ids, mostra errore
         if (allIds.length === 0) {
-          console.warn("[CONFIRM_FLOW] ⚠️ Nessuna foto trovata - allIds è vuoto");
+          const errorMsg = "Risposta inattesa: nessun photo_id trovato";
+          debugError({ data, errorMsg });
+          if(langLoadingText) langLoadingText.textContent = errorMsg;
           photosReady = false;
           photosFailed = true;
           photosSearchPromise = null;
           return;
         }
         
-        // Se ci sono foto, imposta stato pronto
-        console.log(`[CONFIRM_FLOW] ✅ Trovate ${allIds.length} foto`);
+        // Carica URL delle foto usando POST /api/photos
+        debugLog("Chiamata POST /api/photos...");
+        const photosStartTime = Date.now();
         
-        // Converti allIds in formato allPhotos
-        const photos = data.results || data.matches || [];
-        
-        if(data.ok && allIds.length > 0) {
-          console.log(`[CONFIRM_FLOW] Trovate ${photos.length} foto`);
+        let photosData;
+        try {
+          const photosRes = await fetch('/api/photos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              variant: 'thumb',
+              photo_ids: allIds
+            })
+          });
           
-          // Converti allIds in formato allPhotos
-          let newPhotos = [];
-          if (photos.length > 0) {
-            newPhotos = photos.map(p => ({
-              photo_id: p.photo_id || p.photoId || p.get?.('photo_id'),
-              score: p.score || p.get?.('score', 0) || 0,
+          const photosEndTime = Date.now();
+          const photosDuration = photosEndTime - photosStartTime;
+          
+          if (!photosRes.ok) {
+            throw new Error(`HTTP ${photosRes.status}: ${photosRes.statusText}`);
+          }
+          
+          photosData = await photosRes.json();
+          debugLog(`api/photos POST: ${photosRes.status}, photos=${photosData.photos?.length || 0} in ${photosDuration}ms`);
+          
+          if (!photosData.ok || !photosData.photos || photosData.photos.length === 0) {
+            throw new Error(`api/photos returned no photos: ${JSON.stringify(photosData)}`);
+          }
+        } catch (photosError) {
+          const errorStatus = photosError?.status || (photosError instanceof Response ? photosError.status : null);
+          debugError({ photosError, status: errorStatus });
+          throw photosError;
+        }
+        
+        // Converti in formato allPhotos
+        const photos = data.results || data.matches || [];
+        let newPhotos = [];
+        
+        if (photos.length > 0) {
+          // Usa i dati da /api/photos per thumb_url e wm_url
+          const photosMap = new Map(photosData.photos.map(p => [p.photo_id, p]));
+          newPhotos = photos.map(p => {
+            const photoId = p.photo_id || p.photoId;
+            const apiPhoto = photosMap.get(photoId);
+            return {
+              photo_id: photoId,
+              score: p.score || 0,
               has_face: true,
               paid: false,
-              thumb_url: p.thumb_url || null,
-              wm_url: p.wm_url || null,
-              paid_url: p.paid_url || null
-            }));
-          } else {
-            // Se non abbiamo oggetti completi, crea oggetti semplici da allIds
-            newPhotos = allIds.map(photoId => ({
+              thumb_url: apiPhoto?.direct_thumb_url || apiPhoto?.direct_url || apiPhoto?.url || null,
+              wm_url: null,
+              paid_url: null
+            };
+          });
+        } else {
+          // Se non abbiamo oggetti completi, crea da allIds usando dati da /api/photos
+          const photosMap = new Map(photosData.photos.map(p => [p.photo_id, p]));
+          newPhotos = allIds.map(photoId => {
+            const apiPhoto = photosMap.get(photoId);
+            return {
               photo_id: photoId,
               score: 0,
               has_face: true,
-              paid: false
-            }));
-          }
+              paid: false,
+              thumb_url: apiPhoto?.direct_thumb_url || apiPhoto?.direct_url || apiPhoto?.url || null,
+              wm_url: null,
+              paid_url: null
+            };
+          });
+        }
+        
+        debugLog(`Trovate ${newPhotos.length} foto, rendering...`);
+        
+        if(data.ok && allIds.length > 0) {
           
           // Se stiamo aggiungendo un membro famiglia, fai merge invece di replace
           if(isAddingFamilyMember) {
@@ -5789,13 +5816,16 @@
           photosLoadedCount = 0;
           paidPhotos = [];
           
-          // Imposta stato pronto (il loading sarà gestito da proceedAfterLanguageSelection)
+          // Imposta stato pronto
           photosReady = true;
           photosFailed = false;
-          photosSearchPromise = null; // Reset promise quando finisce con successo
+          photosSearchPromise = null;
+          
+          debugLog("✅ Match completato con successo");
         } else {
           // Questo blocco viene raggiunto solo se data.ok è false MA allIds.length > 0
           // In questo caso, mostra comunque l'album usando allIds
+          debugLog("⚠️ data.ok=false ma ci sono photo_ids, continuo comunque");
           console.warn("⚠️ data.ok è false ma allIds.length > 0, mostrando comunque album");
           console.warn("data.ok:", data.ok);
           console.warn("allIds.length:", allIds.length);
@@ -5890,12 +5920,27 @@
           if(langErrorBox) langErrorBox.style.display = 'block';
         }
       } catch(err) {
+        debugError(err);
         console.error("[CONFIRM_FLOW] Errore nel caricamento foto:", err);
         console.error("[CONFIRM_FLOW] Stack trace:", err.stack);
         console.error("[CONFIRM_FLOW] Tipo errore:", err.name, "Messaggio:", err.message);
         console.error("[CONFIRM_FLOW] Error type:", err.type, "Status:", err.status);
         
-        // Imposta stato errore (il loading sarà gestito da proceedAfterLanguageSelection)
+        // Mostra errore in pagina
+        const langLoading = document.getElementById('langLoading');
+        const langErrorBox = document.getElementById('langErrorBox');
+        const langLoadingText = document.getElementById('langLoadingText');
+        if(langLoading) langLoading.style.display = 'none';
+        if(langErrorBox) {
+          langErrorBox.style.display = 'block';
+          const errorText = langErrorBox.querySelector('.lang-error-text');
+          if(errorText) {
+            errorText.textContent = err.message || 'Errore durante la ricerca foto';
+          }
+        }
+        if(langLoadingText) langLoadingText.textContent = 'Errore';
+        
+        // Imposta stato errore
         photosReady = false;
         photosFailed = true;
         photosSearchPromise = null;
@@ -7663,6 +7708,12 @@
       <div class="deal-subtitle" data-i18n="deal_subtitle">Da adesso in poi ogni foto costa €1.00</div>
       <button id="dealContinueBtn" class="deal-continue-btn" type="button" data-i18n="deal_continue">Continua la selezione</button>
     </div>
+  </div>
+  
+  <!-- Debug Panel (solo se ?debug=1) -->
+  <div id="debugPanel" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; font-size: 11px; padding: 10px; max-height: 200px; overflow-y: auto; z-index: 99999; border-top: 2px solid #0f0;">
+    <div style="font-weight: bold; margin-bottom: 5px; color: #0ff;">DEBUG MODE</div>
+    <div id="debugContent" style="white-space: pre-wrap; word-break: break-all;"></div>
   </div>
 </body>
 </html>
