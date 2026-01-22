@@ -205,7 +205,8 @@
                 error_loading: "Error loading photos. Please try again.",
                 btn_open: "Open",
                 btn_download: "Download",
-                btn_back: "Back to photos"
+                btn_back: "Back to photos",
+                btn_buy_more: "Buy more photos"
             },
             it: {
                 success_title: "Pagamento completato",
@@ -214,7 +215,8 @@
                 error_loading: "Errore nel caricamento delle foto. Riprova.",
                 btn_open: "Apri",
                 btn_download: "Scarica",
-                btn_back: "Torna alle foto"
+                btn_back: "Torna alle foto",
+                btn_buy_more: "Acquista altre foto"
             },
             es: {
                 success_title: "Pago completado",
@@ -223,7 +225,8 @@
                 error_loading: "Error al cargar las fotos. Inténtalo de nuevo.",
                 btn_open: "Abrir",
                 btn_download: "Descargar",
-                btn_back: "Volver a las fotos"
+                btn_back: "Volver a las fotos",
+                btn_buy_more: "Comprar más fotos"
             },
             fr: {
                 success_title: "Paiement terminé",
@@ -232,7 +235,8 @@
                 error_loading: "Erreur lors du chargement des photos. Réessayez.",
                 btn_open: "Ouvrir",
                 btn_download: "Télécharger",
-                btn_back: "Retour aux photos"
+                btn_back: "Retour aux photos",
+                btn_buy_more: "Acheter plus de photos"
             },
             de: {
                 success_title: "Zahlung abgeschlossen",
@@ -241,7 +245,8 @@
                 error_loading: "Fehler beim Laden der Fotos. Bitte versuchen Sie es erneut.",
                 btn_open: "Öffnen",
                 btn_download: "Herunterladen",
-                btn_back: "Zurück zu den Fotos"
+                btn_back: "Zurück zu den Fotos",
+                btn_buy_more: "Mehr Fotos kaufen"
             },
             nl: {
                 success_title: "Betaling voltooid",
@@ -250,7 +255,8 @@
                 error_loading: "Fout bij het laden van de foto's. Probeer het opnieuw.",
                 btn_open: "Openen",
                 btn_download: "Downloaden",
-                btn_back: "Terug naar foto's"
+                btn_back: "Terug naar foto's",
+                btn_buy_more: "Meer foto's kopen"
             }
         };
         
@@ -284,13 +290,27 @@
             return urlParams.get('session_id');
         }
         
-        // Load paid photos from /stripe/verify or /dev/mock-success
+        // Get purchase_token from localStorage
+        function getPurchaseToken() {
+            return localStorage.getItem('purchase_token');
+        }
+        
+        // Save purchase_token to localStorage
+        function savePurchaseToken(token) {
+            if (token) {
+                localStorage.setItem('purchase_token', token);
+                console.log('[SUCCESS] Saved purchase_token to localStorage');
+            }
+        }
+        
+        // Load paid photos from /api/checkout/status
         async function loadPaidPhotos() {
             const sessionId = getSessionId();
+            const purchaseToken = getPurchaseToken();
             const devMode = isDevMode();
             
-            // In DEV mode, if no session_id, use mock endpoint
-            if (devMode && !sessionId) {
+            // In DEV mode, if no session_id and no purchase_token, use mock endpoint
+            if (devMode && !sessionId && !purchaseToken) {
                 try {
                     const res = await fetch('/dev/mock-success');
                     if (!res.ok) {
@@ -311,7 +331,7 @@
                     
                     // Use paid_photos if available, otherwise use photo_ids
                     const photoIds = data.paid_photos ? data.paid_photos.map(p => p.photo_id) : data.photo_ids;
-                    renderPhotos(photoIds, customerEmail);
+                    renderPhotos(photoIds, customerEmail, null, null);
                     return;
                 } catch (error) {
                     console.error('Error loading mock photos:', error);
@@ -320,26 +340,36 @@
                 }
             }
             
-            // PROD mode or DEV with session_id: use /stripe/verify
-            if (!sessionId) {
+            // PROD mode or DEV with session_id/purchase_token: use /api/checkout/status
+            if (!sessionId && !purchaseToken) {
                 if (devMode) {
                     // In DEV, show button to load mock data
                     showDevModeIndicator();
                     return;
                 } else {
-                    showError('No session ID found in URL');
+                    showError('No session ID or purchase token found');
                     return;
                 }
             }
             
             try {
-                const res = await fetch(`/stripe/verify?session_id=${encodeURIComponent(sessionId)}`);
+                // Costruisci URL per /api/checkout/status
+                let apiUrl = '/api/checkout/status?';
+                if (sessionId) {
+                    apiUrl += `session_id=${encodeURIComponent(sessionId)}`;
+                }
+                if (purchaseToken) {
+                    if (sessionId) apiUrl += '&';
+                    apiUrl += `purchase_token=${encodeURIComponent(purchaseToken)}`;
+                }
+                
+                const res = await fetch(apiUrl);
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
                 
                 const data = await res.json();
-                console.log('[SUCCESS] /stripe/verify response:', data);
+                console.log('[SUCCESS] /api/checkout/status response:', data);
                 
                 if (!data.ok) {
                     console.error('[SUCCESS] Response not ok:', data);
@@ -347,16 +377,27 @@
                     return;
                 }
                 
-                if (!data.photo_ids || data.photo_ids.length === 0) {
-                    console.warn('[SUCCESS] No photo_ids in response:', data);
-                    showError('No paid photos found for this session');
+                if (!data.purchased_photo_ids || data.purchased_photo_ids.length === 0) {
+                    console.warn('[SUCCESS] No purchased_photo_ids in response:', data);
+                    showError('No paid photos found');
                     return;
                 }
                 
                 // Store email globally
                 customerEmail = data.customer_email || null;
                 
-                renderPhotos(data.photo_ids, customerEmail);
+                // Salva purchase_token se session_id fornito (per persistenza)
+                if (sessionId) {
+                    savePurchaseToken(sessionId);
+                }
+                
+                // Renderizza foto con unlocked_urls e remaining_photo_ids
+                renderPhotos(
+                    data.purchased_photo_ids, 
+                    customerEmail, 
+                    data.unlocked_urls || {},
+                    data.remaining_photo_ids || []
+                );
             } catch (error) {
                 console.error('Error loading paid photos:', error);
                 showError(t('error_loading'));
@@ -394,7 +435,7 @@
                     
                     customerEmail = data.customer_email || null;
                     const photoIds = data.paid_photos ? data.paid_photos.map(p => p.photo_id) : data.photo_ids;
-                    renderPhotos(photoIds, customerEmail);
+                    renderPhotos(photoIds, customerEmail, null, null);
                 } catch (error) {
                     console.error('Error loading mock:', error);
                     showError('Error loading mock: ' + error.message);
@@ -403,15 +444,17 @@
         }
         
         // Render photos grid
-        function renderPhotos(photoIds, email) {
+        function renderPhotos(photoIds, email, unlockedUrls, remainingPhotoIds) {
             const grid = document.getElementById('photosGrid');
             grid.innerHTML = '';
             
             photoIds.forEach(photoId => {
-                // Build photo URL (full quality, no watermark)
-                const photoUrl = email 
-                    ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
-                    : `/photo/${encodeURIComponent(photoId)}?paid=true`;
+                // Usa unlocked_urls se disponibile (full quality R2), altrimenti fallback a /photo
+                const photoUrl = unlockedUrls && unlockedUrls[photoId] 
+                    ? unlockedUrls[photoId]
+                    : (email 
+                        ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
+                        : `/photo/${encodeURIComponent(photoId)}?paid=true`);
                 
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
@@ -455,6 +498,34 @@
                 backButton.href = `/?email=${encodeURIComponent(email)}&view_album=true`;
             } else {
                 backButton.href = '/';
+            }
+            
+            // Se ci sono remaining_photo_ids, aggiungi bottone "Acquista altre foto"
+            if (remainingPhotoIds && remainingPhotoIds.length > 0) {
+                // Rimuovi eventuale bottone esistente
+                const existingBuyMore = document.getElementById('buyMoreBtn');
+                if (existingBuyMore) {
+                    existingBuyMore.remove();
+                }
+                
+                const buyMoreBtn = document.createElement('a');
+                buyMoreBtn.id = 'buyMoreBtn';
+                buyMoreBtn.href = '#';
+                buyMoreBtn.className = 'back-button';
+                buyMoreBtn.style.cssText = 'background: rgba(255, 255, 255, 0.9); color: #5f58ff; margin-top: 20px;';
+                buyMoreBtn.textContent = t('btn_buy_more') || `Acquista altre ${remainingPhotoIds.length} foto`;
+                buyMoreBtn.onclick = (e) => {
+                    e.preventDefault();
+                    // Salva remaining_photo_ids in sessionStorage per la pagina principale
+                    sessionStorage.setItem('remaining_photo_ids', JSON.stringify(remainingPhotoIds));
+                    window.location.href = '/';
+                };
+                
+                const container = document.getElementById('photosContainer');
+                if (container) {
+                    // Inserisci prima del back button
+                    container.insertBefore(buyMoreBtn, backButton);
+                }
             }
             
             // Show photos container

@@ -3273,6 +3273,15 @@
       // Carrello sempre vuoto all'inizio (si svuota ad ogni refresh)
       initCart();
       
+      // 0. PERSISTENZA: Se esiste purchase_token in localStorage, mostra direttamente success page
+      const purchaseToken = localStorage.getItem('purchase_token');
+      if (purchaseToken && !hasStripeSuccessParams()) {
+        console.log('[BOOTAPP] Found purchase_token in localStorage, redirecting to success page...');
+        const successUrl = `/checkout/success?purchase_token=${encodeURIComponent(purchaseToken)}`;
+        window.location.replace(successUrl);
+        return; // Esci subito, non continuare il flusso
+      }
+      
       // 1. Controlla se è ritorno dopo pagamento Stripe (success=1 e session_id)
       // REDIRECT AUTOMATICO alla pagina success dedicata
       if (hasStripeSuccessParams()) {
@@ -3290,7 +3299,22 @@
         }
       }
       
-      // 2. Mostra sempre schermata welcome (poi selfie)
+      // 2. Se ci sono remaining_photo_ids in sessionStorage, selezionale automaticamente
+      const remainingPhotoIdsStr = sessionStorage.getItem('remaining_photo_ids');
+      if (remainingPhotoIdsStr) {
+        try {
+          const remainingPhotoIds = JSON.parse(remainingPhotoIdsStr);
+          console.log('[BOOTAPP] Found remaining_photo_ids in sessionStorage:', remainingPhotoIds.length);
+          // Salva in variabile globale per uso futuro (quando le foto vengono caricate)
+          window.remainingPhotoIds = remainingPhotoIds;
+          // Rimuovi da sessionStorage dopo averlo letto
+          sessionStorage.removeItem('remaining_photo_ids');
+        } catch (e) {
+          console.warn('[BOOTAPP] Error parsing remaining_photo_ids:', e);
+        }
+      }
+      
+      // 3. Mostra sempre schermata welcome (poi selfie)
       console.log('Mostrando schermata welcome');
       try {
         showScreen('welcome');

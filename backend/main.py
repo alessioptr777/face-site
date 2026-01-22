@@ -6689,6 +6689,172 @@ async def verify_stripe_session(
         logger.error(f"Error retrieving Stripe session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
+@app.get("/api/checkout/status")
+async def api_checkout_status(
+    session_id: Optional[str] = Query(None, description="Stripe session ID (opzionale se purchase_token fornito)"),
+    purchase_token: Optional[str] = Query(None, description="Purchase token salvato in localStorage (opzionale)")
+):
+    """
+    Endpoint per ottenere lo stato del checkout e le foto sbloccate.
+    Ritorna purchased_photo_ids, unlocked_urls (full quality), e remaining_photo_ids.
+    
+    Args:
+        session_id: Stripe session ID (se fornito, verifica pagamento)
+        purchase_token: Token di acquisto salvato in localStorage (se fornito, recupera da DB)
+    
+    Returns:
+        {
+            "ok": true,
+            "purchased_photo_ids": ["photo1.jpg", "photo2.jpg"],
+            "unlocked_urls": {
+                "photo1.jpg": "https://r2.../originals/photo1.jpg",
+                "photo2.jpg": "https://r2.../originals/photo2.jpg"
+            },
+            "remaining_photo_ids": ["photo3.jpg", "photo4.jpg"],  # Se esistono
+            "customer_email": "user@example.com"
+        }
+    """
+    from urllib.parse import quote
+    
+    logger.info(f"[API_CHECKOUT_STATUS] Called with session_id={session_id}, purchase_token={'***' if purchase_token else None}")
+    
+    try:
+        purchased_photo_ids = []
+        customer_email = None
+        
+        # Verifica che almeno uno dei parametri sia fornito
+        if not session_id and not purchase_token:
+            logger.warning("[API_CHECKOUT_STATUS] Missing both session_id and purchase_token")
+            raise HTTPException(status_code=400, detail="Either session_id or purchase_token must be provided")
+        
+        # Se purchase_token fornito, recupera da DB
+        if purchase_token:
+            logger.info(f"[API_CHECKOUT_STATUS] Looking up order by purchase_token...")
+            try:
+                if not USE_POSTGRES:
+                    logger.warning("[API_CHECKOUT_STATUS] Database not available (USE_POSTGRES=False), cannot lookup by purchase_token")
+                    raise HTTPException(status_code=503, detail="Database not available")
+                
+                row = await _db_execute_one(
+                    "SELECT photo_ids, email FROM orders WHERE download_token = $1 OR stripe_session_id = $1",
+                    (purchase_token,)
+                )
+                if row:
+                    purchased_photo_ids = json.loads(row['photo_ids']) if row['photo_ids'] else []
+                    customer_email = row['email']
+                    logger.info(f"[API_CHECKOUT_STATUS] Found order by purchase_token: {len(purchased_photo_ids)} photos for {customer_email}")
+                else:
+                    logger.warning(f"[API_CHECKOUT_STATUS] No order found for purchase_token")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"[API_CHECKOUT_STATUS] Error getting order by purchase_token: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        
+        # Se session_id fornito, verifica con Stripe
+        if session_id and not purchased_photo_ids:
+            logger.info(f"[API_CHECKOUT_STATUS] Verifying session_id with Stripe...")
+            try:
+                verify_result = await verify_stripe_session(session_id)
+                if verify_result.get("ok"):
+                    purchased_photo_ids = verify_result.get("photo_ids", [])
+                    customer_email = verify_result.get("customer_email")
+                    logger.info(f"[API_CHECKOUT_STATUS] Verified session_id: {len(purchased_photo_ids)} photos for {customer_email}")
+                else:
+                    logger.warning(f"[API_CHECKOUT_STATUS] Stripe verification returned !ok: {verify_result}")
+            except HTTPException as e:
+                logger.error(f"[API_CHECKOUT_STATUS] HTTPException from verify_stripe_session: {e.status_code} - {e.detail}")
+                raise
+            except Exception as e:
+                logger.error(f"[API_CHECKOUT_STATUS] Error verifying session_id: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Stripe verification error: {str(e)}")
+        
+        if not purchased_photo_ids:
+            logger.warning(f"[API_CHECKOUT_STATUS] No purchased photos found (session_id={session_id}, purchase_token={'***' if purchase_token else None})")
+            raise HTTPException(status_code=404, detail="No purchased photos found")
+        
+        # Costruisci unlocked_urls (full quality, no watermark) per ogni foto acquistata
+        unlocked_urls = {}
+        if R2_PUBLIC_BASE_URL:
+            for photo_id in purchased_photo_ids:
+                try:
+                    # Normalizza photo_id (rimuovi prefissi)
+                    normalized_id = photo_id.lstrip('/').replace('originals/', '').replace('thumbs/', '').replace('wm/', '')
+                    # Costruisci URL diretto R2 per originals (full quality)
+                    object_key = f"originals/{normalized_id}"
+                    direct_url = _get_r2_public_url(object_key)
+                    unlocked_urls[photo_id] = direct_url
+                except Exception as e:
+                    logger.warning(f"[API_CHECKOUT_STATUS] Error building URL for {photo_id}: {e}")
+                    # Fallback: usa endpoint /photo
+                    unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true"
+        else:
+            # Fallback: usa endpoint /photo se R2_PUBLIC_BASE_URL non configurato
+            for photo_id in purchased_photo_ids:
+                unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true"
+        
+        # Calcola remaining_photo_ids (tutte le foto disponibili meno quelle acquistate)
+        remaining_photo_ids = []
+        try:
+            # Ottieni tutte le foto disponibili da R2
+            all_available_photos = set()
+            
+            if USE_R2 and r2_client:
+                try:
+                    # Lista tutte le foto originali da R2
+                    paginator = r2_client.get_paginator('list_objects_v2')
+                    prefix = R2_PHOTOS_PREFIX if R2_PHOTOS_PREFIX else ""
+                    
+                    for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
+                        for obj in page.get('Contents', []):
+                            key = obj['Key']
+                            # Filtra solo originals (non thumbs, wm, faces, ecc.)
+                            if key.startswith("originals/") and not key.startswith("faces."):
+                                # Estrai filename (rimuovi prefisso originals/)
+                                filename = key.replace("originals/", "").lstrip('/')
+                                if filename:
+                                    all_available_photos.add(filename)
+                    
+                    logger.info(f"[API_CHECKOUT_STATUS] Found {len(all_available_photos)} available photos from R2")
+                except Exception as e:
+                    logger.warning(f"[API_CHECKOUT_STATUS] Error listing R2 photos: {e}")
+            
+            # Se non abbiamo foto da R2, prova dal database (meta_rows)
+            if not all_available_photos:
+                try:
+                    # Carica meta_rows se disponibili
+                    if 'meta_rows' in globals() and meta_rows:
+                        for row in meta_rows:
+                            photo_id = row.get('photo_id') or row.get('r2_key', '').replace('originals/', '')
+                            if photo_id:
+                                all_available_photos.add(photo_id)
+                        logger.info(f"[API_CHECKOUT_STATUS] Found {len(all_available_photos)} available photos from meta_rows")
+                except Exception as e:
+                    logger.warning(f"[API_CHECKOUT_STATUS] Error getting photos from meta_rows: {e}")
+            
+            # Calcola remaining: tutte le foto disponibili meno quelle acquistate
+            purchased_set = set(purchased_photo_ids)
+            remaining_photo_ids = [pid for pid in all_available_photos if pid not in purchased_set]
+            
+            logger.info(f"[API_CHECKOUT_STATUS] Remaining photos: {len(remaining_photo_ids)}")
+        except Exception as e:
+            logger.warning(f"[API_CHECKOUT_STATUS] Error calculating remaining photos: {e}")
+            # Se errore, non includere remaining_photo_ids (non critico)
+            remaining_photo_ids = []
+        
+        return {
+            "ok": True,
+            "purchased_photo_ids": purchased_photo_ids,
+            "unlocked_urls": unlocked_urls,
+            "remaining_photo_ids": remaining_photo_ids,
+            "customer_email": customer_email
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API_CHECKOUT_STATUS] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting checkout status: {str(e)}")
+
 @app.post("/checkout")
 async def create_checkout(
     request: Request,
@@ -6770,14 +6936,17 @@ async def create_checkout(
 @app.get("/checkout/success")
 async def checkout_success(
     request: Request,
-    session_id: str = Query(..., description="Stripe session ID"),
+    session_id: Optional[str] = Query(None, description="Stripe session ID (opzionale)"),
+    purchase_token: Optional[str] = Query(None, description="Purchase token (opzionale)"),
     cart_session: Optional[str] = Query(None, description="Cart session ID (optional)")
 ):
     """Pagina di successo dopo pagamento - serve pagina separata success.html"""
+    logger.info(f"[CHECKOUT_SUCCESS] Request: session_id={session_id}, purchase_token={purchase_token}, cart_session={cart_session}")
     # Servi la pagina success.html con i parametri nella query string
-    # La pagina stessa chiamerà /stripe/verify per ottenere le foto
+    # La pagina stessa chiamerà /api/checkout/status per ottenere le foto
     success_html_path = STATIC_DIR / "success.html"
     if success_html_path.exists():
+        logger.info(f"[CHECKOUT_SUCCESS] Serving success.html from: {success_html_path.resolve()}")
         return FileResponse(success_html_path)
     else:
         # Fallback: genera HTML inline (compatibilità)
@@ -8786,3 +8955,56 @@ async def admin_reset_database(request: Request):
     except Exception as e:
         logger.error(f"Error resetting database: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error resetting database: {str(e)}")
+
+# SPA Fallback: catch-all route per tutte le route frontend (eccetto /api/*, /static/*, /photo/*, ecc.)
+@app.get("/{path:path}", response_class=HTMLResponse)
+async def spa_fallback(request: Request, path: str):
+    """
+    Catch-all route per SPA: serve index.html per tutte le route frontend.
+    Esclude route API, static files, e endpoint specifici.
+    """
+    # Route da escludere (servite da endpoint specifici)
+    excluded_prefixes = [
+        "/api/",
+        "/static/",
+        "/photo/",
+        "/thumb/",
+        "/wm/",
+        "/download/",
+        "/health",
+        "/debug/",
+        "/dev/",
+        "/admin/",
+        "/checkout/",
+        "/stripe/",
+        "/match_selfie",
+        "/register_user",
+        "/check_user",
+        "/user/",
+        "/my-photos",
+        "/favicon.ico",
+        "/apple-touch-icon",
+    ]
+    
+    # Verifica se la route è esclusa
+    full_path = f"/{path}" if not path.startswith("/") else path
+    for excluded in excluded_prefixes:
+        if full_path.startswith(excluded):
+            # Route esclusa: ritorna 404
+            raise HTTPException(status_code=404, detail=f"Route not found: {full_path}")
+    
+    # Route frontend: serve index.html (SPA fallback)
+    index_path = STATIC_DIR / "index.html"
+    if not index_path.exists():
+        logger.error(f"[SPA_FALLBACK] index.html not found at: {index_path.resolve()}")
+        raise HTTPException(status_code=500, detail=f"index.html not found: {index_path}")
+    
+    logger.info(f"[SPA_FALLBACK] Serving index.html for route: {full_path}")
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
