@@ -5790,12 +5790,52 @@
           debugLog(`api/photos POST: ${photosRes.status}, photos=${photosData.photos?.length || 0} in ${photosDuration}ms`);
           
           if (!photosData.ok || !photosData.photos || photosData.photos.length === 0) {
-            throw new Error(`api/photos returned no photos: ${JSON.stringify(photosData)}`);
+            const errorMsg = "Foto trovate ma anteprime non caricabili. Riprova.";
+            debugError({ photosData, errorMsg });
+            // Mostra errore con bottone retry
+            const langLoading = document.getElementById('langLoading');
+            const langErrorBox = document.getElementById('langErrorBox');
+            if(langLoading) langLoading.style.display = 'none';
+            if(langErrorBox) {
+              langErrorBox.style.display = 'block';
+              const errorText = langErrorBox.querySelector('.lang-error-text');
+              if (errorText) {
+                errorText.innerHTML = `${errorMsg}<br><button id="retryLoadBtn2" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
+                const retryBtn = document.getElementById('retryLoadBtn2');
+                if (retryBtn) {
+                  retryBtn.onclick = () => location.reload();
+                }
+              }
+            }
+            photosReady = false;
+            photosFailed = true;
+            photosSearchPromise = null;
+            return;
           }
         } catch (photosError) {
           const errorStatus = photosError?.status || (photosError instanceof Response ? photosError.status : null);
           debugError({ photosError, status: errorStatus });
-          throw photosError;
+          
+          // Mostra errore con bottone retry
+          const langLoading = document.getElementById('langLoading');
+          const langErrorBox = document.getElementById('langErrorBox');
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) {
+            langErrorBox.style.display = 'block';
+            const errorText = langErrorBox.querySelector('.lang-error-text');
+            if (errorText) {
+              errorText.innerHTML = `Errore caricamento: ${photosError.message || 'Errore sconosciuto'}<br><button id="retryLoadBtn3" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
+              const retryBtn = document.getElementById('retryLoadBtn3');
+              if (retryBtn) {
+                retryBtn.onclick = () => location.reload();
+              }
+            }
+          }
+          
+          photosReady = false;
+          photosFailed = true;
+          photosSearchPromise = null;
+          return;
         }
         
         // Converti in formato allPhotos
