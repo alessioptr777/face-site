@@ -383,7 +383,10 @@
                 
                 if (!data.purchased_photo_ids || data.purchased_photo_ids.length === 0) {
                     console.warn('[SUCCESS] No purchased_photo_ids in response:', data);
-                    showError('No paid photos found');
+                    showError('Nessuna foto acquistata trovata. Reindirizzamento alla galleria...');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 2000);
                     return;
                 }
                 
@@ -391,8 +394,12 @@
                 customerEmail = data.customer_email || null;
                 
                 // Salva purchase_token se session_id fornito (per persistenza)
+                // Usa session_id come purchase_token se non c'è un token dedicato
                 if (sessionId) {
                     savePurchaseToken(sessionId);
+                } else if (purchaseToken) {
+                    // Mantieni il purchase_token esistente
+                    savePurchaseToken(purchaseToken);
                 }
                 
                 // Renderizza foto con unlocked_urls e remaining_photo_ids

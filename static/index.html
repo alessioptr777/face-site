@@ -3273,13 +3273,36 @@
       // Carrello sempre vuoto all'inizio (si svuota ad ogni refresh)
       initCart();
       
-      // 0. PERSISTENZA: Se esiste purchase_token in localStorage, mostra direttamente success page
+      // 0. PERSISTENZA: Se esiste purchase_token in localStorage, verifica prima di redirectare
       const purchaseToken = localStorage.getItem('purchase_token');
       if (purchaseToken && !hasStripeSuccessParams()) {
-        console.log('[BOOTAPP] Found purchase_token in localStorage, redirecting to success page...');
-        const successUrl = `/checkout/success?purchase_token=${encodeURIComponent(purchaseToken)}`;
-        window.location.replace(successUrl);
-        return; // Esci subito, non continuare il flusso
+        console.log('[BOOTAPP] Found purchase_token in localStorage, verifying...');
+        try {
+          // Ping leggero per verificare se il token è valido
+          const verifyRes = await fetch(`/api/checkout/status?purchase_token=${encodeURIComponent(purchaseToken)}`);
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json();
+            if (verifyData.ok && verifyData.purchased_photo_ids && verifyData.purchased_photo_ids.length > 0) {
+              // Token valido: redirect a success page
+              console.log('[BOOTAPP] Token valido, redirecting to success page...');
+              const successUrl = `/checkout/success?purchase_token=${encodeURIComponent(purchaseToken)}`;
+              window.location.replace(successUrl);
+              return; // Esci subito, non continuare il flusso
+            } else {
+              // Token invalido: cancella e resta in home
+              console.log('[BOOTAPP] Token invalido, cancelling...');
+              localStorage.removeItem('purchase_token');
+            }
+          } else {
+            // Errore: cancella token e resta in home
+            console.log('[BOOTAPP] Errore verifica token, cancelling...');
+            localStorage.removeItem('purchase_token');
+          }
+        } catch (e) {
+          // Errore: cancella token e resta in home
+          console.error('[BOOTAPP] Errore verifica token:', e);
+          localStorage.removeItem('purchase_token');
+        }
       }
       
       // 1. Controlla se è ritorno dopo pagamento Stripe (success=1 e session_id)
