@@ -8956,12 +8956,14 @@ async def admin_reset_database(request: Request):
         logger.error(f"Error resetting database: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error resetting database: {str(e)}")
 
-# SPA Fallback: catch-all route per tutte le route frontend (eccetto /api/*, /static/*, /photo/*, ecc.)
-@app.get("/{path:path}", response_class=HTMLResponse)
+# SPA Fallback: catch-all route per tutte le route frontend GET (eccetto /api/*, /static/*, /photo/*, ecc.)
+# IMPORTANTE: Questa route deve essere l'ULTIMA definita, dopo tutte le altre route specifiche
+@app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
 async def spa_fallback(request: Request, path: str):
     """
-    Catch-all route per SPA: serve index.html per tutte le route frontend.
+    Catch-all route per SPA: serve index.html per tutte le route frontend GET.
     Esclude route API, static files, e endpoint specifici.
+    Questa route deve essere l'ultima definita per non interferire con altre route.
     """
     # Route da escludere (servite da endpoint specifici)
     excluded_prefixes = [
@@ -8980,10 +8982,15 @@ async def spa_fallback(request: Request, path: str):
         "/match_selfie",
         "/register_user",
         "/check_user",
+        "/check_date",
         "/user/",
         "/my-photos",
+        "/family/",
+        "/cart",
         "/favicon.ico",
         "/apple-touch-icon",
+        "/test",
+        "/album",
     ]
     
     # Verifica se la route è esclusa
