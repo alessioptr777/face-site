@@ -3273,7 +3273,9 @@
       // Carrello sempre vuoto all'inizio (si svuota ad ogni refresh)
       initCart();
       
+      // TODO: DISATTIVATO TEMPORANEAMENTE - riattivare dopo fix flusso selfie->galleria
       // 0. PERSISTENZA: Se esiste purchase_token in localStorage, verifica prima di redirectare
+      /*
       const purchaseToken = localStorage.getItem('purchase_token');
       if (purchaseToken && !hasStripeSuccessParams()) {
         console.log('[BOOTAPP] Found purchase_token in localStorage, verifying...');
@@ -3304,6 +3306,7 @@
           localStorage.removeItem('purchase_token');
         }
       }
+      */
       
       // 1. Controlla se è ritorno dopo pagamento Stripe (success=1 e session_id)
       // REDIRECT AUTOMATICO alla pagina success dedicata
@@ -5542,6 +5545,97 @@
       startCamera();
     }
     
+    // ========== DEBUG TEMPORANEO (solo per sviluppo) ==========
+    let debugBox = null;
+    function initDebugBox() {
+      if (debugBox) return;
+      debugBox = document.createElement('div');
+      debugBox.id = 'tempDebugBox';
+      debugBox.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:200px; overflow-y:auto; background:rgba(0,0,0,0.95); color:#0f0; font-family:monospace; font-size:11px; padding:10px; z-index:99999; border-top:2px solid #0f0;';
+      document.body.appendChild(debugBox);
+    }
+    function debugLogBox(msg) {
+      if (!debugBox) initDebugBox();
+      const line = document.createElement('div');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      debugBox.appendChild(line);
+      debugBox.scrollTop = debugBox.scrollHeight;
+      console.log(msg);
+    }
+    
+    // ========== FUNZIONI ROBUSTE PARSING ==========
+    function getPhotoIds(data) {
+      // Priorità 1: matched_photo_ids (nuovo formato standard)
+      if (Array.isArray(data.matched_photo_ids) && data.matched_photo_ids.length > 0) {
+        debugLogBox(`getPhotoIds: matched_photo_ids (${data.matched_photo_ids.length})`);
+        return data.matched_photo_ids;
+      }
+      // Priorità 2: photo_ids (alias/compatibilità)
+      if (Array.isArray(data.photo_ids) && data.photo_ids.length > 0) {
+        debugLogBox(`getPhotoIds: photo_ids (${data.photo_ids.length})`);
+        return data.photo_ids;
+      }
+      // Priorità 3: photos (se è array di stringhe)
+      if (Array.isArray(data.photos)) {
+        if (data.photos.length > 0 && typeof data.photos[0] === 'string') {
+          debugLogBox(`getPhotoIds: photos array strings (${data.photos.length})`);
+          return data.photos;
+        }
+      }
+      // Priorità 4: estrai da results/matches (fallback)
+      const resultsIds = [];
+      if (Array.isArray(data.results)) {
+        data.results.forEach(item => {
+          const pid = item.photo_id || item.photoId || item.r2_key || item.display_name || item.filename;
+          if (pid) {
+            let normalized = String(pid).replace("originals/", "").replace("thumbs/", "").replace("wm/", "");
+            if (normalized.startsWith("/")) normalized = normalized.substring(1);
+            if (normalized && !resultsIds.includes(normalized)) {
+              resultsIds.push(normalized);
+            }
+          }
+        });
+      }
+      if (Array.isArray(data.matches)) {
+        data.matches.forEach(item => {
+          const pid = item.photo_id || item.photoId || item.r2_key || item.display_name || item.filename;
+          if (pid) {
+            let normalized = String(pid).replace("originals/", "").replace("thumbs/", "").replace("wm/", "");
+            if (normalized.startsWith("/")) normalized = normalized.substring(1);
+            if (normalized && !resultsIds.includes(normalized)) {
+              resultsIds.push(normalized);
+            }
+          }
+        });
+      }
+      if (resultsIds.length > 0) {
+        debugLogBox(`getPhotoIds: extracted from results/matches (${resultsIds.length})`);
+        return [...new Set(resultsIds.filter(Boolean))];
+      }
+      debugLogBox('getPhotoIds: NO PHOTO IDS FOUND');
+      return [];
+    }
+    
+    function normalizePhotos(resp) {
+      // Se resp è già un array, ritorna direttamente
+      if (Array.isArray(resp)) {
+        debugLogBox(`normalizePhotos: array (${resp.length})`);
+        return resp;
+      }
+      // Se resp ha campo photos
+      if (resp && Array.isArray(resp.photos)) {
+        debugLogBox(`normalizePhotos: resp.photos (${resp.photos.length})`);
+        return resp.photos;
+      }
+      // Se resp ha campo results
+      if (resp && Array.isArray(resp.results)) {
+        debugLogBox(`normalizePhotos: resp.results (${resp.results.length})`);
+        return resp.results;
+      }
+      debugLogBox('normalizePhotos: NO PHOTOS FOUND');
+      return [];
+    }
+    
     // Funzioni matching
     async function matchPhotos() {
       // Guardia: blocca se siamo in flusso post-pagamento
@@ -5664,64 +5758,35 @@
         try {
           data = JSON.parse(res.responseText);
           debugLog(`JSON keys: ${Object.keys(data).join(', ')}`);
+          // DEBUG: stampa risposta grezza
+          debugLogBox(`match_selfie response keys: ${Object.keys(data).join(', ')}`);
+          debugLogBox(`match_selfie response: ${JSON.stringify(data).substring(0, 500)}`);
         } catch(parseError) {
           const errorMsg = `Invalid JSON: ${parseError.message}`;
           debugError({ parseError, responsePreview: res.responseText.substring(0, 500) });
+          debugLogBox(`ERROR: Invalid JSON - ${errorMsg}`);
           throw new Error(errorMsg);
         }
         
-        // Leggi photo_ids con priorità: 1) matched_photo_ids, 2) photo_ids, 3) estrai da results/matches
-        let allIds = [];
-        
-        // Priorità 1: matched_photo_ids (nuovo formato standard)
-        if (Array.isArray(data.matched_photo_ids) && data.matched_photo_ids.length > 0) {
-          allIds = data.matched_photo_ids;
-          debugLog(`Usando matched_photo_ids: ${allIds.length}`);
-        }
-        // Priorità 2: photo_ids (alias/compatibilità)
-        else if (Array.isArray(data.photo_ids) && data.photo_ids.length > 0) {
-          allIds = data.photo_ids;
-          debugLog(`Usando photo_ids: ${allIds.length}`);
-        }
-        // Priorità 3: estrai da results/matches (fallback)
-        else {
-          const resultsIds = [];
-          if (Array.isArray(data.results)) {
-            data.results.forEach(item => {
-              const pid = item.photo_id || item.photoId || item.r2_key || item.display_name;
-              if (pid) {
-                // Normalizza: rimuovi prefissi
-                let normalized = String(pid).replace("originals/", "").replace("thumbs/", "").replace("wm/", "");
-                if (normalized.startsWith("/")) normalized = normalized.substring(1);
-                resultsIds.push(normalized);
-              }
-            });
-          }
-          if (Array.isArray(data.matches)) {
-            data.matches.forEach(item => {
-              const pid = item.photo_id || item.photoId || item.r2_key || item.display_name;
-              if (pid && !resultsIds.includes(pid)) {
-                let normalized = String(pid).replace("originals/", "").replace("thumbs/", "").replace("wm/", "");
-                if (normalized.startsWith("/")) normalized = normalized.substring(1);
-                resultsIds.push(normalized);
-              }
-            });
-          }
-          allIds = [...new Set(resultsIds.filter(Boolean))];
-          debugLog(`Estratto da results/matches: ${allIds.length}`);
-        }
+        // Usa funzione robusta getPhotoIds()
+        const allIds = getPhotoIds(data);
+        debugLogBox(`photo_ids estratti: ${allIds.length} - ${allIds.slice(0, 3).join(', ')}${allIds.length > 3 ? '...' : ''}`);
         
         // Log count ricevuto
         const receivedCount = data.count || data.matched_count || allIds.length;
         debugLog(`Count ricevuto: ${receivedCount}, photo_ids estratti: ${allIds.length}`);
         console.log(`[MATCH_PHOTOS] Count=${receivedCount}, photo_ids=${allIds.length}`);
         
-        // Se non ci sono photo_ids, mostra errore
+        // NON MOSTRARE "NESSUNA FOTO" SE ARRIVANO FOTO
+        // Mostra "nessuna foto trovata" SOLO se:
+        // - la richiesta /match_selfie fallisce (non 200) oppure
+        // - getPhotoIds(data).length === 0
         if (allIds.length === 0) {
           const errorMsg = receivedCount > 0 
             ? "Foto trovate ma anteprime non caricabili. Riprova."
             : "Risposta inattesa: nessun photo_id trovato";
           debugError({ data, errorMsg, receivedCount });
+          debugLogBox(`ERROR: ${errorMsg} (receivedCount=${receivedCount}, allIds.length=${allIds.length})`);
           
           // Se count > 0 ma allIds vuoto, mostra bottone "Riprova caricamento"
           if (receivedCount > 0 && langErrorBox) {
@@ -5789,7 +5854,12 @@
           photosData = await photosRes.json();
           debugLog(`api/photos POST: ${photosRes.status}, photos=${photosData.photos?.length || 0} in ${photosDuration}ms`);
           
-          if (!photosData.ok || !photosData.photos || photosData.photos.length === 0) {
+          // DEBUG: stampa risposta grezza
+          debugLogBox(`api/photos response keys: ${Object.keys(photosData).join(', ')}`);
+          const normalizedPhotos = normalizePhotos(photosData);
+          debugLogBox(`api/photos normalized: ${normalizedPhotos.length} photos`);
+          
+          if (!photosData.ok || normalizedPhotos.length === 0) {
             const errorMsg = "Foto trovate ma anteprime non caricabili. Riprova.";
             debugError({ photosData, errorMsg });
             // Mostra errore con bottone retry
@@ -5838,46 +5908,65 @@
           return;
         }
         
-        // Converti in formato allPhotos
+        // Converti in formato allPhotos usando normalizePhotos()
+        const normalizedApiPhotos = normalizePhotos(photosData);
         const photos = data.results || data.matches || [];
         let newPhotos = [];
         
         if (photos.length > 0) {
           // Usa i dati da /api/photos per thumb_url e wm_url
-          const photosMap = new Map(photosData.photos.map(p => [p.photo_id, p]));
+          const photosMap = new Map(normalizedApiPhotos.map(p => {
+            const pid = p.photo_id || p.filename || p.id;
+            return [pid, p];
+          }));
           newPhotos = photos.map(p => {
-            const photoId = p.photo_id || p.photoId;
+            const photoId = p.photo_id || p.photoId || p.r2_key || p.display_name;
             const apiPhoto = photosMap.get(photoId);
+            const thumbUrl = apiPhoto?.direct_thumb_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
+            if (!thumbUrl) {
+              debugLogBox(`WARNING: No URL for photo_id=${photoId}, object=${JSON.stringify(apiPhoto).substring(0, 100)}`);
+            }
             return {
               photo_id: photoId,
               score: p.score || 0,
               has_face: true,
               paid: false,
-              thumb_url: apiPhoto?.direct_thumb_url || apiPhoto?.direct_url || apiPhoto?.url || null,
-              wm_url: null,
+              thumb_url: thumbUrl,
+              wm_url: apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null,
               paid_url: null
             };
           });
         } else {
           // Se non abbiamo oggetti completi, crea da allIds usando dati da /api/photos
-          const photosMap = new Map(photosData.photos.map(p => [p.photo_id, p]));
+          const photosMap = new Map(normalizedApiPhotos.map(p => {
+            const pid = p.photo_id || p.filename || p.id;
+            return [pid, p];
+          }));
           newPhotos = allIds.map(photoId => {
             const apiPhoto = photosMap.get(photoId);
+            const thumbUrl = apiPhoto?.direct_thumb_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
+            if (!thumbUrl) {
+              debugLogBox(`WARNING: No URL for photo_id=${photoId}, object=${JSON.stringify(apiPhoto).substring(0, 100)}`);
+            }
             return {
               photo_id: photoId,
               score: 0,
               has_face: true,
               paid: false,
-              thumb_url: apiPhoto?.direct_thumb_url || apiPhoto?.direct_url || apiPhoto?.url || null,
-              wm_url: null,
+              thumb_url: thumbUrl,
+              wm_url: apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null,
               paid_url: null
             };
           });
         }
         
+        debugLogBox(`newPhotos creati: ${newPhotos.length}, con URL: ${newPhotos.filter(p => p.thumb_url).length}`);
+        
         debugLog(`Trovate ${newPhotos.length} foto, rendering...`);
         
-        if(data.ok && allIds.length > 0) {
+        // FIX: NON mostrare "nessuna foto" se allIds.length > 0
+        // Mostra foto se allIds.length > 0, indipendentemente da data.ok
+        if(allIds.length > 0) {
           
           // Se stiamo aggiungendo un membro famiglia, fai merge invece di replace
           if(isAddingFamilyMember) {
@@ -5948,45 +6037,33 @@
           photosSearchPromise = null;
           
           debugLog("✅ Match completato con successo");
+          debugLogBox(`✅ Match completato: ${newPhotos.length} foto, allIds=${allIds.length}`);
         } else {
-          // Questo blocco viene raggiunto solo se data.ok è false MA allIds.length > 0
-          // In questo caso, mostra comunque l'album usando allIds
-          debugLog("⚠️ data.ok=false ma ci sono photo_ids, continuo comunque");
-          console.warn("⚠️ data.ok è false ma allIds.length > 0, mostrando comunque album");
-          console.warn("data.ok:", data.ok);
-          console.warn("allIds.length:", allIds.length);
+          // Solo se davvero non ci sono foto, imposta stato errore
+          // FIX: mostra errore reale, NON "nessuna foto trovata" generico
+          const errorMsg = `Errore caricamento: ${data.message || data.detail || 'Nessun photo_id trovato nella risposta'}`;
+          console.warn(`[CONFIRM_FLOW] ⚠️ ${errorMsg}`);
+          debugLogBox(`ERROR: ${errorMsg}`);
           
-          // Se abbiamo foto in allIds, mostrale comunque
-          if (allIds.length > 0) {
-            console.log("⚠️ Fallback: usando allIds per mostrare album (data.ok=false)");
-            allPhotos = allIds.map(photoId => ({
-              photo_id: photoId,
-              score: 0,
-              has_face: true,
-              paid: false
-            }));
-            photosLoadedCount = 0;
-            paidPhotos = [];
-            
-            // Imposta stato pronto anche in questo caso
-            photosReady = true;
-            photosFailed = false;
-            photosSearchPromise = null;
-            
-            // Se lingua già selezionata, vai all'album, altrimenti resta su language screen
-            if(selectedLanguage) {
-              showScreen('album');
-              await displayPhotos();
-              updateCart();
-              if(allPhotos.length > 0) {
-                showStickyOfferBar();
+          // Mostra errore reale
+          const langLoading = document.getElementById('langLoading');
+          const langErrorBox = document.getElementById('langErrorBox');
+          const langLoadingText = document.getElementById('langLoadingText');
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) {
+            langErrorBox.style.display = 'block';
+            const errorText = langErrorBox.querySelector('.lang-error-text');
+            if (errorText) {
+              errorText.innerHTML = `${errorMsg}<br><button id="retryMatchBtn" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova</button>`;
+              const retryBtn = document.getElementById('retryMatchBtn');
+              if (retryBtn) {
+                retryBtn.onclick = () => location.reload();
               }
             }
-            return;
+          } else if (langLoadingText) {
+            langLoadingText.textContent = errorMsg;
           }
           
-          // Solo se davvero non ci sono foto, imposta stato errore
-          console.warn("[CONFIRM_FLOW] ⚠️ Nessuna foto trovata - allIds è vuoto e data.ok è false");
           photosReady = false;
           photosFailed = true;
           photosSearchPromise = null;
