@@ -5293,7 +5293,7 @@
         return;
       }
       
-      // Se le foto sono fallite, mostra errore
+      // Se le foto sono fallite, mostra errore REALE (non generico "nessuna foto")
       if(photosFailed) {
         console.log('[CONFIRM_FLOW] Photos failed, showing error');
         const langLoading = document.getElementById('langLoading');
@@ -5305,6 +5305,11 @@
         if(langErrorBox) {
           langErrorBox.style.display = 'block';
           langErrorBox.style.pointerEvents = 'auto';
+          // FIX: mostra errore reale, non messaggio generico
+          const errorText = langErrorBox.querySelector('.lang-error-text');
+          if (errorText && !errorText.innerHTML.includes('Errore:')) {
+            errorText.innerHTML = `<span style="color: #ff4444; font-weight: bold;">Errore: caricamento foto fallito. Riprova.</span>`;
+          }
         }
         return;
       }
