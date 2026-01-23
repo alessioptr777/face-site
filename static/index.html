@@ -5715,7 +5715,12 @@
         debugLogBox(`normalizePhotos: array (${resp.length})`);
         return resp;
       }
-      // Se resp ha campo photos
+      // Se resp ha campo items (nuovo formato)
+      if (resp && Array.isArray(resp.items)) {
+        debugLogBox(`normalizePhotos: resp.items (${resp.items.length})`);
+        return resp.items;
+      }
+      // Se resp ha campo photos (retrocompatibilità)
       if (resp && Array.isArray(resp.photos)) {
         debugLogBox(`normalizePhotos: resp.photos (${resp.photos.length})`);
         return resp.photos;
@@ -5727,6 +5732,24 @@
       }
       debugLogBox('normalizePhotos: NO PHOTOS FOUND');
       return [];
+    }
+    
+    // Funzione helper per costruire URL diretti (fallback se /api/photos fallisce)
+    function buildDirectPhotoUrls(photoIds, baseUrl = '') {
+      return photoIds.map(photoId => {
+        const encodedId = encodeURIComponent(photoId);
+        const thumbUrl = baseUrl ? `${baseUrl}/thumbs/${encodedId}` : `/photo/${encodedId}?variant=thumb`;
+        const wmUrl = baseUrl ? `${baseUrl}/wm/${encodedId}` : `/photo/${encodedId}?variant=wm`;
+        return {
+          id: photoId,
+          photo_id: photoId,
+          filename: photoId,
+          thumb_url: thumbUrl,
+          wm_url: wmUrl,
+          direct_thumb_url: thumbUrl,
+          direct_wm_url: wmUrl
+        };
+      });
     }
     
     // Funzioni matching
@@ -5956,6 +5979,7 @@
         const photosStartTime = Date.now();
         
         let photosData;
+        let useFallback = false;
         try {
           const photosRes = await fetch('/api/photos', {
             method: 'POST',
@@ -5971,75 +5995,48 @@
           
           if (!photosRes.ok) {
             const errorMsg = `HTTP ${photosRes.status}: ${photosRes.statusText}`;
-            debugLogBox(`api/photos ERROR: ${errorMsg}`);
-            updateMinimalDebug(`200 OK`, allIds.length, `ERROR ${photosRes.status}`, undefined, keyUsed);
-            throw new Error(errorMsg);
-          }
-          
-          photosData = await photosRes.json();
-          debugLog(`api/photos POST: ${photosRes.status}, photos=${photosData.photos?.length || 0} in ${photosDuration}ms`);
-          
-          // DEBUG: stampa risposta grezza
-          debugLogBox(`api/photos response keys: ${Object.keys(photosData).join(', ')}`);
-          const normalizedPhotos = normalizePhotos(photosData);
-          debugLogBox(`api/photos normalized: ${normalizedPhotos.length} photos`);
-          
-          // Aggiorna minimal debug box
-          updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, keyUsed);
-          
-          if (!photosData.ok || normalizedPhotos.length === 0) {
-            // FIX: mostra errore REALE con status + testo
-            const apiErrorMsg = `Errore caricamento foto: status ${photosRes.status}, ${normalizedPhotos.length === 0 ? 'nessuna foto ricevuta' : 'risposta non ok'}`;
-            debugLogBox(`api/photos ERROR: ${apiErrorMsg}`);
-            debugError({ photosData, errorMsg: apiErrorMsg });
-            // Mostra errore con bottone retry
-            const langLoading = document.getElementById('langLoading');
-            const langErrorBox = document.getElementById('langErrorBox');
-            if(langLoading) langLoading.style.display = 'none';
-            if(langErrorBox) {
-              langErrorBox.style.display = 'block';
-              const errorText = langErrorBox.querySelector('.lang-error-text');
-              if (errorText) {
-                errorText.innerHTML = `${errorMsg}<br><button id="retryLoadBtn2" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
-                const retryBtn = document.getElementById('retryLoadBtn2');
-                if (retryBtn) {
-                  retryBtn.onclick = () => location.reload();
-                }
-              }
+            debugLogBox(`api/photos ERROR: ${errorMsg} -> using fallback direct URLs`);
+            console.warn(`[API_PHOTOS] Request failed (${photosRes.status}), using fallback`);
+            useFallback = true;
+          } else {
+            photosData = await photosRes.json();
+            const normalizedPhotos = normalizePhotos(photosData);
+            debugLog(`api/photos POST: ${photosRes.status}, items=${normalizedPhotos.length} in ${photosDuration}ms`);
+            console.log(`[API_PHOTOS] Success: ${normalizedPhotos.length} items`);
+            debugLogBox(`api/photos ok: ${normalizedPhotos.length} items`);
+            
+            // Verifica che la risposta sia valida
+            if (!photosData.ok || normalizedPhotos.length === 0) {
+              debugLogBox(`api/photos empty response -> using fallback`);
+              console.warn(`[API_PHOTOS] Empty or invalid response, using fallback`);
+              useFallback = true;
+            } else {
+              // DEBUG: stampa risposta grezza
+              debugLogBox(`api/photos response keys: ${Object.keys(photosData).join(', ')}`);
+              updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, keyUsed);
             }
-            photosReady = false;
-            photosFailed = true;
-            photosSearchPromise = null;
-            return;
           }
         } catch (photosError) {
           const errorStatus = photosError?.status || (photosError instanceof Response ? photosError.status : null);
           debugError({ photosError, status: errorStatus });
-          
-          // Aggiorna minimal debug box con errore
-          updateMinimalDebug(`200 OK`, allIds.length, `ERROR ${errorStatus || '?'}`, undefined, keyUsed);
-          
-          // FIX: mostra errore REALE in rosso, NON "nessuna foto trovata" generico
-          const langLoading = document.getElementById('langLoading');
-          const langErrorBox = document.getElementById('langErrorBox');
-          if(langLoading) langLoading.style.display = 'none';
-          if(langErrorBox) {
-            langErrorBox.style.display = 'block';
-            const errorText = langErrorBox.querySelector('.lang-error-text');
-            if (errorText) {
-              const errorMsg = `Errore: ${photosError.message || 'Errore sconosciuto durante caricamento foto'}`;
-              errorText.innerHTML = `<span style="color: #ff4444; font-weight: bold;">${errorMsg}</span><br><button id="retryLoadBtn3" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
-              const retryBtn = document.getElementById('retryLoadBtn3');
-              if (retryBtn) {
-                retryBtn.onclick = () => location.reload();
-              }
-            }
-          }
-          
-          photosReady = false;
-          photosFailed = true;
-          photosSearchPromise = null;
-          return;
+          debugLogBox(`api/photos exception -> using fallback: ${photosError.message}`);
+          console.warn(`[API_PHOTOS] Exception: ${photosError.message}, using fallback`);
+          useFallback = true;
+        }
+        
+        // FALLBACK: se /api/photos fallisce, costruisci URL diretti
+        if (useFallback) {
+          debugLogBox(`api/photos failed -> fallback direct urls`);
+          console.log(`[API_PHOTOS] Building fallback URLs for ${allIds.length} photos`);
+          // Costruisci URL diretti usando base URL se disponibile (da window o env)
+          const baseUrl = window.R2_PUBLIC_BASE_URL || '';
+          const fallbackPhotos = buildDirectPhotoUrls(allIds, baseUrl);
+          photosData = {
+            ok: true,
+            items: fallbackPhotos,
+            photos: fallbackPhotos  // retrocompatibilità
+          };
+          updateMinimalDebug(`200 OK`, allIds.length, `FALLBACK`, fallbackPhotos.length, keyUsed);
         }
         
         // Converti in formato allPhotos usando normalizePhotos()
@@ -6047,48 +6044,50 @@
         const photos = data.results || data.matches || [];
         let newPhotos = [];
         
+        // Crea mappa per lookup veloce: photo_id -> { thumb_url, wm_url }
+        const photosMap = new Map(normalizedApiPhotos.map(p => {
+          const pid = p.photo_id || p.filename || p.id || p.photoId;
+          return [pid, p];
+        }));
+        
         if (photos.length > 0) {
           // Usa i dati da /api/photos per thumb_url e wm_url
-          const photosMap = new Map(normalizedApiPhotos.map(p => {
-            const pid = p.photo_id || p.filename || p.id;
-            return [pid, p];
-          }));
           newPhotos = photos.map(p => {
             const photoId = p.photo_id || p.photoId || p.r2_key || p.display_name;
             const apiPhoto = photosMap.get(photoId);
-            const thumbUrl = apiPhoto?.direct_thumb_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
+            // Usa thumb_url e wm_url dalla risposta (sempre presenti)
+            const thumbUrl = apiPhoto?.thumb_url || apiPhoto?.direct_thumb_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
+            const wmUrl = apiPhoto?.wm_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
             if (!thumbUrl) {
-              debugLogBox(`WARNING: No URL for photo_id=${photoId}, object=${JSON.stringify(apiPhoto).substring(0, 100)}`);
+              debugLogBox(`WARNING: No thumb_url for photo_id=${photoId}`);
             }
             return {
               photo_id: photoId,
               score: p.score || 0,
               has_face: true,
               paid: false,
-              thumb_url: thumbUrl,
-              wm_url: apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null,
+              thumb_url: thumbUrl,  // griglia usa questo
+              wm_url: wmUrl,        // lightbox usa questo
               paid_url: null
             };
           });
         } else {
           // Se non abbiamo oggetti completi, crea da allIds usando dati da /api/photos
-          const photosMap = new Map(normalizedApiPhotos.map(p => {
-            const pid = p.photo_id || p.filename || p.id;
-            return [pid, p];
-          }));
           newPhotos = allIds.map(photoId => {
             const apiPhoto = photosMap.get(photoId);
-            const thumbUrl = apiPhoto?.direct_thumb_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
+            // Usa thumb_url e wm_url dalla risposta (sempre presenti)
+            const thumbUrl = apiPhoto?.thumb_url || apiPhoto?.direct_thumb_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
+            const wmUrl = apiPhoto?.wm_url || apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null;
             if (!thumbUrl) {
-              debugLogBox(`WARNING: No URL for photo_id=${photoId}, object=${JSON.stringify(apiPhoto).substring(0, 100)}`);
+              debugLogBox(`WARNING: No thumb_url for photo_id=${photoId}`);
             }
             return {
               photo_id: photoId,
               score: 0,
               has_face: true,
               paid: false,
-              thumb_url: thumbUrl,
-              wm_url: apiPhoto?.direct_wm_url || apiPhoto?.direct_url || apiPhoto?.url || null,
+              thumb_url: thumbUrl,  // griglia usa questo
+              wm_url: wmUrl,        // lightbox usa questo
               paid_url: null
             };
           });

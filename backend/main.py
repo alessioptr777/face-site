@@ -6893,98 +6893,172 @@ async def api_photos_post(
     Endpoint POST per ottenere URL delle foto (thumb/wm/full).
     Evita problemi con URL troppo lunghe in GET (Safari/Cloudflare limit).
     
-    Body: {
-        "variant": "thumb" | "wm" | "full",
-        "photo_ids": ["photo1.jpg", "photo2.jpg", ...]
-    }
+    Body accetta MULTIPLI FORMATI:
+    1) { "variant": "thumb", "photo_ids": ["a.jpg", ...] }
+    2) { "variant": "thumb", "ids": ["a.jpg", ...] }
+    3) ["a.jpg", ...]  (array diretto, variant default "thumb")
+    4) GET query: /api/photos?ids=a.jpg&ids=b.jpg (opzionale)
     
     Returns: {
         "ok": true,
-        "photos": [
+        "items": [  # o "photos" per retrocompatibilità
             {
-                "photo_id": "...",
-                "filename": "...",
-                "url": "...",
-                "direct_url": "...",
-                "direct_thumb_url": "...",  # se variant=thumb
-                "direct_wm_url": "..."      # se variant=wm
+                "id": "photo1.jpg",
+                "photo_id": "photo1.jpg",  # retrocompatibilità
+                "thumb_url": "...",  # SEMPRE presente
+                "wm_url": "...",    # SEMPRE presente
+                "direct_thumb_url": "...",
+                "direct_wm_url": "..."
             },
             ...
         ]
     }
     """
-    from urllib.parse import quote
+    from urllib.parse import quote, unquote
     
     try:
-        variant = body.get("variant", "thumb")
-        photo_ids = body.get("photo_ids", [])
+        # DIAGNOSI: log completo della richiesta
+        logger.info(f"[API_PHOTOS_POST] === REQUEST DIAGNOSTICS ===")
+        logger.info(f"[API_PHOTOS_POST] Method: {request.method}")
+        logger.info(f"[API_PHOTOS_POST] Content-Type: {request.headers.get('content-type', 'missing')}")
+        logger.info(f"[API_PHOTOS_POST] Body keys: {list(body.keys()) if isinstance(body, dict) else 'not a dict'}")
+        logger.info(f"[API_PHOTOS_POST] Body preview: {str(body)[:500]}")
         
-        if not isinstance(photo_ids, list) or len(photo_ids) == 0:
-            raise HTTPException(status_code=400, detail="photo_ids must be a non-empty array")
+        # Estrai variant (default "thumb")
+        variant = body.get("variant", "thumb") if isinstance(body, dict) else "thumb"
         
+        # Estrai photo_ids da MULTIPLI formati
+        photo_ids = []
+        if isinstance(body, list):
+            # Formato 3: array diretto
+            photo_ids = body
+            logger.info(f"[API_PHOTOS_POST] Parsed: array format, {len(photo_ids)} items")
+        elif isinstance(body, dict):
+            # Formato 1 o 2: dict con photo_ids o ids
+            photo_ids = body.get("ids") or body.get("photo_ids") or []
+            if not isinstance(photo_ids, list):
+                # Se è una stringa singola, converti in lista
+                if isinstance(photo_ids, str):
+                    photo_ids = [photo_ids]
+                else:
+                    photo_ids = []
+            logger.info(f"[API_PHOTOS_POST] Parsed: dict format, variant={variant}, ids={len(photo_ids)}")
+        else:
+            logger.warning(f"[API_PHOTOS_POST] Unexpected body type: {type(body)}")
+            photo_ids = []
+        
+        # Filtra null/undefined/empty strings
+        photo_ids = [pid for pid in photo_ids if pid and isinstance(pid, str) and pid.strip()]
+        
+        # IMPORTANTE: se lista vuota, restituisci 200 con lista vuota (non 400)
+        if len(photo_ids) == 0:
+            logger.info(f"[API_PHOTOS_POST] Empty photo_ids list - returning empty response")
+            return {
+                "ok": True,
+                "items": [],
+                "photos": []  # retrocompatibilità
+            }
+        
+        # Valida variant
         if variant not in ["thumb", "wm", "full"]:
-            raise HTTPException(status_code=400, detail="variant must be 'thumb', 'wm', or 'full'")
+            variant = "thumb"  # fallback invece di errore
+            logger.warning(f"[API_PHOTOS_POST] Invalid variant, using 'thumb'")
         
-        logger.info(f"[API_PHOTOS_POST] variant={variant} ids={len(photo_ids)}")
+        # Chunk se > 100 per evitare payload troppo grandi
+        if len(photo_ids) > 100:
+            logger.info(f"[API_PHOTOS_POST] Large request ({len(photo_ids)} ids), processing in chunks")
+            # Per ora processiamo tutto, ma potremmo chunkare se necessario
         
-        photos = []
-        for photo_id in photo_ids:
+        logger.info(f"[API_PHOTOS_POST] Processing {len(photo_ids)} photo_ids, variant={variant}")
+        
+        items = []
+        for idx, photo_id in enumerate(photo_ids):
             try:
-                # Normalizza photo_id
-                normalized_id = photo_id.lstrip('/').replace('originals/', '').replace('thumbs/', '').replace('wm/', '')
+                # Normalizza photo_id: trim spazi, rimuovi prefissi, gestisci encoding
+                original_id = str(photo_id).strip()
+                # Decodifica se è già URL encoded
+                try:
+                    original_id = unquote(original_id)
+                except:
+                    pass
                 
-                # Costruisci URL
-                if variant == "thumb":
-                    object_key = f"thumbs/{normalized_id}"
-                    url = f"/photo/{quote(photo_id, safe='')}?variant=thumb"
-                elif variant == "wm":
-                    object_key = f"wm/{normalized_id}"
-                    url = f"/photo/{quote(photo_id, safe='')}?variant=wm"
-                else:  # full
-                    object_key = f"originals/{normalized_id}"
-                    url = f"/photo/{quote(photo_id, safe='')}"
+                # Rimuovi prefissi comuni
+                normalized_id = original_id.lstrip('/')
+                for prefix in ['originals/', 'thumbs/', 'wm/', 'photos/']:
+                    if normalized_id.startswith(prefix):
+                        normalized_id = normalized_id[len(prefix):]
+                
+                # Normalizza estensioni (.JPG -> .jpg, ma conserva il nome originale)
+                # Non cambiamo l'estensione, solo la normalizziamo per il path
+                normalized_id = normalized_id.strip()
+                
+                if not normalized_id:
+                    logger.warning(f"[API_PHOTOS_POST] Skipping empty normalized_id for photo_id={photo_id}")
+                    continue
+                
+                # Costruisci object_key per R2
+                thumb_object_key = f"thumbs/{normalized_id}"
+                wm_object_key = f"wm/{normalized_id}"
+                
+                # Costruisci URL relativi (per fallback)
+                # IMPORTANTE: usa encodeURIComponent per gestire spazi e caratteri speciali
+                encoded_id = quote(normalized_id, safe='')
+                thumb_url = f"/photo/{encoded_id}?variant=thumb"
+                wm_url = f"/photo/{encoded_id}?variant=wm"
                 
                 # Costruisci direct_url se R2_PUBLIC_BASE_URL disponibile
-                direct_url = None
                 direct_thumb_url = None
                 direct_wm_url = None
                 
                 if R2_PUBLIC_BASE_URL:
                     try:
-                        direct_url = _get_r2_public_url(object_key)
-                        if variant == "thumb":
-                            direct_thumb_url = direct_url
-                        elif variant == "wm":
-                            direct_wm_url = direct_url
-                        else:
-                            direct_url = _get_r2_public_url(f"originals/{normalized_id}")
+                        direct_thumb_url = _get_r2_public_url(thumb_object_key)
+                        direct_wm_url = _get_r2_public_url(wm_object_key)
                     except Exception as e:
-                        logger.warning(f"[API_PHOTOS_POST] Error building direct_url for {photo_id}: {e}")
+                        logger.warning(f"[API_PHOTOS_POST] Error building direct URLs for {normalized_id}: {e}")
+                        # Fallback: usa URL relativi
+                        direct_thumb_url = thumb_url
+                        direct_wm_url = wm_url
+                else:
+                    # Se R2_PUBLIC_BASE_URL non configurato, usa URL relativi
+                    direct_thumb_url = thumb_url
+                    direct_wm_url = wm_url
                 
-                photos.append({
-                    "photo_id": photo_id,
-                    "filename": normalized_id,
-                    "url": url,
-                    "direct_url": direct_url,
-                    "direct_thumb_url": direct_thumb_url if variant == "thumb" else None,
-                    "direct_wm_url": direct_wm_url if variant == "wm" else None,
-                    "variant": variant
-                })
+                # Restituisci SEMPRE sia thumb_url che wm_url (indipendentemente da variant)
+                item = {
+                    "id": normalized_id,  # nuovo formato
+                    "photo_id": normalized_id,  # retrocompatibilità
+                    "filename": normalized_id,  # retrocompatibilità
+                    "thumb_url": direct_thumb_url or thumb_url,
+                    "wm_url": direct_wm_url or wm_url,
+                    "direct_thumb_url": direct_thumb_url,
+                    "direct_wm_url": direct_wm_url,
+                    "url": thumb_url if variant == "thumb" else wm_url,  # retrocompatibilità
+                    "direct_url": direct_thumb_url if variant == "thumb" else direct_wm_url,  # retrocompatibilità
+                    "variant": variant  # retrocompatibilità
+                }
+                items.append(item)
+                
             except Exception as e:
-                logger.warning(f"[API_PHOTOS_POST] Error processing photo_id {photo_id}: {e}")
+                logger.warning(f"[API_PHOTOS_POST] Error processing photo_id {photo_id} (index {idx}): {e}", exc_info=True)
                 # Continua con le altre foto anche se una fallisce
                 continue
         
-        logger.info(f"[API_PHOTOS_POST] Returning {len(photos)} photos")
+        logger.info(f"[API_PHOTOS_POST] Success: returning {len(items)} items")
         return {
             "ok": True,
-            "photos": photos
+            "items": items,  # nuovo formato
+            "photos": items  # retrocompatibilità
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[API_PHOTOS_POST] Error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error getting photos: {str(e)}")
+        logger.error(f"[API_PHOTOS_POST] Fatal error: {e}", exc_info=True)
+        # Restituisci errore con dettaglio utile invece di 500 generico
+        raise HTTPException(
+            status_code=422 if "validation" in str(e).lower() else 500,
+            detail=f"Error getting photos: {str(e)}"
+        )
 
 @app.post("/checkout")
 async def create_checkout(
