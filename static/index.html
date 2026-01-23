@@ -2084,6 +2084,50 @@
     let photosFailed = false;
     // Promise della ricerca foto avviata in background dopo il selfie
     let photosSearchPromise = null;
+
+    // ========== DEBUG HELPERS (must never break the flow) ==========
+    // Some mobile browsers throw if a debug helper is missing.
+    // We define them here so any call to debugLog/debugSet cannot stop the app.
+    function debugLog(message) {
+      try {
+        const msg = String(message);
+        console.log('[DEBUG]', msg);
+
+        // If a debug panel exists, append the line.
+        const feed = document.getElementById('debugFeed') || document.getElementById('debugLog') || document.getElementById('debugLines');
+        if (feed) {
+          const line = document.createElement('div');
+          line.textContent = msg;
+          feed.appendChild(line);
+          // keep it short
+          while (feed.children.length > 60) feed.removeChild(feed.firstChild);
+        }
+      } catch (e) {
+        // swallow on purpose
+      }
+    }
+
+    function debugSet(key, value) {
+      try {
+        const v = (value === undefined || value === null) ? '-' : String(value);
+
+        // Common patterns: id="debug_<key>" or data-debug-key="<key>"
+        const byId = document.getElementById(`debug_${key}`);
+        if (byId) byId.textContent = `${key}: ${v}`;
+
+        const nodes = document.querySelectorAll(`[data-debug-key="${key}"]`);
+        if (nodes && nodes.length) {
+          nodes.forEach(n => {
+            n.textContent = `${key}: ${v}`;
+          });
+        }
+
+        // Also log it
+        debugLog(`${key}: ${v}`);
+      } catch (e) {
+        // swallow on purpose
+      }
+    }
     
     // Oggetto traduzioni completo
     const I18N = {
