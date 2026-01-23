@@ -535,6 +535,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware per disabilitare cache su TUTTE le risposte
+@app.middleware("http")
+async def no_cache_middleware(request: Request, call_next):
+    """Disabilita cache per tutte le risposte (HTML, API, static)"""
+    response = await call_next(request)
+    # Aggiungi header no-cache a tutte le risposte
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # Debug endpoint: shows which code version/file is running on the server.
 @app.get("/debug/build")
 async def debug_build():

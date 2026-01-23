@@ -5777,7 +5777,7 @@
         debugLog(`Count ricevuto: ${receivedCount}, photo_ids estratti: ${allIds.length}`);
         console.log(`[MATCH_PHOTOS] Count=${receivedCount}, photo_ids=${allIds.length}`);
         
-        // NON MOSTRARE "NESSUNA FOTO" SE ARRIVANO FOTO
+        // RENDI "FOTO NON TROVATE" IMPOSSIBILE SE PHOTO_IDS > 0
         // Mostra "nessuna foto trovata" SOLO se:
         // - la richiesta /match_selfie fallisce (non 200) oppure
         // - getPhotoIds(data).length === 0
@@ -5787,6 +5787,7 @@
             : "Risposta inattesa: nessun photo_id trovato";
           debugError({ data, errorMsg, receivedCount });
           debugLogBox(`ERROR: ${errorMsg} (receivedCount=${receivedCount}, allIds.length=${allIds.length})`);
+          updateMinimalDebug(`200 OK`, 0, '-', undefined, keyUsed);
           
           // Se count > 0 ma allIds vuoto, mostra bottone "Riprova caricamento"
           if (receivedCount > 0 && langErrorBox) {
@@ -5859,6 +5860,9 @@
           const normalizedPhotos = normalizePhotos(photosData);
           debugLogBox(`api/photos normalized: ${normalizedPhotos.length} photos`);
           
+          // Aggiorna minimal debug box
+          updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, keyUsed);
+          
           if (!photosData.ok || normalizedPhotos.length === 0) {
             const errorMsg = "Foto trovate ma anteprime non caricabili. Riprova.";
             debugError({ photosData, errorMsg });
@@ -5886,7 +5890,10 @@
           const errorStatus = photosError?.status || (photosError instanceof Response ? photosError.status : null);
           debugError({ photosError, status: errorStatus });
           
-          // Mostra errore con bottone retry
+          // Aggiorna minimal debug box con errore
+          updateMinimalDebug(`200 OK`, allIds.length, `ERROR ${errorStatus || '?'}`, undefined, keyUsed);
+          
+          // FIX: mostra errore REALE in rosso, NON "nessuna foto trovata" generico
           const langLoading = document.getElementById('langLoading');
           const langErrorBox = document.getElementById('langErrorBox');
           if(langLoading) langLoading.style.display = 'none';
@@ -5894,7 +5901,8 @@
             langErrorBox.style.display = 'block';
             const errorText = langErrorBox.querySelector('.lang-error-text');
             if (errorText) {
-              errorText.innerHTML = `Errore caricamento: ${photosError.message || 'Errore sconosciuto'}<br><button id="retryLoadBtn3" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
+              const errorMsg = `Errore: ${photosError.message || 'Errore sconosciuto durante caricamento foto'}`;
+              errorText.innerHTML = `<span style="color: #ff4444; font-weight: bold;">${errorMsg}</span><br><button id="retryLoadBtn3" style="margin-top:10px; padding:8px 16px; background:#6366f1; color:#fff; border:none; border-radius:8px; cursor:pointer;">Riprova caricamento</button>`;
               const retryBtn = document.getElementById('retryLoadBtn3');
               if (retryBtn) {
                 retryBtn.onclick = () => location.reload();
@@ -6038,6 +6046,9 @@
           
           debugLog("✅ Match completato con successo");
           debugLogBox(`✅ Match completato: ${newPhotos.length} foto, allIds=${allIds.length}`);
+          
+          // Aggiorna minimal debug box con successo
+          updateMinimalDebug(`200 OK`, allIds.length, `200 OK`, newPhotos.length, keyUsed);
         } else {
           // Solo se davvero non ci sono foto, imposta stato errore
           // FIX: mostra errore reale, NON "nessuna foto trovata" generico
@@ -7913,10 +7924,70 @@
     </div>
   </div>
   
+  <!-- BUILD ID Badge (sempre visibile) -->
+  <div id="buildIdBadge" style="position: fixed; bottom: 8px; left: 8px; background: rgba(0,0,0,0.8); color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 8px; border-radius: 4px; z-index: 99998; border: 1px solid #0f0;">
+    BUILD: 2026-01-23-<span id="buildRandom">a1b2c3</span>
+  </div>
+  
+  <!-- Debug Box Minimo (collassabile) -->
+  <div id="minimalDebugBox" style="position: fixed; bottom: 40px; left: 8px; background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; font-size: 10px; padding: 8px; border-radius: 4px; z-index: 99997; border: 1px solid #0f0; max-width: 300px; max-height: 150px; overflow-y: auto;">
+    <div style="font-weight: bold; margin-bottom: 4px; cursor: pointer; color: #0ff;" onclick="toggleMinimalDebug()">▼ DEBUG</div>
+    <div id="minimalDebugContent" style="display: block; white-space: pre-wrap; word-break: break-all; font-size: 9px;">
+      match_selfie: -<br>
+      photo_ids: -<br>
+      api/photos: -<br>
+    </div>
+  </div>
+  
   <!-- Debug Panel (solo se ?debug=1) -->
   <div id="debugPanel" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; font-size: 11px; padding: 10px; max-height: 200px; overflow-y: auto; z-index: 99999; border-top: 2px solid #0f0;">
     <div style="font-weight: bold; margin-bottom: 5px; color: #0ff;">DEBUG MODE</div>
     <div id="debugContent" style="white-space: pre-wrap; word-break: break-all;"></div>
   </div>
+  
+  <script>
+    // Genera random 6 caratteri per BUILD ID
+    (function() {
+      const chars = '0123456789abcdef';
+      let random = '';
+      for (let i = 0; i < 6; i++) {
+        random += chars[Math.floor(Math.random() * chars.length)];
+      }
+      const badge = document.getElementById('buildIdBadge');
+      if (badge) {
+        const span = badge.querySelector('#buildRandom');
+        if (span) span.textContent = random;
+      }
+    })();
+    
+    // Toggle minimal debug box
+    function toggleMinimalDebug() {
+      const content = document.getElementById('minimalDebugContent');
+      if (content) {
+        content.style.display = content.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+    
+    // Aggiorna minimal debug box
+    function updateMinimalDebug(matchStatus, photoIdsCount, apiPhotosStatus, apiPhotosCount, keyUsed) {
+      const content = document.getElementById('minimalDebugContent');
+      if (content) {
+        let text = `match_selfie: ${matchStatus}`;
+        if (photoIdsCount !== undefined) {
+          text += ` (${photoIdsCount} photo_ids`;
+          if (keyUsed) text += ` via ${keyUsed}`;
+          text += `)`;
+        }
+        text += `\napi/photos: ${apiPhotosStatus}`;
+        if (apiPhotosCount !== undefined) {
+          text += ` (${apiPhotosCount} photos)`;
+        }
+        if (photoIdsCount === 0 && keyUsed) {
+          text += `\n⚠️ No photo_ids found (tried: ${keyUsed})`;
+        }
+        content.textContent = text;
+      }
+    }
+  </script>
 </body>
 </html>
