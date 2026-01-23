@@ -5688,20 +5688,20 @@
         debugLogBox(`match_selfie ERROR: ${errorMsg}`);
         updateMinimalDebug('ERROR: no blob', 0, '-', undefined, '');
         console.error("[CONFIRM_FLOW]", errorMsg);
-        // FIX: mostra errore REALE in rosso, non generico
-        const langLoading = document.getElementById('langLoading');
-        const langErrorBox = document.getElementById('langErrorBox');
-        if(langLoading) langLoading.style.display = 'none';
-        if(langErrorBox) {
-          langErrorBox.style.display = 'block';
-          const errorText = langErrorBox.querySelector('.lang-error-text');
-          if (errorText) {
-            errorText.innerHTML = `<span style="color: #ff4444; font-weight: bold;">Errore: ${errorMsg}</span>`;
+          // FIX: mostra errore REALE in rosso, non generico
+          const langLoading = document.getElementById('langLoading');
+          const langErrorBox = document.getElementById('langErrorBox');
+          if(langLoading) langLoading.style.display = 'none';
+          if(langErrorBox) {
+            langErrorBox.style.display = 'block';
+            const errorText = langErrorBox.querySelector('.lang-error-text');
+            if (errorText) {
+              errorText.innerHTML = `<span style="color: #ff4444; font-weight: bold;">Errore: ${httpErrorMsg}</span>`;
+            }
           }
-        }
-        photosReady = false;
-        photosFailed = true;
-        return;
+          photosReady = false;
+          photosFailed = true;
+          return;
       }
 
       // Mostra stato "Uploading selfie..."
@@ -5927,8 +5927,7 @@
             // FIX: mostra errore REALE con status + testo
             const apiErrorMsg = `Errore caricamento foto: status ${photosRes.status}, ${normalizedPhotos.length === 0 ? 'nessuna foto ricevuta' : 'risposta non ok'}`;
             debugLogBox(`api/photos ERROR: ${apiErrorMsg}`);
-            const errorMsg = "Foto trovate ma anteprime non caricabili. Riprova.";
-            debugError({ photosData, errorMsg });
+            debugError({ photosData, errorMsg: apiErrorMsg });
             // Mostra errore con bottone retry
             const langLoading = document.getElementById('langLoading');
             const langErrorBox = document.getElementById('langErrorBox');
