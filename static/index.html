@@ -3039,9 +3039,17 @@
     }
 
     // goToAlbumScreen: nascondi lingua, mostra album, renderizza album se serve
-    function goToAlbumScreen(){
+    async function goToAlbumScreen(){
       showScreen('album');
-      // Chiama funzione di render album se esiste
+      // Chiama displayPhotos per renderizzare la griglia
+      if(typeof displayPhotos === 'function'){
+        await displayPhotos();
+        updateCart();
+        if(allPhotos.length > 0) {
+          showStickyOfferBar();
+        }
+      }
+      // Chiama funzione di render album se esiste (retrocompatibilità)
       if(typeof renderAlbum === 'function'){
         renderAlbum();
       }
@@ -5419,6 +5427,9 @@
             langErrorBox.style.display = 'none';
             langErrorBox.style.pointerEvents = 'none';
           }
+          // IMPORTANTE: chiama displayPhotos per renderizzare la griglia
+          goToAlbumScreen();
+          return;
           
           // Se stiamo aggiungendo un membro famiglia, gestisci avatar e reset flag
           if(isAddingFamilyMember) {
