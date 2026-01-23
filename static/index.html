@@ -2749,8 +2749,16 @@
       de: 'Deutsch'
     };
 
-    // Avvia la ricerca foto in background (senza bloccare UI)
+    // BLOCCA qualsiasi "auto-search" senza selfie
+    // NON chiamare /match_selfie in automatico all'avvio della pagina
     function startPhotosSearchInBackground(){
+      // GUARD: NON partire se non c'è capturedBlob
+      if(!capturedBlob) {
+        console.warn('[PHOTOS_SEARCH] BLOCKED: capturedBlob is null - cannot start search without selfie');
+        updateMinimalDebug('BLOCKED', 0, '-', undefined, 'no selfie');
+        return Promise.resolve(false);
+      }
+      
       if(photosSearchPromise) return photosSearchPromise;
 
       photosReady = false;
@@ -2779,8 +2787,14 @@
       const langErrorBox = document.getElementById('langErrorBox');
       if(langErrorBox) langErrorBox.style.display = 'none';
 
-      // Se la ricerca non e' mai partita (edge case), la facciamo partire ora.
-      if(!photosSearchPromise) startPhotosSearchInBackground();
+      // BLOCCA: NON partire ricerca automatica senza selfie
+      // Se la ricerca non e' mai partita E c'è capturedBlob, la facciamo partire ora.
+      if(!photosSearchPromise && capturedBlob) {
+        startPhotosSearchInBackground();
+      } else if(!capturedBlob) {
+        console.warn('[LANGUAGE] Cannot start search: no selfie captured');
+        updateMinimalDebug('BLOCKED', 0, '-', undefined, 'no selfie');
+      }
 
       // Se gia' pronta, non mostriamo nessun loading
       if(photosReady) {
@@ -2935,8 +2949,9 @@
         // Vai subito alla lingua (piu' logico per l'utente)
         showScreen('language');
 
-        // Avvia ricerca foto in background
-        startPhotosSearchInBackground();
+        // BLOCCA: NON avviare ricerca automatica - aspetta che l'utente selezioni lingua
+        // La ricerca partirà solo quando l'utente seleziona la lingua (se capturedBlob esiste)
+        // startPhotosSearchInBackground(); // DISATTIVATO - parte solo dopo selezione lingua
 
         // Se l'utente aveva gia' scelto una lingua in questa sessione, non chiedere di nuovo
         if(selectedLanguage){
@@ -5237,13 +5252,24 @@
     }
     
     // Funzione per avviare la ricerca foto in background (senza await)
+    // BLOCCA qualsiasi "auto-search" senza selfie
     function startPhotosSearchInBackground() {
+      // GUARD: NON partire se non c'è capturedBlob
+      if(!capturedBlob) {
+        console.warn('[CONFIRM_FLOW] BLOCKED: capturedBlob is null - cannot start search without selfie');
+        updateMinimalDebug('BLOCKED', 0, '-', undefined, 'no selfie');
+        photosReady = false;
+        photosFailed = true;
+        return;
+      }
+      
       if(photosSearchPromise) {
         // Già in corso, non riavviare
         return;
       }
       
       console.log('[CONFIRM_FLOW] Starting photos search in background');
+      updateMinimalDebug('START', undefined, '-', undefined, '');
       
       // Reset stati foto
       photosReady = false;
@@ -5252,6 +5278,7 @@
       // Avvia match in background (senza await)
       photosSearchPromise = matchPhotos().catch(err => {
         console.error('[CONFIRM_FLOW] Error in matchPhotos:', err);
+        updateMinimalDebug(`ERROR: ${err.message}`, 0, '-', undefined, '');
         photosReady = false;
         photosFailed = true;
         photosSearchPromise = null;
@@ -5449,8 +5476,9 @@
         // Marca selfie come completato
         selfieCompleted = true;
 
-        // Avvia ricerca foto in background (senza await)
-        startPhotosSearchInBackground();
+        // BLOCCA: NON avviare ricerca automatica - aspetta che l'utente selezioni lingua
+        // La ricerca partirà solo quando l'utente seleziona la lingua (se capturedBlob esiste)
+        // startPhotosSearchInBackground(); // DISATTIVATO - parte solo dopo selezione lingua
 
         // Vai subito alla schermata lingua
         showScreen('language');
@@ -5569,16 +5597,17 @@
     }
     
     // ========== FUNZIONI ROBUSTE PARSING ==========
+    // PARSING ROBUSTO DEL JSON - accetta questi campi per compatibilità
     function getPhotoIds(data) {
-      // Priorità 1: matched_photo_ids (nuovo formato standard)
-      if (Array.isArray(data.matched_photo_ids) && data.matched_photo_ids.length > 0) {
-        debugLogBox(`getPhotoIds: matched_photo_ids (${data.matched_photo_ids.length})`);
-        return data.matched_photo_ids;
-      }
-      // Priorità 2: photo_ids (alias/compatibilità)
+      // Priorità 1: photo_ids (compatibilità)
       if (Array.isArray(data.photo_ids) && data.photo_ids.length > 0) {
         debugLogBox(`getPhotoIds: photo_ids (${data.photo_ids.length})`);
         return data.photo_ids;
+      }
+      // Priorità 2: matched_photo_ids (nuovo formato standard)
+      if (Array.isArray(data.matched_photo_ids) && data.matched_photo_ids.length > 0) {
+        debugLogBox(`getPhotoIds: matched_photo_ids (${data.matched_photo_ids.length})`);
+        return data.matched_photo_ids;
       }
       // Priorità 3: photos (se è array di stringhe)
       if (Array.isArray(data.photos)) {
@@ -5587,7 +5616,7 @@
           return data.photos;
         }
       }
-      // Priorità 4: estrai da results/matches (fallback)
+      // Priorità 4: estrai da results (se è array di oggetti, estrai filename/photo_id)
       const resultsIds = [];
       if (Array.isArray(data.results)) {
         data.results.forEach(item => {
@@ -5649,15 +5678,27 @@
         return;
       }
       
+      // DEBUG: mostra sempre START
+      updateMinimalDebug('START', undefined, '-', undefined, '');
+      debugLogBox('match_selfie: START');
+      
       if(!capturedBlob) {
-        const errorMsg = "capturedBlob è null!";
+        const errorMsg = "capturedBlob è null! Non è stato selezionato nessun selfie.";
         debugError(errorMsg);
+        debugLogBox(`match_selfie ERROR: ${errorMsg}`);
+        updateMinimalDebug('ERROR: no blob', 0, '-', undefined, '');
         console.error("[CONFIRM_FLOW]", errorMsg);
-        // NON tornare a selfie screen, mostra errore nella language screen
+        // FIX: mostra errore REALE in rosso, non generico
         const langLoading = document.getElementById('langLoading');
         const langErrorBox = document.getElementById('langErrorBox');
         if(langLoading) langLoading.style.display = 'none';
-        if(langErrorBox) langErrorBox.style.display = 'block';
+        if(langErrorBox) {
+          langErrorBox.style.display = 'block';
+          const errorText = langErrorBox.querySelector('.lang-error-text');
+          if (errorText) {
+            errorText.innerHTML = `<span style="color: #ff4444; font-weight: bold;">Errore: ${errorMsg}</span>`;
+          }
+        }
         photosReady = false;
         photosFailed = true;
         return;
@@ -5665,6 +5706,7 @@
 
       // Mostra stato "Uploading selfie..."
       debugLog("Uploading selfie...");
+      debugLogBox('match_selfie: Uploading...');
       const langLoading = document.getElementById('langLoading');
       const langLoadingText = document.getElementById('langLoadingText');
       if(langLoadingText) langLoadingText.textContent = 'Caricamento selfie...';
@@ -5735,10 +5777,16 @@
         const matchDuration = matchEndTime - matchStartTime;
         const res = xhr;
         
+        // DEBUG: mostra sempre HTTP status
         debugLog(`match_selfie: ${res.status} in ${matchDuration}ms`);
+        debugLogBox(`match_selfie: HTTP ${res.status} in ${matchDuration}ms`);
+        updateMinimalDebug(`HTTP ${res.status}`, undefined, '-', undefined, '');
         
         // Controlla se la risposta è OK
         if(res.status < 200 || res.status >= 300) {
+          const errorMsg = `Errore HTTP: ${res.status} ${res.statusText}`;
+          debugLogBox(`match_selfie ERROR: ${errorMsg}`);
+          updateMinimalDebug(`ERROR ${res.status}`, 0, '-', undefined, '');
           const errorMsg = `Errore HTTP: ${res.status} ${res.statusText}`;
           debugError({ status: res.status, statusText: res.statusText, responseText: res.responseText });
           console.error("[CONFIRM_FLOW] ❌", errorMsg);
@@ -5767,9 +5815,13 @@
           debugLogBox(`match_selfie response keys: ${Object.keys(data).join(', ')}`);
           debugLogBox(`match_selfie response: ${JSON.stringify(data).substring(0, 500)}`);
         } catch(parseError) {
+          // DEBUG: stampa primi 200 caratteri della response text se JSON parse fallisce
+          const responsePreview = res.responseText ? res.responseText.substring(0, 200) : 'empty response';
           const errorMsg = `Invalid JSON: ${parseError.message}`;
-          debugError({ parseError, responsePreview: res.responseText.substring(0, 500) });
-          debugLogBox(`ERROR: Invalid JSON - ${errorMsg}`);
+          debugError({ parseError, responsePreview });
+          debugLogBox(`match_selfie ERROR: ${errorMsg}`);
+          debugLogBox(`Response preview (first 200 chars): ${responsePreview}`);
+          updateMinimalDebug(`ERROR: JSON parse`, 0, '-', undefined, '');
           throw new Error(errorMsg);
         }
         
@@ -5854,7 +5906,10 @@
           const photosDuration = photosEndTime - photosStartTime;
           
           if (!photosRes.ok) {
-            throw new Error(`HTTP ${photosRes.status}: ${photosRes.statusText}`);
+            const errorMsg = `HTTP ${photosRes.status}: ${photosRes.statusText}`;
+            debugLogBox(`api/photos ERROR: ${errorMsg}`);
+            updateMinimalDebug(`200 OK`, allIds.length, `ERROR ${photosRes.status}`, undefined, keyUsed);
+            throw new Error(errorMsg);
           }
           
           photosData = await photosRes.json();
@@ -5869,6 +5924,9 @@
           updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, keyUsed);
           
           if (!photosData.ok || normalizedPhotos.length === 0) {
+            // FIX: mostra errore REALE con status + testo
+            const errorMsg = `Errore caricamento foto: status ${photosRes.status}, ${normalizedPhotos.length === 0 ? 'nessuna foto ricevuta' : 'risposta non ok'}`;
+            debugLogBox(`api/photos ERROR: ${errorMsg}`);
             const errorMsg = "Foto trovate ma anteprime non caricabili. Riprova.";
             debugError({ photosData, errorMsg });
             // Mostra errore con bottone retry

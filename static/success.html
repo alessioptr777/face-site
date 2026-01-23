@@ -347,11 +347,15 @@
                     showDevModeIndicator();
                     return;
                 } else {
-                    // NON mostrare pagina rotta: mostra messaggio chiaro e redirect
-                    showError('Nessun ordine trovato. Reindirizzamento alla galleria...');
-                    setTimeout(() => {
-                        window.location.href = '/';
-                    }, 2000);
+                    // Migliora UX: mostra bottone "Torna alla home" quando manca token, senza sembrare un bug
+                    const errorEl = document.getElementById('error');
+                    if (errorEl) {
+                        errorEl.innerHTML = `
+                            <p style="margin-bottom: 20px;">Nessun ordine trovato.</p>
+                            <a href="/" style="display: inline-block; padding: 12px 24px; background: #6366f1; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Torna alla home</a>
+                        `;
+                        errorEl.style.display = 'block';
+                    }
                     return;
                 }
             }
