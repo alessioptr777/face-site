@@ -5784,8 +5784,8 @@
         
         // Controlla se la risposta è OK
         if(res.status < 200 || res.status >= 300) {
-          const errorMsg = `Errore HTTP: ${res.status} ${res.statusText}`;
-          debugLogBox(`match_selfie ERROR: ${errorMsg}`);
+          const httpErrorMsg = `Errore HTTP: ${res.status} ${res.statusText}`;
+          debugLogBox(`match_selfie ERROR: ${httpErrorMsg}`);
           updateMinimalDebug(`ERROR ${res.status}`, 0, '-', undefined, '');
           const errorMsg = `Errore HTTP: ${res.status} ${res.statusText}`;
           debugError({ status: res.status, statusText: res.statusText, responseText: res.responseText });
@@ -5925,8 +5925,8 @@
           
           if (!photosData.ok || normalizedPhotos.length === 0) {
             // FIX: mostra errore REALE con status + testo
-            const errorMsg = `Errore caricamento foto: status ${photosRes.status}, ${normalizedPhotos.length === 0 ? 'nessuna foto ricevuta' : 'risposta non ok'}`;
-            debugLogBox(`api/photos ERROR: ${errorMsg}`);
+            const apiErrorMsg = `Errore caricamento foto: status ${photosRes.status}, ${normalizedPhotos.length === 0 ? 'nessuna foto ricevuta' : 'risposta non ok'}`;
+            debugLogBox(`api/photos ERROR: ${apiErrorMsg}`);
             const errorMsg = "Foto trovate ma anteprime non caricabili. Riprova.";
             debugError({ photosData, errorMsg });
             // Mostra errore con bottone retry
