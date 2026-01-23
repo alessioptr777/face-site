@@ -6155,7 +6155,11 @@
             
             console.log(`[CONFIRM_FLOW] Merge completato: ${albumPhotosAll.length} foto totali (${newPhotos.length} nuove)`);
           } else {
-            // Primo selfie: crea o aggiorna main member (members[0])
+            // Primo selfie: imposta allPhotos direttamente con newPhotos (come prima)
+            allPhotos = newPhotos;
+            albumPhotosAll = newPhotos;
+            
+            // Crea o aggiorna main member per retrocompatibilità
             const confirmPreview = document.getElementById('confirmPreview');
             const mainPersonAvatar = document.getElementById('mainPersonAvatar');
             const avatarDataUrl = confirmPreview?.src || mainPersonAvatar?.src;
@@ -6180,23 +6184,8 @@
               }
             }
             
-            // Ricostruisci album da tutti i membri
-            rebuildAlbumFromMembers();
             window._lastMemberPhotos = null;
           }
-          
-          // Assicurati che tutti gli allIds siano presenti in allPhotos
-          const existingIds = new Set(allPhotos.map(p => p.photo_id));
-          allIds.forEach(id => {
-            if (!existingIds.has(id)) {
-              allPhotos.push({
-                photo_id: id,
-                score: 0,
-                has_face: true,
-                paid: false
-              });
-            }
-          });
           
           photosLoadedCount = 0;
           paidPhotos = [];
