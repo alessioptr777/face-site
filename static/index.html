@@ -5639,6 +5639,43 @@
       debugBox.scrollTop = debugBox.scrollHeight;
       console.log(msg);
     }
+
+    // Helper: log error safely without breaking the flow
+    function debugError(err) {
+      try {
+        // Always log full object to console
+        console.error('[CONFIRM_FLOW] Error:', err);
+
+        // Build a readable message for the on-page debug box
+        let msg = '';
+        if (typeof err === 'string') {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (err.message) msg = err.message;
+          else if (err.status && err.statusText) msg = `HTTP ${err.status}: ${err.statusText}`;
+          else {
+            try {
+              msg = JSON.stringify(err);
+            } catch (_) {
+              msg = String(err);
+            }
+          }
+        } else {
+          msg = String(err);
+        }
+
+        // Avoid huge lines in the box
+        if (msg && msg.length > 400) msg = msg.slice(0, 400) + '...';
+
+        // If debug box is enabled, show it; otherwise do nothing
+        if (typeof debugLogBox === 'function') {
+          debugLogBox(`ERROR: ${msg || 'Unknown error'}`);
+        }
+      } catch (e) {
+        // Last resort: never throw from the error logger
+        console.error('debugError failed:', e);
+      }
+    }
     
     // ========== FUNZIONI ROBUSTE PARSING ==========
     // PARSING ROBUSTO DEL JSON - accetta questi campi per compatibilità
@@ -5930,7 +5967,7 @@
             : "Risposta inattesa: nessun photo_id trovato";
           debugError({ data, errorMsg, receivedCount });
           debugLogBox(`ERROR: ${errorMsg} (receivedCount=${receivedCount}, allIds.length=${allIds.length})`);
-          updateMinimalDebug(`200 OK`, 0, '-', undefined, keyUsed);
+          updateMinimalDebug(`200 OK`, 0, '-', undefined, undefined);
           
           // Se count > 0 ma allIds vuoto, mostra bottone "Riprova caricamento"
           if (receivedCount > 0 && langErrorBox) {
@@ -6013,7 +6050,7 @@
             } else {
               // DEBUG: stampa risposta grezza
               debugLogBox(`api/photos response keys: ${Object.keys(photosData).join(', ')}`);
-              updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, keyUsed);
+              updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, undefined);
             }
           }
         } catch (photosError) {
@@ -6036,7 +6073,7 @@
             items: fallbackPhotos,
             photos: fallbackPhotos  // retrocompatibilità
           };
-          updateMinimalDebug(`200 OK`, allIds.length, `FALLBACK`, fallbackPhotos.length, keyUsed);
+          updateMinimalDebug(`200 OK`, allIds.length, `FALLBACK`, fallbackPhotos.length, undefined);
         }
         
         // Converti in formato allPhotos usando normalizePhotos()
@@ -6173,7 +6210,7 @@
           debugLogBox(`✅ Match completato: ${newPhotos.length} foto, allIds=${allIds.length}`);
           
           // Aggiorna minimal debug box con successo
-          updateMinimalDebug(`200 OK`, allIds.length, `200 OK`, newPhotos.length, keyUsed);
+          updateMinimalDebug(`200 OK`, allIds.length, `200 OK`, newPhotos.length, undefined);
         } else {
           // Solo se davvero non ci sono foto, imposta stato errore
           // FIX: mostra errore reale, NON "nessuna foto trovata" generico
