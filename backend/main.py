@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
-# BUILD_VERSION: 2026-01-07-03-30-FORCE-DEPLOY-v3
+# BUILD_VERSION: 2026-01-23-STRIPE-METADATA-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-07-03-35-FORCE"
+APP_BUILD_ID = "deploy-2026-01-23-stripe-fix"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
