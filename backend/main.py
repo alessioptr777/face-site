@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-23-paid-photos-direct-serve"
+APP_BUILD_ID = "deploy-2026-01-23-search-all-folders"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -3794,11 +3794,40 @@ async def serve_photo(
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
-    # Costruisci object_key in modo deterministico:
-    # - Se (paid=true e verificato) -> originals/<filename>
+    # Costruisci object_key in modo flessibile:
+    # - Se (paid=true e verificato) -> cerca prima in originals/, poi in root, poi in altre cartelle
     # - Altrimenti -> variant default "thumb": thumbs/<filename> oppure wm/<filename>
     if wants_original and is_paid:
-        object_key = f"originals/{original_key}"
+        # Per foto pagate, prova prima originals/, poi root, poi altre cartelle
+        # Ordine di ricerca: originals/ -> root -> wm/ -> thumbs/
+        possible_keys = [
+            f"originals/{original_key}",
+            original_key,  # Root del bucket (senza cartella)
+            f"wm/{original_key}",  # Fallback a wm se originals non esiste
+            f"thumbs/{original_key}"  # Ultimo fallback
+        ]
+        
+        # Prova a trovare la foto in qualsiasi cartella
+        object_key = None
+        for test_key in possible_keys:
+            try:
+                # Prova a leggere (più veloce di head_object per verificare esistenza)
+                test_response = r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
+                object_key = test_key
+                logger.info(f"[PHOTO] Found paid photo at: {object_key}")
+                break
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == '404' or error_code == 'NoSuchKey':
+                    continue  # Prova prossima cartella
+                else:
+                    logger.warning(f"[PHOTO] Error checking {test_key}: {error_code}")
+                    continue  # Continua con prossima cartella anche per altri errori
+        
+        if not object_key:
+            # Nessuna cartella ha la foto, usa originals/ come default (verrà gestito l'errore dopo)
+            object_key = f"originals/{original_key}"
+            logger.warning(f"[PHOTO] Photo not found in any folder (tried: {possible_keys}), using default: {object_key}")
     else:
         variant_effective = (variant or "thumb").lower()
         if variant_effective == "thumb":
