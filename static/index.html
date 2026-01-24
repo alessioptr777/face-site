@@ -2044,7 +2044,8 @@
           <span id="cartTotal">€0.00</span>
         </div>
         <button class="btn-primary" id="checkoutBtn" style="width: 100%; margin-bottom: 10px;" disabled data-i18n="cart_checkout">💳 Checkout</button>
-        <button class="btn-retake" id="closeCartBtn" style="width: 100%;" data-i18n="cart_continue_selection">Continua la selezione</button>
+        <button class="btn-retake" id="closeCartBtn" style="width: 100%; margin-bottom: 10px;" data-i18n="cart_continue_selection">Continua la selezione</button>
+        <button class="btn-retake" id="clearCartBtn" style="width: 100%; background: #ff4444; color: white; border: none;" data-i18n="cart_clear_all">🗑️ Svuota carrello</button>
       </div>
     </div>
   </div>
@@ -2159,6 +2160,7 @@
         cart_checkout: "💳 Checkout",
         cart_close: "Close",
         cart_continue_selection: "Continue selecting",
+        cart_clear_all: "🗑️ Clear cart",
         cart_loading: "⏳ Loading...",
         cart_go_payment: "💳 Go to Payment",
         lightbox_download: "📥 Download",
@@ -2248,6 +2250,7 @@
         cart_checkout: "💳 Pagar",
         cart_close: "Cerrar",
         cart_continue_selection: "Seguir seleccionando",
+        cart_clear_all: "🗑️ Vaciar carrito",
         cart_loading: "⏳ Cargando...",
         cart_go_payment: "💳 Ir al pago",
         lightbox_download: "📥 Descargar",
@@ -2337,6 +2340,7 @@
         cart_checkout: "💳 Checkout",
         cart_close: "Chiudi",
         cart_continue_selection: "Continua la selezione",
+        cart_clear_all: "🗑️ Svuota carrello",
         cart_loading: "⏳ Caricamento...",
         cart_go_payment: "💳 Vai al Pagamento",
         lightbox_download: "📥 Download",
@@ -2426,6 +2430,7 @@
         cart_checkout: "💳 Paiement",
         cart_close: "Fermer",
         cart_continue_selection: "Continuer la sélection",
+        cart_clear_all: "🗑️ Vider le panier",
         cart_loading: "⏳ Chargement...",
         cart_go_payment: "💳 Aller au paiement",
         lightbox_download: "📥 Télécharger",
@@ -2515,6 +2520,7 @@
         cart_checkout: "💳 Zur Kasse",
         cart_close: "Schließen",
         cart_continue_selection: "Auswahl fortsetzen",
+        cart_clear_all: "🗑️ Warenkorb leeren",
         cart_loading: "⏳ Wird geladen...",
         cart_go_payment: "💳 Zur Zahlung",
         lightbox_download: "📥 Herunterladen",
@@ -2604,6 +2610,7 @@
         cart_checkout: "💳 Afrekenen",
         cart_close: "Sluiten",
         cart_continue_selection: "Verder selecteren",
+        cart_clear_all: "🗑️ Winkelwagen legen",
         cart_loading: "⏳ Laden...",
         cart_go_payment: "💳 Ga naar betaling",
         lightbox_download: "📥 Downloaden",
@@ -4045,7 +4052,8 @@
     window.stickyClickLock = false;
     
     // Funzione robusta per gestire click sticky bar (cross-device)
-    // Semplificata: apre solo il carrello
+    // Aggiunge TUTTE le foto non pagate al carrello, poi apre il carrello
+    // FIX: Usa addToCartLocal() per aggiungere tutte le foto in batch, poi syncCart() una volta
     function onStickyOfferClick() {
       console.log('[STICKY] onStickyOfferClick called');
       // Previeni doppio trigger
@@ -4058,15 +4066,45 @@
         window.stickyClickLock = false;
       }, 300);
       
-      // Apri solo il carrello
+      // Aggiungi TUTTE le foto non pagate al carrello in batch (senza chiamare syncCart() per ogni foto)
+      if(allPhotos && allPhotos.length > 0) {
+        const paidPhotoIdsSet = new Set(paidPhotos);
+        let addedCount = 0;
+        allPhotos.forEach(photo => {
+          const photoId = photo.photo_id || photo.r2_key;
+          if(photoId && !paidPhotoIdsSet.has(photoId) && !cartPhotoIds.includes(photoId)) {
+            // Usa addToCartLocal() invece di addToCart() per evitare chiamate multiple a syncCart()
+            addToCartLocal(photoId);
+            addedCount++;
+            
+            // Aggiorna UI immediatamente per ogni foto
+            const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
+            if(btn && !btn.classList.contains('is-added')) {
+              btn.classList.add('is-added');
+              btn.setAttribute('aria-label', 'Rimuovi dal carrello');
+              const card = btn.closest('.album-photo');
+              if(card) card.classList.add('selected');
+            }
+          }
+        });
+        
+        // Sincronizza il carrello UNA SOLA VOLTA dopo aver aggiunto tutte le foto
+        if(addedCount > 0) {
+          syncCart();
+          console.log(`[STICKY] Added ${addedCount} photos to cart`);
+        }
+      }
+      
+      // Apri il carrello (dopo che syncCart() ha aggiornato currentCart)
       const cartModal = document.getElementById('cartModal');
       if(cartModal) {
         cartModal.classList.add('active');
+        // Assicurati che updateCartModal() venga chiamato per mostrare le foto appena aggiunte
         if(typeof updateCartModal === 'function') {
           updateCartModal();
         }
         updateNudgeBar(); // Nascondi nudge bar quando si apre il carrello
-        console.log('[STICKY] Cart modal opened');
+        console.log('[STICKY] Cart modal opened with', currentCart.count, 'photos');
       } else {
         // Fallback: usa il bottone carrello
         const cartBtn = document.getElementById('albumCartBtn');
@@ -4277,6 +4315,10 @@
     const checkoutBtn = document.getElementById("checkoutBtn");
     if(checkoutBtn) {
       checkoutBtn.addEventListener("click", checkout);
+    }
+    const clearCartBtn = document.getElementById("clearCartBtn");
+    if(clearCartBtn) {
+      clearCartBtn.addEventListener("click", clearCart);
     }
     
     // Chiudi modal cliccando fuori
@@ -7393,6 +7435,7 @@
       const cartItems = document.getElementById('cartItems');
       const cartTotal = document.getElementById('cartTotal');
       const checkoutBtn = document.getElementById('checkoutBtn');
+      const clearCartBtn = document.getElementById('clearCartBtn');
       
       if(!cartItems || !cartTotal || !checkoutBtn) {
         console.warn('Cart modal elements not found');
@@ -7415,10 +7458,18 @@
         });
         cartTotal.textContent = `€${currentCart.price_euros.toFixed(2)}`;
         checkoutBtn.disabled = false;
+        if(clearCartBtn) {
+          clearCartBtn.disabled = false;
+          clearCartBtn.style.opacity = '1';
+        }
       } else {
         cartItems.innerHTML = '<p style="text-align: center; color: var(--text-muted);">Il carrello è vuoto</p>';
         cartTotal.textContent = "€0.00";
         checkoutBtn.disabled = true;
+        if(clearCartBtn) {
+          clearCartBtn.disabled = true;
+          clearCartBtn.style.opacity = '0.5';
+        }
       }
     }
     
@@ -7437,6 +7488,35 @@
             const card = btn.closest('.album-photo');
             if(card) card.classList.remove('selected');
       }
+    }
+    
+    function clearCart() {
+      // Svuota completamente il carrello
+      const photoIdsToRemove = [...cartPhotoIds];
+      cartPhotoIds = [];
+      syncCart();
+      updateNudgeBar();
+      
+      // Aggiorna UI: rimuovi classe is-added da tutti i pulsanti
+      photoIdsToRemove.forEach(photoId => {
+        const btn = document.querySelector(`.add-to-cart-btn[data-photo-id="${photoId}"]`);
+        if(btn && btn.classList.contains('is-added')) {
+          btn.classList.remove('is-added');
+          btn.setAttribute('aria-label', 'Aggiungi al carrello');
+          const card = btn.closest('.album-photo');
+          if(card) card.classList.remove('selected');
+        }
+      });
+      
+      // Aggiorna anche il bottone nel viewer se è aperto
+      const addCartBtnLightbox = document.getElementById('lightboxAddCartBtn');
+      if(addCartBtnLightbox) {
+        addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
+        addCartBtnLightbox.style.background = 'white';
+        addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+      }
+      
+      console.log('[CART] Cart cleared');
     }
 
     // Funzione unica per calcolare prezzo in euro (number)
