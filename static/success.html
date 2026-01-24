@@ -480,6 +480,12 @@
                 img.className = 'photo-img';
                 img.loading = 'lazy';
                 img.onclick = () => openPhotoViewer(photoUrl);
+                // Gestisci errori di caricamento
+                img.onerror = function() {
+                    console.error(`[SUCCESS] Error loading photo: ${photoUrl}`);
+                    this.src = '/static/placeholder.jpg'; // Fallback se disponibile
+                    this.style.opacity = '0.5';
+                };
                 
                 const actions = document.createElement('div');
                 actions.className = 'photo-actions';
@@ -567,31 +573,50 @@
         // Download photo (cross-platform: attachment download)
         async function downloadPhoto(photoUrl, photoId) {
             try {
-                // Costruisci URL con download=true per forzare Content-Disposition: attachment
-                const downloadUrl = photoUrl.includes('?') 
-                    ? `${photoUrl}&download=true`
-                    : `${photoUrl}?download=true`;
-                
-                // Cross-platform download
-                const response = await fetch(downloadUrl);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                // Se è un URL diretto R2, usa direttamente
+                if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+                    // URL diretto R2: usa fetch e blob
+                    const response = await fetch(photoUrl);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const blob = await response.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+                } else {
+                    // URL relativo: aggiungi download=true
+                    const downloadUrl = photoUrl.includes('?') 
+                        ? `${photoUrl}&download=true`
+                        : `${photoUrl}?download=true`;
+                    
+                    const response = await fetch(downloadUrl);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const blob = await response.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
                 }
-                
-                const blob = await response.blob();
-                const blobUrl = window.URL.createObjectURL(blob);
-                
-                // Usa link temporaneo per download
-                const link = document.createElement('a');
-                link.href = blobUrl;
-                link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                link.style.display = 'none';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // Cleanup
-                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
             } catch (error) {
                 console.error('Download error:', error);
                 alert('Error downloading photo. Please try again.');

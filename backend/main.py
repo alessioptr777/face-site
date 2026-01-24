@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
-# BUILD_VERSION: 2026-01-23-STRIPE-METADATA-FIX
+# BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-23-stripe-fix"
+APP_BUILD_ID = "deploy-2026-01-23-success-fix"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -6835,6 +6835,17 @@ async def api_checkout_status(
                     purchased_photo_ids = verify_result.get("photo_ids", [])
                     customer_email = verify_result.get("customer_email")
                     logger.info(f"[API_CHECKOUT_STATUS] Verified session_id: {len(purchased_photo_ids)} photos for {customer_email}")
+                    
+                    # IMPORTANTE: Salva le foto come pagate nel database per permettere verifica in /photo
+                    # Questo permette a /photo?paid=true&email=... di funzionare correttamente
+                    if customer_email and purchased_photo_ids:
+                        logger.info(f"[API_CHECKOUT_STATUS] Marking {len(purchased_photo_ids)} photos as paid for {customer_email}")
+                        for photo_id in purchased_photo_ids:
+                            try:
+                                await _mark_photo_paid(customer_email, photo_id)
+                            except Exception as e:
+                                logger.error(f"[API_CHECKOUT_STATUS] Error marking photo as paid: {photo_id} - {e}")
+                                # Continua anche se una foto fallisce
                 else:
                     logger.warning(f"[API_CHECKOUT_STATUS] Stripe verification returned !ok: {verify_result}")
             except HTTPException as e:
@@ -6861,12 +6872,19 @@ async def api_checkout_status(
                     unlocked_urls[photo_id] = direct_url
                 except Exception as e:
                     logger.warning(f"[API_CHECKOUT_STATUS] Error building URL for {photo_id}: {e}")
-                    # Fallback: usa endpoint /photo
-                    unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true"
+                    # Fallback: usa endpoint /photo con email per verifica pagamento
+                    if customer_email:
+                        unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true&email={quote(customer_email, safe='')}"
+                    else:
+                        unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true"
         else:
             # Fallback: usa endpoint /photo se R2_PUBLIC_BASE_URL non configurato
+            # IMPORTANTE: includi sempre email per permettere verifica pagamento
             for photo_id in purchased_photo_ids:
-                unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true"
+                if customer_email:
+                    unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true&email={quote(customer_email, safe='')}"
+                else:
+                    unlocked_urls[photo_id] = f"/photo/{quote(photo_id, safe='')}?paid=true"
         
         # Calcola remaining_photo_ids (tutte le foto disponibili meno quelle acquistate)
         remaining_photo_ids = []
