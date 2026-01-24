@@ -5643,11 +5643,12 @@
       document.body.appendChild(debugBox);
     }
     function debugLogBox(msg) {
-      if (!debugBox) initDebugBox();
-      const line = document.createElement('div');
-      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      debugBox.appendChild(line);
-      debugBox.scrollTop = debugBox.scrollHeight;
+      // Disabilitato per pulizia log - non mostra più il box verde
+      // if (!debugBox) initDebugBox();
+      // const line = document.createElement('div');
+      // line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      // debugBox.appendChild(line);
+      // debugBox.scrollTop = debugBox.scrollHeight;
       console.log(msg);
     }
 
@@ -5694,32 +5695,32 @@
       // Priorità 1: ids (chiave più comune)
       if (Array.isArray(data.ids) && data.ids.length > 0) {
         console.log('[getPhotoIds] Found ids:', data.ids.length);
-        debugLogBox(`getPhotoIds: ids (${data.ids.length})`);
+        // debugLogBox(`getPhotoIds: ids (${data.ids.length})`);  // Rimosso per pulizia log
         return data.ids;
       }
       // Priorità 2: photo_ids (compatibilità)
       if (Array.isArray(data.photo_ids) && data.photo_ids.length > 0) {
         console.log('[getPhotoIds] Found photo_ids:', data.photo_ids.length);
-        debugLogBox(`getPhotoIds: photo_ids (${data.photo_ids.length})`);
+        // debugLogBox(`getPhotoIds: photo_ids (${data.photo_ids.length})`);  // Rimosso per pulizia log
         return data.photo_ids;
       }
       // Priorità 3: matched_photo_ids (nuovo formato standard)
       if (Array.isArray(data.matched_photo_ids) && data.matched_photo_ids.length > 0) {
         console.log('[getPhotoIds] Found matched_photo_ids:', data.matched_photo_ids.length);
-        debugLogBox(`getPhotoIds: matched_photo_ids (${data.matched_photo_ids.length})`);
+        // debugLogBox(`getPhotoIds: matched_photo_ids (${data.matched_photo_ids.length})`);  // Rimosso per pulizia log
         return data.matched_photo_ids;
       }
       // Priorità 4: matched_ids (alternativa)
       if (Array.isArray(data.matched_ids) && data.matched_ids.length > 0) {
         console.log('[getPhotoIds] Found matched_ids:', data.matched_ids.length);
-        debugLogBox(`getPhotoIds: matched_ids (${data.matched_ids.length})`);
+        // debugLogBox(`getPhotoIds: matched_ids (${data.matched_ids.length})`);  // Rimosso per pulizia log
         return data.matched_ids;
       }
       // Priorità 5: photos (se è array di stringhe)
       if (Array.isArray(data.photos)) {
         if (data.photos.length > 0 && typeof data.photos[0] === 'string') {
           console.log('[getPhotoIds] Found photos (strings):', data.photos.length);
-          debugLogBox(`getPhotoIds: photos array strings (${data.photos.length})`);
+          // debugLogBox(`getPhotoIds: photos array strings (${data.photos.length})`);  // Rimosso per pulizia log
           return data.photos;
         }
       }
@@ -5750,35 +5751,35 @@
         });
       }
       if (resultsIds.length > 0) {
-        debugLogBox(`getPhotoIds: extracted from results/matches (${resultsIds.length})`);
+        // debugLogBox(`getPhotoIds: extracted from results/matches (${resultsIds.length})`);  // Rimosso per pulizia log
         return [...new Set(resultsIds.filter(Boolean))];
       }
-      debugLogBox('getPhotoIds: NO PHOTO IDS FOUND');
+      // debugLogBox('getPhotoIds: NO PHOTO IDS FOUND');  // Rimosso per pulizia log
       return [];
     }
     
     function normalizePhotos(resp) {
       // Se resp è già un array, ritorna direttamente
       if (Array.isArray(resp)) {
-        debugLogBox(`normalizePhotos: array (${resp.length})`);
+        // debugLogBox(`normalizePhotos: array (${resp.length})`);  // Rimosso per pulizia log
         return resp;
       }
       // Se resp ha campo items (nuovo formato)
       if (resp && Array.isArray(resp.items)) {
-        debugLogBox(`normalizePhotos: resp.items (${resp.items.length})`);
+        // debugLogBox(`normalizePhotos: resp.items (${resp.items.length})`);  // Rimosso per pulizia log
         return resp.items;
       }
       // Se resp ha campo photos (retrocompatibilità)
       if (resp && Array.isArray(resp.photos)) {
-        debugLogBox(`normalizePhotos: resp.photos (${resp.photos.length})`);
+        // debugLogBox(`normalizePhotos: resp.photos (${resp.photos.length})`);  // Rimosso per pulizia log
         return resp.photos;
       }
       // Se resp ha campo results
       if (resp && Array.isArray(resp.results)) {
-        debugLogBox(`normalizePhotos: resp.results (${resp.results.length})`);
+        // debugLogBox(`normalizePhotos: resp.results (${resp.results.length})`);  // Rimosso per pulizia log
         return resp.results;
       }
-      debugLogBox('normalizePhotos: NO PHOTOS FOUND');
+      // debugLogBox('normalizePhotos: NO PHOTOS FOUND');  // Rimosso per pulizia log
       return [];
     }
     
@@ -5814,7 +5815,7 @@
       
       // DEBUG: mostra sempre START
       updateMinimalDebug('START', undefined, '-', undefined, '');
-      debugLogBox('match_selfie: START');
+      // debugLogBox('match_selfie: START');  // Rimosso per pulizia log
       
       if(!capturedBlob) {
         const errorMsg = "capturedBlob è null! Non è stato selezionato nessun selfie.";
@@ -5840,7 +5841,7 @@
 
       // Mostra stato "Uploading selfie..."
       debugLog("Uploading selfie...");
-      debugLogBox('match_selfie: Uploading...');
+      // debugLogBox('match_selfie: Uploading...');  // Rimosso per pulizia log
       const langLoading = document.getElementById('langLoading');
       const langLoadingText = document.getElementById('langLoadingText');
       if(langLoadingText) langLoadingText.textContent = 'Caricamento selfie...';
@@ -5913,7 +5914,7 @@
         
         // DEBUG: mostra sempre HTTP status
         debugLog(`match_selfie: ${res.status} in ${matchDuration}ms`);
-        debugLogBox(`match_selfie: HTTP ${res.status} in ${matchDuration}ms`);
+        // debugLogBox(`match_selfie: HTTP ${res.status} in ${matchDuration}ms`);  // Rimosso per pulizia log
         updateMinimalDebug(`HTTP ${res.status}`, undefined, '-', undefined, '');
         
         // Controlla se la risposta è OK
@@ -5947,9 +5948,9 @@
           // DEBUG: stampa risposta COMPLETA in console
           console.log('[MATCH_SELFIE] Full response:', JSON.stringify(data, null, 2));
           debugLog(`JSON keys: ${Object.keys(data).join(', ')}`);
-          // DEBUG: stampa risposta grezza
-          debugLogBox(`match_selfie response keys: ${Object.keys(data).join(', ')}`);
-          debugLogBox(`match_selfie response: ${JSON.stringify(data).substring(0, 500)}`);
+          // DEBUG: stampa risposta grezza (rimosso per pulizia log)
+          // debugLogBox(`match_selfie response keys: ${Object.keys(data).join(', ')}`);
+          // debugLogBox(`match_selfie response: ${JSON.stringify(data).substring(0, 500)}`);
         } catch(parseError) {
           // DEBUG: stampa primi 200 caratteri della response text se JSON parse fallisce
           const responsePreview = res.responseText ? res.responseText.substring(0, 200) : 'empty response';
@@ -5964,7 +5965,7 @@
         // Usa funzione robusta getPhotoIds() - estrae da qualsiasi chiave: ids, photo_ids, photos, matched_ids, results, matches
         const allIds = getPhotoIds(data);
         console.log('[MATCH_PHOTOS] Extracted photo_ids:', allIds);
-        debugLogBox(`photo_ids estratti: ${allIds.length} - ${allIds.slice(0, 3).join(', ')}${allIds.length > 3 ? '...' : ''}`);
+        // debugLogBox(`photo_ids estratti: ${allIds.length} - ${allIds.slice(0, 3).join(', ')}${allIds.length > 3 ? '...' : ''}`);  // Rimosso per pulizia log
         
         // Log count ricevuto
         const receivedCount = data.count || data.matched_count || allIds.length;
@@ -6051,7 +6052,7 @@
             const normalizedPhotos = normalizePhotos(photosData);
             debugLog(`api/photos POST: ${photosRes.status}, items=${normalizedPhotos.length} in ${photosDuration}ms`);
             console.log(`[API_PHOTOS] Success: ${normalizedPhotos.length} items`);
-            debugLogBox(`api/photos ok: ${normalizedPhotos.length} items`);
+            // debugLogBox(`api/photos ok: ${normalizedPhotos.length} items`);  // Rimosso per pulizia log
             
             // Verifica che la risposta sia valida
             if (!photosData.ok || normalizedPhotos.length === 0) {
@@ -6059,8 +6060,8 @@
               console.warn(`[API_PHOTOS] Empty or invalid response, using fallback`);
               useFallback = true;
             } else {
-              // DEBUG: stampa risposta grezza
-              debugLogBox(`api/photos response keys: ${Object.keys(photosData).join(', ')}`);
+              // DEBUG: stampa risposta grezza (rimosso per pulizia log)
+              // debugLogBox(`api/photos response keys: ${Object.keys(photosData).join(', ')}`);
               updateMinimalDebug(`200 OK`, allIds.length, `${photosRes.status} OK`, normalizedPhotos.length, undefined);
             }
           }
@@ -6141,7 +6142,7 @@
           });
         }
         
-        debugLogBox(`newPhotos creati: ${newPhotos.length}, con URL: ${newPhotos.filter(p => p.thumb_url).length}`);
+        // debugLogBox(`newPhotos creati: ${newPhotos.length}, con URL: ${newPhotos.filter(p => p.thumb_url).length}`);  // Rimosso per pulizia log
         
         debugLog(`Trovate ${newPhotos.length} foto, rendering...`);
         
@@ -6207,7 +6208,7 @@
           photosSearchPromise = null;
           
           debugLog("✅ Match completato con successo");
-          debugLogBox(`✅ Match completato: ${newPhotos.length} foto, allIds=${allIds.length}`);
+          // debugLogBox(`✅ Match completato: ${newPhotos.length} foto, allIds=${allIds.length}`);  // Rimosso per pulizia log
           
           // Aggiorna minimal debug box con successo
           updateMinimalDebug(`200 OK`, allIds.length, `200 OK`, newPhotos.length, undefined);
@@ -8086,13 +8087,13 @@
     </div>
   </div>
   
-  <!-- BUILD ID Badge (sempre visibile) -->
-  <div id="buildIdBadge" style="position: fixed; bottom: 8px; left: 8px; background: rgba(0,0,0,0.8); color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 8px; border-radius: 4px; z-index: 99998; border: 1px solid #0f0;">
+  <!-- BUILD ID Badge (NASCOSTO) -->
+  <div id="buildIdBadge" style="display: none; position: fixed; bottom: 8px; left: 8px; background: rgba(0,0,0,0.8); color: #0f0; font-family: monospace; font-size: 10px; padding: 4px 8px; border-radius: 4px; z-index: 99998; border: 1px solid #0f0;">
     BUILD: 2026-01-23-<span id="buildRandom">a1b2c3</span>
   </div>
   
-  <!-- Debug Box Minimo (collassabile) -->
-  <div id="minimalDebugBox" style="position: fixed; bottom: 40px; left: 8px; background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; font-size: 10px; padding: 8px; border-radius: 4px; z-index: 99997; border: 1px solid #0f0; max-width: 300px; max-height: 150px; overflow-y: auto;">
+  <!-- Debug Box Minimo (collassabile) - NASCOSTO -->
+  <div id="minimalDebugBox" style="display: none; position: fixed; bottom: 40px; left: 8px; background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; font-size: 10px; padding: 8px; border-radius: 4px; z-index: 99997; border: 1px solid #0f0; max-width: 300px; max-height: 150px; overflow-y: auto;">
     <div style="font-weight: bold; margin-bottom: 4px; cursor: pointer; color: #0ff;" onclick="toggleMinimalDebug()">▼ DEBUG</div>
     <div id="minimalDebugContent" style="display: block; white-space: pre-wrap; word-break: break-all; font-size: 9px;">
       match_selfie: -<br>
