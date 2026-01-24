@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-23-success-fix-v2"
+APP_BUILD_ID = "deploy-2026-01-23-test-mode-fix"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -6651,117 +6651,121 @@ async def verify_stripe_session(
 ):
     """Verifica sessione Stripe pagata e restituisce photo_ids (stateless)"""
     
-    # TEST MODE: gestisci session_id di test
-    if STRIPE_TEST_MODE and session_id.startswith("test_"):
-        logger.info(f"[TEST_MODE] verify_stripe_session called with session_id: {session_id}")
-        logger.info(f"[TEST_MODE] Available test sessions: {list(test_sessions.keys())}")
+    if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    
+    # IMPORTANTE: Anche in test mode, provare PRIMA a recuperare la sessione reale da Stripe
+    # Questo permette di avere l'email anche quando si usa la carta test 4242
+    # Solo se Stripe non ha la sessione, usare il fallback alla sessione test fake
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
         
-        if session_id in test_sessions:
-            session_data = test_sessions[session_id]
-            photo_ids = session_data.get("photo_ids", [])
-            customer_email = session_data.get("customer_email")
+        # Prova a recuperare la sessione da Stripe (funziona anche per sessioni test)
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+            logger.info(f"[STRIPE_VERIFY] Found session in Stripe: {session_id}, payment_status: {session.payment_status}")
             
-            logger.info(f"[TEST_MODE] Found session: {session_id}, photo_ids count: {len(photo_ids)}")
+            # Verifica che il pagamento sia completato
+            if session.payment_status != 'paid':
+                raise HTTPException(status_code=400, detail=f"Payment not completed. Status: {session.payment_status}")
+            
+            # Estrai photo_ids da metadata (gestisci token se presente)
+            metadata = session.metadata if session.metadata else {}
+            photo_ids_token = metadata.get('photo_ids_token')
+            photo_ids_str = metadata.get('photo_ids', '')
+            
+            if photo_ids_token:
+                # Recupera photo_ids dal dizionario in memoria
+                if photo_ids_token in checkout_photo_ids:
+                    photo_ids = checkout_photo_ids[photo_ids_token]
+                    logger.info(f"Photo IDs recovered from token: {len(photo_ids)} photos")
+                else:
+                    logger.error(f"Token not found in checkout_photo_ids: {photo_ids_token[:16]}...")
+                    photo_ids = []
+            elif photo_ids_str:
+                # Usa lista diretta dai metadata (retrocompatibilità)
+                photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
+            else:
+                photo_ids = []
             
             if not photo_ids:
-                logger.warning(f"[TEST_MODE] Session {session_id} has no photo_ids")
-                raise HTTPException(status_code=400, detail="No photo_ids found in test session")
+                raise HTTPException(status_code=400, detail="No photo_ids found in session metadata or token")
+            
+            # Estrai email da customer_details o metadata
+            customer_email = None
+            if session.customer_details and session.customer_details.email:
+                customer_email = session.customer_details.email
+            elif session.metadata and session.metadata.get('email'):
+                customer_email = session.metadata.get('email')
+            
+            logger.info(f"[STRIPE_VERIFY] Session verified: {len(photo_ids)} photos for {customer_email}")
             
             # IMPORTANTE: Salva le foto come pagate nel database (per velocità: verifica immediata in /photo)
             if customer_email and photo_ids:
-                logger.info(f"[TEST_MODE] Marking {len(photo_ids)} photos as paid for {customer_email}")
+                logger.info(f"[STRIPE_VERIFY] Marking {len(photo_ids)} photos as paid for {customer_email}")
                 for photo_id in photo_ids:
                     try:
                         await _mark_photo_paid(customer_email, photo_id)
                     except Exception as e:
-                        logger.error(f"[TEST_MODE] Error marking photo as paid: {photo_id} - {e}")
+                        logger.error(f"[STRIPE_VERIFY] Error marking photo as paid: {photo_id} - {e}")
                         # Continua anche se una foto fallisce
             
-            logger.info(f"[TEST_MODE] verify_stripe_session -> {session_id}, returning {len(photo_ids)} photo_ids")
             return {
                 "ok": True,
                 "session_id": session_id,
                 "customer_email": customer_email,
                 "photo_ids": photo_ids,
-                "payment_status": session_data.get("payment_status", "paid"),
-                "amount_total": session_data.get("amount_total", 0),
-                "currency": session_data.get("currency", "eur")
+                "payment_status": session.payment_status,
+                "amount_total": session.get('amount_total', 0),
+                "currency": session.get('currency', 'eur')
             }
-        else:
-            logger.warning(f"[TEST_MODE] Session not found: {session_id}")
-            logger.warning(f"[TEST_MODE] Available sessions: {list(test_sessions.keys())}")
-            raise HTTPException(status_code=404, detail=f"Test session not found: {session_id}")
-    
-    # PRODUZIONE: Stripe reale
-    if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=503, detail="Stripe not configured")
-    
-    try:
-        import stripe
-        stripe.api_key = STRIPE_SECRET_KEY
-        
-        # Recupera sessione da Stripe
-        session = stripe.checkout.Session.retrieve(session_id)
-        
-        # Verifica che il pagamento sia completato
-        if session.payment_status != 'paid':
-            raise HTTPException(status_code=400, detail=f"Payment not completed. Status: {session.payment_status}")
-        
-        # Estrai photo_ids da metadata (gestisci token se presente)
-        metadata = session.metadata if session.metadata else {}
-        photo_ids_token = metadata.get('photo_ids_token')
-        photo_ids_str = metadata.get('photo_ids', '')
-        
-        if photo_ids_token:
-            # Recupera photo_ids dal dizionario in memoria
-            if photo_ids_token in checkout_photo_ids:
-                photo_ids = checkout_photo_ids[photo_ids_token]
-                logger.info(f"Photo IDs recovered from token: {len(photo_ids)} photos")
+        except stripe.error.InvalidRequestError as e:
+            # Sessione non trovata in Stripe, usa fallback test mode se disponibile
+            if STRIPE_TEST_MODE and session_id.startswith("test_"):
+                logger.info(f"[STRIPE_VERIFY] Session not found in Stripe, trying test mode fallback: {session_id}")
+                if session_id in test_sessions:
+                    session_data = test_sessions[session_id]
+                    photo_ids = session_data.get("photo_ids", [])
+                    customer_email = session_data.get("customer_email")
+                    
+                    logger.info(f"[TEST_MODE] Found session in test_sessions: {session_id}, photo_ids count: {len(photo_ids)}")
+                    
+                    if not photo_ids:
+                        logger.warning(f"[TEST_MODE] Session {session_id} has no photo_ids")
+                        raise HTTPException(status_code=400, detail="No photo_ids found in test session")
+                    
+                    # IMPORTANTE: Salva le foto come pagate nel database (per velocità: verifica immediata in /photo)
+                    if customer_email and photo_ids:
+                        logger.info(f"[TEST_MODE] Marking {len(photo_ids)} photos as paid for {customer_email}")
+                        for photo_id in photo_ids:
+                            try:
+                                await _mark_photo_paid(customer_email, photo_id)
+                            except Exception as e:
+                                logger.error(f"[TEST_MODE] Error marking photo as paid: {photo_id} - {e}")
+                                # Continua anche se una foto fallisce
+                    
+                    logger.info(f"[TEST_MODE] verify_stripe_session -> {session_id}, returning {len(photo_ids)} photo_ids")
+                    return {
+                        "ok": True,
+                        "session_id": session_id,
+                        "customer_email": customer_email,
+                        "photo_ids": photo_ids,
+                        "payment_status": session_data.get("payment_status", "paid"),
+                        "amount_total": session_data.get("amount_total", 0),
+                        "currency": session_data.get("currency", "eur")
+                    }
+                else:
+                    logger.warning(f"[TEST_MODE] Session not found in test_sessions: {session_id}")
+                    raise HTTPException(status_code=404, detail=f"Session not found in Stripe or test mode: {session_id}")
             else:
-                logger.error(f"Token not found in checkout_photo_ids: {photo_ids_token[:16]}...")
-                photo_ids = []
-        elif photo_ids_str:
-            # Usa lista diretta dai metadata (retrocompatibilità)
-            photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
-        else:
-            photo_ids = []
-        
-        if not photo_ids:
-            raise HTTPException(status_code=400, detail="No photo_ids found in session metadata or token")
-        
-        # Estrai email da customer_details o metadata
-        customer_email = None
-        if session.customer_details and session.customer_details.email:
-            customer_email = session.customer_details.email
-        elif session.metadata and session.metadata.get('email'):
-            customer_email = session.metadata.get('email')
-        
-        # IMPORTANTE: Salva le foto come pagate nel database (per velocità: verifica immediata in /photo)
-        if customer_email and photo_ids:
-            logger.info(f"[STRIPE_VERIFY] Marking {len(photo_ids)} photos as paid for {customer_email}")
-            for photo_id in photo_ids:
-                try:
-                    await _mark_photo_paid(customer_email, photo_id)
-                except Exception as e:
-                    logger.error(f"[STRIPE_VERIFY] Error marking photo as paid: {photo_id} - {e}")
-                    # Continua anche se una foto fallisce
-        
-        return {
-            "ok": True,
-            "session_id": session_id,
-            "customer_email": customer_email,
-            "photo_ids": photo_ids,
-            "payment_status": session.payment_status,
-            "amount_total": session.amount_total,
-            "currency": session.currency
-        }
+                # Non è test mode o non inizia con "test_", rilanciare l'errore
+                raise HTTPException(status_code=404, detail=f"Session not found: {str(e)}")
+    
     except HTTPException:
         raise
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe error retrieving session: {e}")
-        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
     except Exception as e:
-        logger.error(f"Error retrieving Stripe session: {e}", exc_info=True)
+        logger.error(f"Error verifying Stripe session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/api/checkout/status")
