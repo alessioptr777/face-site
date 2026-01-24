@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-23-test-mode-fix"
+APP_BUILD_ID = "deploy-2026-01-23-test-mode-fix-v2"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -6672,24 +6672,49 @@ async def verify_stripe_session(
             
             # Estrai photo_ids da metadata (gestisci token se presente)
             metadata = session.metadata if session.metadata else {}
+            logger.info(f"[STRIPE_VERIFY] Session metadata: {metadata}")
             photo_ids_token = metadata.get('photo_ids_token')
             photo_ids_str = metadata.get('photo_ids', '')
+            logger.info(f"[STRIPE_VERIFY] photo_ids_token: {photo_ids_token[:20] if photo_ids_token else None}..., photo_ids_str length: {len(photo_ids_str)}")
             
             if photo_ids_token:
                 # Recupera photo_ids dal dizionario in memoria
+                logger.info(f"[STRIPE_VERIFY] Looking for token in checkout_photo_ids (available tokens: {list(checkout_photo_ids.keys())[:5]})")
                 if photo_ids_token in checkout_photo_ids:
                     photo_ids = checkout_photo_ids[photo_ids_token]
-                    logger.info(f"Photo IDs recovered from token: {len(photo_ids)} photos")
+                    logger.info(f"[STRIPE_VERIFY] Photo IDs recovered from token: {len(photo_ids)} photos")
                 else:
-                    logger.error(f"Token not found in checkout_photo_ids: {photo_ids_token[:16]}...")
-                    photo_ids = []
+                    logger.warning(f"[STRIPE_VERIFY] Token not found in checkout_photo_ids (server restart?). Trying to recover from database...")
+                    # FALLBACK: Se il token non è in memoria, prova a recuperare dal database
+                    try:
+                        if USE_POSTGRES:
+                            # Cerca ordine con questo session_id
+                            row = await _db_execute_one(
+                                "SELECT photo_ids FROM orders WHERE stripe_session_id = $1",
+                                (session_id,)
+                            )
+                            if row and row.get('photo_ids'):
+                                photo_ids = json.loads(row['photo_ids']) if isinstance(row['photo_ids'], str) else row['photo_ids']
+                                logger.info(f"[STRIPE_VERIFY] Recovered {len(photo_ids)} photo_ids from database")
+                            else:
+                                logger.error(f"[STRIPE_VERIFY] No order found in database for session_id: {session_id}")
+                                photo_ids = []
+                        else:
+                            logger.warning(f"[STRIPE_VERIFY] Database not available, cannot recover photo_ids")
+                            photo_ids = []
+                    except Exception as e:
+                        logger.error(f"[STRIPE_VERIFY] Error recovering photo_ids from database: {e}")
+                        photo_ids = []
             elif photo_ids_str:
                 # Usa lista diretta dai metadata (retrocompatibilità)
                 photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
+                logger.info(f"[STRIPE_VERIFY] Photo IDs from metadata string: {len(photo_ids)} photos")
             else:
+                logger.warning(f"[STRIPE_VERIFY] No photo_ids_token or photo_ids_str in metadata")
                 photo_ids = []
             
             if not photo_ids:
+                logger.error(f"[STRIPE_VERIFY] No photo_ids found! metadata={metadata}, token={photo_ids_token[:20] if photo_ids_token else None}")
                 raise HTTPException(status_code=400, detail="No photo_ids found in session metadata or token")
             
             # Estrai email da customer_details o metadata
