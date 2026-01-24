@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-23-test-mode-fix-v2"
+APP_BUILD_ID = "deploy-2026-01-23-paid-photos-direct-serve"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -3811,15 +3811,11 @@ async def serve_photo(
     # Render: deve essere SEMPRE settato per avere foto istantanee.
     is_render = (os.getenv("RENDER", "").lower() == "true") or bool(os.getenv("RENDER_SERVICE_ID"))
 
-    # Se R2_PUBLIC_BASE_URL è configurato e NON serve download forzato, usa redirect (produzione).
-    # Se serve download forzato, serviamo direttamente per controllare Content-Disposition.
-    if R2_PUBLIC_BASE_URL and not download:
+    # IMPORTANTE: Per foto pagate (paid=true), serviamo sempre direttamente dal backend
+    # invece di fare redirect a R2, per garantire controllo completo e gestione errori
+    # Solo per foto non pagate (thumb/wm) usiamo redirect se R2_PUBLIC_BASE_URL è configurato
+    if R2_PUBLIC_BASE_URL and not download and not (is_paid and wants_original):
         public_url = _get_r2_public_url(object_key)
-
-        # Track download se pagato (solo per originals/*)
-        if is_paid and wants_original:
-            from pathlib import Path
-            _track_download(Path(original_key).name)
 
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         logger.info(f"[PHOTO] Redirecting to R2 public URL: {object_key}")
