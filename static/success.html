@@ -458,34 +458,91 @@
             };
         }
         
-        // Render photos grid
+        // Render photos grid with progressive loading
         function renderPhotos(photoIds, email, unlockedUrls, remainingPhotoIds) {
             const grid = document.getElementById('photosGrid');
             grid.innerHTML = '';
             
-            photoIds.forEach(photoId => {
-                // Usa unlocked_urls se disponibile (full quality R2), altrimenti fallback a /photo
-                const photoUrl = unlockedUrls && unlockedUrls[photoId] 
+            // Preload first 6 photos for instant display
+            const preloadCount = Math.min(6, photoIds.length);
+            
+            photoIds.forEach((photoId, index) => {
+                // URL per full quality (per download/viewer)
+                const fullQualityUrl = unlockedUrls && unlockedUrls[photoId] 
                     ? unlockedUrls[photoId]
                     : (email 
                         ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
                         : `/photo/${encodeURIComponent(photoId)}?paid=true`);
                 
+                // URL per thumbnail (caricamento veloce iniziale)
+                const thumbUrl = `/photo/${encodeURIComponent(photoId)}?variant=thumb`;
+                
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
                 
                 const img = document.createElement('img');
-                img.src = photoUrl;
                 img.alt = 'Photo';
                 img.className = 'photo-img';
-                img.loading = 'lazy';
-                img.onclick = () => openPhotoViewer(photoUrl);
-                // Gestisci errori di caricamento
-                img.onerror = function() {
-                    console.error(`[SUCCESS] Error loading photo: ${photoUrl}`);
-                    this.src = '/static/placeholder.jpg'; // Fallback se disponibile
-                    this.style.opacity = '0.5';
+                img.dataset.photoId = photoId;
+                img.dataset.fullUrl = fullQualityUrl;
+                img.dataset.index = index;
+                
+                // Progressive loading: carica prima thumb, poi full quality
+                let retryCount = 0;
+                const maxRetries = 3;
+                
+                const loadThumbnail = () => {
+                    img.src = thumbUrl;
+                    img.loading = index < preloadCount ? 'eager' : 'lazy';
+                    if (index < preloadCount) {
+                        img.fetchPriority = 'high';
+                    }
                 };
+                
+                const loadFullQuality = () => {
+                    // Carica full quality solo quando necessario (click o quando visibile)
+                    const fullImg = new Image();
+                    fullImg.onload = () => {
+                        img.src = fullImg.src;
+                        img.classList.add('full-quality');
+                    };
+                    fullImg.onerror = () => {
+                        console.warn(`[SUCCESS] Full quality failed for ${photoId}, keeping thumb`);
+                    };
+                    fullImg.src = fullQualityUrl;
+                };
+                
+                // Gestisci errori con retry
+                img.onerror = function() {
+                    retryCount++;
+                    if (retryCount < maxRetries) {
+                        console.log(`[SUCCESS] Retry ${retryCount}/${maxRetries} for ${photoId}`);
+                        setTimeout(loadThumbnail, 500 * retryCount);
+                    } else {
+                        console.error(`[SUCCESS] Failed to load ${photoId} after ${maxRetries} retries`);
+                        this.style.opacity = '0.5';
+                        this.style.background = 'rgba(255,0,0,0.1)';
+                    }
+                };
+                
+                // Quando thumb è caricato, preload full quality per le prime foto
+                img.onload = function() {
+                    if (index < preloadCount) {
+                        // Preload full quality per le prime foto (in background)
+                        loadFullQuality();
+                    }
+                };
+                
+                img.onclick = () => {
+                    // Al click, assicurati che full quality sia caricata
+                    if (!img.classList.contains('full-quality')) {
+                        loadFullQuality();
+                    }
+                    openPhotoViewer(fullQualityUrl);
+                };
+                
+                // Carica thumbnail iniziale
+                loadThumbnail();
                 
                 const actions = document.createElement('div');
                 actions.className = 'photo-actions';
@@ -493,12 +550,23 @@
                 const btnOpen = document.createElement('button');
                 btnOpen.className = 'btn-open';
                 btnOpen.textContent = t('btn_open');
-                btnOpen.onclick = () => openPhotoViewer(photoUrl);
+                btnOpen.onclick = () => {
+                    // Al click, assicurati che full quality sia caricata
+                    if (!img.classList.contains('full-quality')) {
+                        const fullImg = new Image();
+                        fullImg.onload = () => {
+                            img.src = fullImg.src;
+                            img.classList.add('full-quality');
+                        };
+                        fullImg.src = fullQualityUrl;
+                    }
+                    openPhotoViewer(fullQualityUrl);
+                };
                 
                 const btnDownload = document.createElement('button');
                 btnDownload.className = 'btn-download btn-download-desktop';
                 btnDownload.textContent = t('btn_download');
-                btnDownload.onclick = () => downloadPhoto(photoUrl, photoId);
+                btnDownload.onclick = () => downloadPhoto(fullQualityUrl, photoId);
                 
                 actions.appendChild(btnOpen);
                 actions.appendChild(btnDownload);
@@ -561,8 +629,19 @@
             const viewerImage = document.getElementById('viewerImage');
             // Assicurati che l'URL sia relativo e senza download=true
             const openUrl = photoUrl.replace(/[?&]download=true/, '').replace(/&download=true/, '');
-            viewerImage.src = openUrl;
-            viewer.classList.add('active');
+            
+            // Preload full quality per viewer
+            const preloadImg = new Image();
+            preloadImg.onload = () => {
+                viewerImage.src = openUrl;
+                viewer.classList.add('active');
+            };
+            preloadImg.onerror = () => {
+                // Fallback: prova comunque
+                viewerImage.src = openUrl;
+                viewer.classList.add('active');
+            };
+            preloadImg.src = openUrl;
         }
         
         // Close photo viewer

@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-23-search-all-folders"
+APP_BUILD_ID = "deploy-2026-01-24-progressive-loading"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -3795,39 +3795,71 @@ async def serve_photo(
             logger.error(f"Error checking paid photos: {e}")
 
     # Costruisci object_key in modo flessibile:
-    # - Se (paid=true e verificato) -> cerca prima in originals/, poi in root, poi in altre cartelle
+    # - Se (paid=true e verificato) -> cerca in tutte le cartelle usando cache R2
     # - Altrimenti -> variant default "thumb": thumbs/<filename> oppure wm/<filename>
     if wants_original and is_paid:
-        # Per foto pagate, prova prima originals/, poi root, poi altre cartelle
-        # Ordine di ricerca: originals/ -> root -> wm/ -> thumbs/
-        possible_keys = [
-            f"originals/{original_key}",
-            original_key,  # Root del bucket (senza cartella)
-            f"wm/{original_key}",  # Fallback a wm se originals non esiste
-            f"thumbs/{original_key}"  # Ultimo fallback
-        ]
-        
-        # Prova a trovare la foto in qualsiasi cartella
+        # Per foto pagate, usa cache R2 per trovare rapidamente la foto in qualsiasi cartella
         object_key = None
-        for test_key in possible_keys:
-            try:
-                # Prova a leggere (più veloce di head_object per verificare esistenza)
-                test_response = r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
-                object_key = test_key
-                logger.info(f"[PHOTO] Found paid photo at: {object_key}")
-                break
-            except ClientError as e:
-                error_code = e.response.get('Error', {}).get('Code', '')
-                if error_code == '404' or error_code == 'NoSuchKey':
-                    continue  # Prova prossima cartella
-                else:
-                    logger.warning(f"[PHOTO] Error checking {test_key}: {error_code}")
-                    continue  # Continua con prossima cartella anche per altri errori
+        
+        # Usa cache R2 per ricerca veloce (evita head_object multipli)
+        try:
+            r2_keys_set = await get_r2_keys_set_cached()
+            
+            # Ordine di ricerca: originals/ -> root -> wm/ -> thumbs/ -> qualsiasi cartella che finisce con il filename
+            possible_keys = [
+                f"originals/{original_key}",
+                original_key,  # Root del bucket (senza cartella)
+                f"wm/{original_key}",
+                f"thumbs/{original_key}"
+            ]
+            
+            # Cerca prima nelle cartelle standard
+            for test_key in possible_keys:
+                if test_key in r2_keys_set:
+                    object_key = test_key
+                    logger.info(f"[PHOTO] Found paid photo at: {object_key} (via cache)")
+                    break
+            
+            # Se non trovata, cerca in qualsiasi cartella che finisce con il filename
+            if not object_key:
+                filename_only = original_key.split('/')[-1]  # Solo il nome file
+                for key in r2_keys_set:
+                    # Cerca key che finisce con /filename o è esattamente filename
+                    if key.endswith(f"/{filename_only}") or key == filename_only:
+                        object_key = key
+                        logger.info(f"[PHOTO] Found paid photo at: {object_key} (via cache search)")
+                        break
+            
+            # Se ancora non trovata, prova head_object come fallback (per foto appena aggiunte)
+            if not object_key:
+                for test_key in possible_keys:
+                    try:
+                        r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
+                        object_key = test_key
+                        logger.info(f"[PHOTO] Found paid photo at: {object_key} (via head_object)")
+                        break
+                    except ClientError as e:
+                        error_code = e.response.get('Error', {}).get('Code', '')
+                        if error_code not in ('404', 'NoSuchKey'):
+                            logger.warning(f"[PHOTO] Error checking {test_key}: {error_code}")
+                        continue
+            
+        except Exception as e:
+            logger.warning(f"[PHOTO] Error using R2 cache, falling back to direct search: {e}")
+            # Fallback: prova direttamente head_object
+            for test_key in possible_keys:
+                try:
+                    r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
+                    object_key = test_key
+                    logger.info(f"[PHOTO] Found paid photo at: {object_key} (via fallback)")
+                    break
+                except ClientError:
+                    continue
         
         if not object_key:
             # Nessuna cartella ha la foto, usa originals/ come default (verrà gestito l'errore dopo)
             object_key = f"originals/{original_key}"
-            logger.warning(f"[PHOTO] Photo not found in any folder (tried: {possible_keys}), using default: {object_key}")
+            logger.warning(f"[PHOTO] Photo not found in any folder, using default: {object_key}")
     else:
         variant_effective = (variant or "thumb").lower()
         if variant_effective == "thumb":
