@@ -148,6 +148,36 @@ def calculate_price(photo_count: int) -> int:
     # else:  # 12+
     #     return 6000  # €60.00
 
+def _build_checkout_metadata(session_id: Optional[str], email: Optional[str], photo_ids: List[str]) -> Dict[str, str]:
+    """Costruisce metadata per Stripe checkout, gestendo limite 500 caratteri.
+    
+    Se la stringa photo_ids supera 450 caratteri, salva in memoria e usa token.
+    """
+    photo_ids_str = ','.join(photo_ids)
+    use_token = len(photo_ids_str) > 450
+    
+    metadata = {
+        'photo_count': str(len(photo_ids)),
+    }
+    
+    if session_id:
+        metadata['session_id'] = session_id
+    if email:
+        metadata['email'] = email
+    
+    if use_token:
+        # Genera token univoco e salva photo_ids in memoria
+        token = secrets.token_urlsafe(32)
+        checkout_photo_ids[token] = photo_ids
+        logger.info(f"Photo IDs too long ({len(photo_ids_str)} chars), using token: {token[:16]}...")
+        metadata['photo_ids_token'] = token
+    else:
+        # Usa lista diretta nei metadata (retrocompatibilità)
+        metadata['photo_ids'] = photo_ids_str
+        logger.info(f"Photo IDs fit in metadata ({len(photo_ids_str)} chars)")
+    
+    return metadata
+
 # Directory per ordini e download tokens
 ORDERS_DIR = DATA_DIR / "orders"
 ORDERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -193,6 +223,10 @@ else:
 # Storage per sessioni test (solo in test mode)
 # Chiave: session_id, Valore: {"photo_ids": [...], "customer_email": "..."}
 test_sessions: Dict[str, Dict[str, Any]] = {}
+
+# Storage per photo_ids dei checkout Stripe (per evitare limite 500 caratteri nei metadata)
+# Chiave: token univoco, Valore: List[str] di photo_ids
+checkout_photo_ids: Dict[str, List[str]] = {}
 
 # Admin token per endpoint protetti
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
@@ -6596,10 +6630,7 @@ async def create_checkout_new(
             mode='payment',
             success_url=f'{base_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}',
             cancel_url=f'{base_url}/',
-            metadata={
-                'photo_ids': ','.join(photo_ids),
-                'photo_count': str(len(photo_ids)),
-            }
+            metadata=_build_checkout_metadata(None, None, photo_ids)
         )
         
         logger.info(f"Stripe checkout session created: {checkout_session.id}")
@@ -6676,12 +6707,27 @@ async def verify_stripe_session(
         if session.payment_status != 'paid':
             raise HTTPException(status_code=400, detail=f"Payment not completed. Status: {session.payment_status}")
         
-        # Estrai photo_ids da metadata
-        photo_ids_str = session.metadata.get('photo_ids', '') if session.metadata else ''
-        photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()] if photo_ids_str else []
+        # Estrai photo_ids da metadata (gestisci token se presente)
+        metadata = session.metadata if session.metadata else {}
+        photo_ids_token = metadata.get('photo_ids_token')
+        photo_ids_str = metadata.get('photo_ids', '')
+        
+        if photo_ids_token:
+            # Recupera photo_ids dal dizionario in memoria
+            if photo_ids_token in checkout_photo_ids:
+                photo_ids = checkout_photo_ids[photo_ids_token]
+                logger.info(f"Photo IDs recovered from token: {len(photo_ids)} photos")
+            else:
+                logger.error(f"Token not found in checkout_photo_ids: {photo_ids_token[:16]}...")
+                photo_ids = []
+        elif photo_ids_str:
+            # Usa lista diretta dai metadata (retrocompatibilità)
+            photo_ids = [pid.strip() for pid in photo_ids_str.split(',') if pid.strip()]
+        else:
+            photo_ids = []
         
         if not photo_ids:
-            raise HTTPException(status_code=400, detail="No photo_ids found in session metadata")
+            raise HTTPException(status_code=400, detail="No photo_ids found in session metadata or token")
         
         # Estrai email da customer_details o metadata
         customer_email = None
@@ -7117,12 +7163,7 @@ async def create_checkout(
             # L'email viene comunque salvata nel metadata per il webhook
             success_url=f'{base_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}&cart_session={session_id}',
             cancel_url=f'{base_url}/checkout/cancel?session_id={session_id}',
-            metadata={
-                'session_id': session_id,
-                'email': email,  # Aggiungi email al metadata
-                'photo_ids': ','.join(photo_ids),
-                'photo_count': str(len(photo_ids)),
-            }
+            metadata=_build_checkout_metadata(session_id, email, photo_ids)
         )
         
         logger.info(f"Stripe checkout session created: {checkout_session.id}")
@@ -7750,7 +7791,23 @@ async def stripe_webhook(request: Request):
         metadata = session.get('metadata', {})
         session_id = metadata.get('session_id')
         email = metadata.get('email') or session.get('customer_email') or session.get('customer_details', {}).get('email')
+        
+        # Recupera photo_ids: prima prova token, poi fallback a lista diretta
+        photo_ids_token = metadata.get('photo_ids_token')
         photo_ids_str = metadata.get('photo_ids', '')
+        
+        if photo_ids_token:
+            # Recupera photo_ids dal dizionario in memoria
+            if photo_ids_token in checkout_photo_ids:
+                photo_ids_list = checkout_photo_ids[photo_ids_token]
+                photo_ids_str = ','.join(photo_ids_list)
+                logger.info(f"Photo IDs recovered from token: {len(photo_ids_list)} photos")
+                # Opzionale: rimuovi token dal dizionario dopo uso (cleanup)
+                # del checkout_photo_ids[photo_ids_token]
+            else:
+                logger.error(f"Token not found in checkout_photo_ids: {photo_ids_token[:16]}...")
+                photo_ids_str = ''
+        # Se non c'è token, usa photo_ids_str direttamente (retrocompatibilità)
         
         # Log dettagliato per debug
         logger.info(f"=== WEBHOOK RECEIVED ===")
@@ -7761,7 +7818,8 @@ async def stripe_webhook(request: Request):
         logger.info(f"Email from session: {session.get('customer_email')}")
         logger.info(f"Email from customer_details: {session.get('customer_details', {}).get('email')}")
         logger.info(f"Final email: {email}")
-        logger.info(f"Photo IDs from metadata: {photo_ids_str}")
+        logger.info(f"Photo IDs token: {photo_ids_token[:16] if photo_ids_token else 'None'}...")
+        logger.info(f"Photo IDs from metadata/token: {photo_ids_str[:100] if photo_ids_str else 'None'}...")
         logger.info(f"Full metadata: {metadata}")
         logger.info(f"Session payment_status: {session.get('payment_status')}")
         logger.info(f"Session status: {session.get('status')}")
