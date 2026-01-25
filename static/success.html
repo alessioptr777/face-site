@@ -508,9 +508,17 @@
                 img.dataset.fullUrl = fullQualityUrl;
                 img.dataset.index = index;
                 
-                // Carica thumbnail immediatamente
+                // IMPORTANTE: Safari mobile ha problemi con immagini molto grandi (20MB)
+                // Carica SEMPRE thumb prima, mai full quality direttamente per la visualizzazione
+                const wmUrl = `/photo/${encodeURIComponent(photoId)}?variant=wm`;
+                
+                // Carica thumbnail immediatamente (più piccolo, veloce)
                 img.src = thumbUrl;
-                img.loading = index < 6 ? 'eager' : 'lazy';
+                
+                // Safari mobile: usa loading solo se supportato
+                if ('loading' in HTMLImageElement.prototype) {
+                    img.loading = index < 6 ? 'eager' : 'lazy';
+                }
                 
                 // fetchPriority supportato solo su browser moderni
                 if (index < 6 && 'fetchPriority' in HTMLImageElement.prototype) {
@@ -547,22 +555,33 @@
                     preloadFullQuality(fullQualityUrl, photoId);
                 }
                 
-                // Gestisci errori thumbnail con retry (importante per Safari)
+                // Gestisci errori con fallback progressivo (thumb -> wm -> full quality)
                 let retryCount = 0;
-                const maxRetries = 5; // Più retry per Safari
+                const maxRetries = 5;
                 img.onerror = function() {
                     retryCount++;
-                    console.warn(`[SUCCESS] Error loading thumb for ${photoId}, retry ${retryCount}/${maxRetries}`);
+                    console.warn(`[SUCCESS] Error loading image for ${photoId}, retry ${retryCount}/${maxRetries}, current src: ${this.src}`);
                     
-                    if (retryCount < maxRetries) {
-                        // Prova prima con thumb, poi fallback a full quality se thumb non esiste
-                        const nextUrl = retryCount <= 2 ? thumbUrl : fullQualityUrl;
+                    if (retryCount === 1) {
+                        // Primo retry: prova thumb di nuovo
+                        setTimeout(() => {
+                            this.src = thumbUrl;
+                        }, 300);
+                    } else if (retryCount === 2) {
+                        // Secondo retry: prova wm (watermarked, più piccolo di full quality)
+                        console.log(`[SUCCESS] Trying WM for ${photoId}`);
+                        setTimeout(() => {
+                            this.src = wmUrl;
+                        }, 300);
+                    } else if (retryCount <= maxRetries) {
+                        // Altri retry: alterna tra thumb e wm
+                        const nextUrl = retryCount % 2 === 0 ? thumbUrl : wmUrl;
                         setTimeout(() => {
                             this.src = nextUrl;
                         }, 300 * retryCount);
                     } else {
-                        // Ultimo tentativo: prova full quality direttamente
-                        console.warn(`[SUCCESS] Thumb failed, trying full quality for ${photoId}`);
+                        // Ultimo tentativo: prova full quality (ma Safari potrebbe non renderizzarla)
+                        console.warn(`[SUCCESS] All retries failed, trying full quality for ${photoId} (Safari might not render large images)`);
                         this.src = fullQualityUrl;
                         // Se anche questo fallisce, mostra errore
                         this.onerror = function() {
@@ -575,7 +594,7 @@
                 
                 // Log caricamento riuscito (per debug Safari)
                 img.onload = function() {
-                    console.log(`[SUCCESS] Loaded thumb for ${photoId}`);
+                    console.log(`[SUCCESS] Loaded image for ${photoId}, size: ${this.naturalWidth}x${this.naturalHeight}`);
                 };
                 
                 img.onclick = () => {
