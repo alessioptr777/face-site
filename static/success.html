@@ -511,41 +511,71 @@
                 // Carica thumbnail immediatamente
                 img.src = thumbUrl;
                 img.loading = index < 6 ? 'eager' : 'lazy';
-                if (index < 6) {
-                    img.fetchPriority = 'high';
+                
+                // fetchPriority supportato solo su browser moderni
+                if (index < 6 && 'fetchPriority' in HTMLImageElement.prototype) {
+                    try {
+                        img.fetchPriority = 'high';
+                    } catch (e) {
+                        // Ignora se non supportato
+                    }
                 }
                 
                 // Preload full quality in background per tutte le foto visibili
-                const observer = new IntersectionObserver((entries) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
-                            // Foto visibile: preload full quality in background
-                            preloadFullQuality(fullQualityUrl, photoId);
-                            observer.unobserve(entry.target);
-                        }
-                    });
-                }, { rootMargin: '200px' }); // Inizia preload 200px prima che entri nel viewport
-                
-                observer.observe(img);
+                // Fallback per Safari che potrebbe non supportare IntersectionObserver
+                if ('IntersectionObserver' in window) {
+                    const observer = new IntersectionObserver((entries) => {
+                        entries.forEach(entry => {
+                            if (entry.isIntersecting) {
+                                // Foto visibile: preload full quality in background
+                                preloadFullQuality(fullQualityUrl, photoId);
+                                observer.unobserve(entry.target);
+                            }
+                        });
+                    }, { rootMargin: '200px' }); // Inizia preload 200px prima che entri nel viewport
+                    
+                    observer.observe(img);
+                } else {
+                    // Fallback: preload tutte le foto visibili immediatamente (Safari vecchio)
+                    if (index < 12) {
+                        preloadFullQuality(fullQualityUrl, photoId);
+                    }
+                }
                 
                 // Preload immediato per le prime 6 foto
                 if (index < 6) {
                     preloadFullQuality(fullQualityUrl, photoId);
                 }
                 
-                // Gestisci errori thumbnail con retry
+                // Gestisci errori thumbnail con retry (importante per Safari)
                 let retryCount = 0;
-                const maxRetries = 3;
+                const maxRetries = 5; // Più retry per Safari
                 img.onerror = function() {
                     retryCount++;
+                    console.warn(`[SUCCESS] Error loading thumb for ${photoId}, retry ${retryCount}/${maxRetries}`);
+                    
                     if (retryCount < maxRetries) {
+                        // Prova prima con thumb, poi fallback a full quality se thumb non esiste
+                        const nextUrl = retryCount <= 2 ? thumbUrl : fullQualityUrl;
                         setTimeout(() => {
-                            this.src = thumbUrl;
-                        }, 500 * retryCount);
+                            this.src = nextUrl;
+                        }, 300 * retryCount);
                     } else {
-                        this.style.opacity = '0.5';
-                        this.style.background = 'rgba(255,0,0,0.1)';
+                        // Ultimo tentativo: prova full quality direttamente
+                        console.warn(`[SUCCESS] Thumb failed, trying full quality for ${photoId}`);
+                        this.src = fullQualityUrl;
+                        // Se anche questo fallisce, mostra errore
+                        this.onerror = function() {
+                            this.style.opacity = '0.5';
+                            this.style.background = 'rgba(255,0,0,0.1)';
+                            console.error(`[SUCCESS] Failed to load ${photoId} after all retries`);
+                        };
                     }
+                };
+                
+                // Log caricamento riuscito (per debug Safari)
+                img.onload = function() {
+                    console.log(`[SUCCESS] Loaded thumb for ${photoId}`);
                 };
                 
                 img.onclick = () => {
