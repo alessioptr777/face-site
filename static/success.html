@@ -517,21 +517,12 @@
                         ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
                         : `/photo/${encodeURIComponent(photoId)}?paid=true`);
                 
-                // IMPORTANTE: Per foto pagate, carichiamo FULL QUALITY direttamente
-                // Questo permette a iOS di salvare in full quality con long press
-                // Safari mobile può gestire immagini grandi, le carichiamo progressivamente
-                
-                // URL per visualizzazione: usa full quality (per long press su iOS)
-                const displayUrl = fullQualityUrl;
-                
-                // Fallback: thumb senza watermark se full quality è troppo lento
-                const paidThumbUrl = email 
+                // IMPORTANTE: Per foto pagate, usiamo SEMPRE URL paid (SENZA WATERMARK)
+                // Nessun fallback a thumb/wm che hanno watermark
+                // URL paid è sempre senza watermark per foto pagate
+                const paidUrl = email 
                     ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
                     : `/photo/${encodeURIComponent(photoId)}?paid=true`;
-                
-                // Fallback: thumb normale (con watermark) solo se paid fallisce
-                const fallbackThumbUrl = `/photo/${encodeURIComponent(photoId)}?variant=thumb`;
-                const fallbackWmUrl = `/photo/${encodeURIComponent(photoId)}?variant=wm`;
                 
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
@@ -543,10 +534,10 @@
                 img.dataset.fullUrl = fullQualityUrl;
                 img.dataset.index = index;
                 
-                // IMPORTANTE: Carica full quality per permettere long press su iOS
+                // IMPORTANTE: Carica SEMPRE paid URL (senza watermark)
                 // Safari gestirà automaticamente il resize per la visualizzazione
-                // Quando l'utente fa long press, salverà la full quality
-                img.src = displayUrl;
+                // Quando l'utente fa long press, salverà la full quality senza watermark
+                img.src = paidUrl;
                 
                 // Imposta attributi per iOS long press
                 img.setAttribute('draggable', 'false'); // Evita drag su desktop
@@ -592,47 +583,24 @@
                     preloadFullQuality(fullQualityUrl, photoId);
                 }
                 
-                // Gestisci errori con fallback progressivo (paid -> thumb -> wm -> full quality)
+                // Gestisci errori: riprova SOLO con paid URL (mai thumb/wm con watermark)
                 let retryCount = 0;
-                const maxRetries = 6;
+                const maxRetries = 5;
                 img.onerror = function() {
                     retryCount++;
-                    console.warn(`[SUCCESS] Error loading paid image for ${photoId}, retry ${retryCount}/${maxRetries}, current src: ${this.src}`);
+                    console.warn(`[SUCCESS] Error loading paid image (no watermark) for ${photoId}, retry ${retryCount}/${maxRetries}, current src: ${this.src}`);
                     
-                    if (retryCount === 1) {
-                        // Primo retry: prova paid URL di nuovo
+                    if (retryCount <= maxRetries) {
+                        // IMPORTANTE: riprova SEMPRE con paid URL (senza watermark)
+                        // Non usare mai thumb/wm che hanno watermark
                         setTimeout(() => {
-                            this.src = paidThumbUrl;
-                        }, 500);
-                    } else if (retryCount === 2) {
-                        // Secondo retry: prova thumb normale (con watermark, ma più piccolo)
-                        console.log(`[SUCCESS] Trying fallback thumb for ${photoId}`);
-                        setTimeout(() => {
-                            this.src = fallbackThumbUrl;
-                        }, 500);
-                    } else if (retryCount === 3) {
-                        // Terzo retry: prova wm (watermarked)
-                        console.log(`[SUCCESS] Trying fallback WM for ${photoId}`);
-                        setTimeout(() => {
-                            this.src = fallbackWmUrl;
-                        }, 500);
-                    } else if (retryCount <= maxRetries) {
-                        // Altri retry: alterna tra paid, thumb e wm
-                        const urls = [paidThumbUrl, fallbackThumbUrl, fallbackWmUrl];
-                        const nextUrl = urls[(retryCount - 1) % urls.length];
-                        setTimeout(() => {
-                            this.src = nextUrl;
+                            this.src = paidUrl;
                         }, 500 * retryCount);
                     } else {
-                        // Ultimo tentativo: prova full quality
-                        console.warn(`[SUCCESS] All retries failed, trying full quality for ${photoId}`);
-                        this.src = fullQualityUrl;
-                        // Se anche questo fallisce, mostra errore
-                        this.onerror = function() {
-                            this.style.opacity = '0.5';
-                            this.style.background = 'rgba(255,0,0,0.1)';
-                            console.error(`[SUCCESS] Failed to load ${photoId} after all retries`);
-                        };
+                        // Dopo max retry, mostra errore ma NON usare thumb/wm con watermark
+                        this.style.opacity = '0.5';
+                        this.style.background = 'rgba(255,0,0,0.1)';
+                        console.error(`[SUCCESS] Failed to load paid photo (no watermark) for ${photoId} after ${maxRetries} retries`);
                     }
                 };
                 
@@ -642,8 +610,8 @@
                 };
                 
                 img.onclick = () => {
-                    // Apri viewer immediatamente con foto paid (senza watermark), poi sostituisci con full quality
-                    openPhotoViewer(fullQualityUrl, photoId, paidThumbUrl);
+                    // Apri viewer immediatamente con foto paid (senza watermark)
+                    openPhotoViewer(fullQualityUrl, photoId, paidUrl);
                 };
                 
                 const actions = document.createElement('div');
@@ -654,7 +622,7 @@
                 btnOpen.textContent = t('btn_open');
                 btnOpen.onclick = () => {
                     // Apri viewer immediatamente con foto paid (senza watermark)
-                    openPhotoViewer(fullQualityUrl, photoId, paidThumbUrl);
+                    openPhotoViewer(fullQualityUrl, photoId, paidUrl);
                 };
                 
                 const btnDownload = document.createElement('button');
