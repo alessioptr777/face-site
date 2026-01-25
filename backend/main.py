@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-24-progressive-loading"
+APP_BUILD_ID = "deploy-2026-01-24-instant-download"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path

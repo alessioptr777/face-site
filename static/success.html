@@ -458,13 +458,34 @@
             };
         }
         
-        // Render photos grid with progressive loading
+        // Cache per foto full quality preloadate
+        const fullQualityCache = new Map();
+        
+        // Preload full quality in background
+        function preloadFullQuality(url, photoId) {
+            if (fullQualityCache.has(photoId)) {
+                return; // Già in cache
+            }
+            
+            // Marca come in caricamento
+            fullQualityCache.set(photoId, { status: 'loading', url });
+            
+            const img = new Image();
+            img.onload = () => {
+                fullQualityCache.set(photoId, { status: 'ready', url, img });
+                console.log(`[SUCCESS] Preloaded full quality: ${photoId}`);
+            };
+            img.onerror = () => {
+                fullQualityCache.set(photoId, { status: 'error', url });
+                console.warn(`[SUCCESS] Preload failed for ${photoId}`);
+            };
+            img.src = url;
+        }
+        
+        // Render photos grid with aggressive preloading
         function renderPhotos(photoIds, email, unlockedUrls, remainingPhotoIds) {
             const grid = document.getElementById('photosGrid');
             grid.innerHTML = '';
-            
-            // Preload first 6 photos for instant display
-            const preloadCount = Math.min(6, photoIds.length);
             
             photoIds.forEach((photoId, index) => {
                 // URL per full quality (per download/viewer)
@@ -487,62 +508,50 @@
                 img.dataset.fullUrl = fullQualityUrl;
                 img.dataset.index = index;
                 
-                // Progressive loading: carica prima thumb, poi full quality
+                // Carica thumbnail immediatamente
+                img.src = thumbUrl;
+                img.loading = index < 6 ? 'eager' : 'lazy';
+                if (index < 6) {
+                    img.fetchPriority = 'high';
+                }
+                
+                // Preload full quality in background per tutte le foto visibili
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            // Foto visibile: preload full quality in background
+                            preloadFullQuality(fullQualityUrl, photoId);
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, { rootMargin: '200px' }); // Inizia preload 200px prima che entri nel viewport
+                
+                observer.observe(img);
+                
+                // Preload immediato per le prime 6 foto
+                if (index < 6) {
+                    preloadFullQuality(fullQualityUrl, photoId);
+                }
+                
+                // Gestisci errori thumbnail con retry
                 let retryCount = 0;
                 const maxRetries = 3;
-                
-                const loadThumbnail = () => {
-                    img.src = thumbUrl;
-                    img.loading = index < preloadCount ? 'eager' : 'lazy';
-                    if (index < preloadCount) {
-                        img.fetchPriority = 'high';
-                    }
-                };
-                
-                const loadFullQuality = () => {
-                    // Carica full quality solo quando necessario (click o quando visibile)
-                    const fullImg = new Image();
-                    fullImg.onload = () => {
-                        img.src = fullImg.src;
-                        img.classList.add('full-quality');
-                    };
-                    fullImg.onerror = () => {
-                        console.warn(`[SUCCESS] Full quality failed for ${photoId}, keeping thumb`);
-                    };
-                    fullImg.src = fullQualityUrl;
-                };
-                
-                // Gestisci errori con retry
                 img.onerror = function() {
                     retryCount++;
                     if (retryCount < maxRetries) {
-                        console.log(`[SUCCESS] Retry ${retryCount}/${maxRetries} for ${photoId}`);
-                        setTimeout(loadThumbnail, 500 * retryCount);
+                        setTimeout(() => {
+                            this.src = thumbUrl;
+                        }, 500 * retryCount);
                     } else {
-                        console.error(`[SUCCESS] Failed to load ${photoId} after ${maxRetries} retries`);
                         this.style.opacity = '0.5';
                         this.style.background = 'rgba(255,0,0,0.1)';
                     }
                 };
                 
-                // Quando thumb è caricato, preload full quality per le prime foto
-                img.onload = function() {
-                    if (index < preloadCount) {
-                        // Preload full quality per le prime foto (in background)
-                        loadFullQuality();
-                    }
-                };
-                
                 img.onclick = () => {
-                    // Al click, assicurati che full quality sia caricata
-                    if (!img.classList.contains('full-quality')) {
-                        loadFullQuality();
-                    }
-                    openPhotoViewer(fullQualityUrl);
+                    // Apri viewer immediatamente con thumb, poi sostituisci con full quality
+                    openPhotoViewer(fullQualityUrl, photoId, thumbUrl);
                 };
-                
-                // Carica thumbnail iniziale
-                loadThumbnail();
                 
                 const actions = document.createElement('div');
                 actions.className = 'photo-actions';
@@ -551,22 +560,17 @@
                 btnOpen.className = 'btn-open';
                 btnOpen.textContent = t('btn_open');
                 btnOpen.onclick = () => {
-                    // Al click, assicurati che full quality sia caricata
-                    if (!img.classList.contains('full-quality')) {
-                        const fullImg = new Image();
-                        fullImg.onload = () => {
-                            img.src = fullImg.src;
-                            img.classList.add('full-quality');
-                        };
-                        fullImg.src = fullQualityUrl;
-                    }
-                    openPhotoViewer(fullQualityUrl);
+                    // Apri viewer immediatamente
+                    openPhotoViewer(fullQualityUrl, photoId, thumbUrl);
                 };
                 
                 const btnDownload = document.createElement('button');
                 btnDownload.className = 'btn-download btn-download-desktop';
                 btnDownload.textContent = t('btn_download');
-                btnDownload.onclick = () => downloadPhoto(fullQualityUrl, photoId);
+                btnDownload.onclick = () => {
+                    // Download immediato senza aspettare
+                    downloadPhotoInstant(fullQualityUrl, photoId);
+                };
                 
                 actions.appendChild(btnOpen);
                 actions.appendChild(btnDownload);
@@ -622,26 +626,37 @@
             document.getElementById('photosContainer').style.display = 'block';
         }
         
-        // Open photo in viewer (cross-platform: inline display)
-        function openPhotoViewer(photoUrl) {
-            // Usa URL relativo con parametro per visualizzazione inline
+        // Open photo in viewer (instant: show thumb first, then full quality)
+        function openPhotoViewer(photoUrl, photoId, thumbUrl) {
             const viewer = document.getElementById('photoViewer');
             const viewerImage = document.getElementById('viewerImage');
-            // Assicurati che l'URL sia relativo e senza download=true
             const openUrl = photoUrl.replace(/[?&]download=true/, '').replace(/&download=true/, '');
             
-            // Preload full quality per viewer
-            const preloadImg = new Image();
-            preloadImg.onload = () => {
+            // Mostra subito la thumb se disponibile (istantaneo)
+            if (thumbUrl) {
+                viewerImage.src = thumbUrl;
+                viewer.classList.add('active');
+            } else {
                 viewerImage.src = openUrl;
                 viewer.classList.add('active');
-            };
-            preloadImg.onerror = () => {
-                // Fallback: prova comunque
-                viewerImage.src = openUrl;
-                viewer.classList.add('active');
-            };
-            preloadImg.src = openUrl;
+            }
+            
+            // Controlla se full quality è già in cache
+            const cached = fullQualityCache.get(photoId);
+            if (cached && cached.status === 'ready' && cached.img) {
+                // Usa immagine già caricata (istantaneo)
+                viewerImage.src = cached.img.src;
+            } else {
+                // Carica full quality in background e sostituisci quando pronta
+                const fullImg = new Image();
+                fullImg.onload = () => {
+                    viewerImage.src = fullImg.src;
+                };
+                fullImg.onerror = () => {
+                    console.warn(`[SUCCESS] Full quality failed in viewer for ${photoId}`);
+                };
+                fullImg.src = openUrl;
+            }
         }
         
         // Close photo viewer
@@ -649,52 +664,50 @@
             document.getElementById('photoViewer').classList.remove('active');
         };
         
-        // Download photo (cross-platform: attachment download)
-        async function downloadPhoto(photoUrl, photoId) {
+        // Download photo instant (usa cache se disponibile, altrimenti inizia subito)
+        async function downloadPhotoInstant(photoUrl, photoId) {
             try {
-                // Se è un URL diretto R2, usa direttamente
-                if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
-                    // URL diretto R2: usa fetch e blob
-                    const response = await fetch(photoUrl);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
+                // Controlla se full quality è già in cache
+                const cached = fullQualityCache.get(photoId);
+                if (cached && cached.status === 'ready' && cached.img) {
+                    // Usa immagine già caricata (istantaneo)
+                    const canvas = document.createElement('canvas');
+                    canvas.width = cached.img.naturalWidth;
+                    canvas.height = cached.img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(cached.img, 0, 0);
                     
-                    const blob = await response.blob();
-                    const blobUrl = window.URL.createObjectURL(blob);
-                    
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
-                } else {
-                    // URL relativo: aggiungi download=true
-                    const downloadUrl = photoUrl.includes('?') 
-                        ? `${photoUrl}&download=true`
-                        : `${photoUrl}?download=true`;
-                    
-                    const response = await fetch(downloadUrl);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    
-                    const blob = await response.blob();
-                    const blobUrl = window.URL.createObjectURL(blob);
-                    
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+                    canvas.toBlob((blob) => {
+                        const blobUrl = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = blobUrl;
+                        link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                        link.style.display = 'none';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+                    }, 'image/jpeg', 0.95);
+                    return;
+                }
+                
+                // Altrimenti inizia download immediato (non aspettare caricamento completo)
+                const downloadUrl = photoUrl.includes('?') 
+                    ? `${photoUrl}&download=true`
+                    : `${photoUrl}?download=true`;
+                
+                // Usa link diretto per download immediato (browser gestisce il download)
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // In background, preload per prossimi download
+                if (!cached || cached.status !== 'loading') {
+                    preloadFullQuality(photoUrl, photoId);
                 }
             } catch (error) {
                 console.error('Download error:', error);
