@@ -73,9 +73,24 @@
             object-fit: contain;
             background: rgba(0, 0, 0, 0.2);
             cursor: pointer;
-            -webkit-touch-callout: default;
-            -webkit-user-select: none;
-            user-select: none;
+            -webkit-touch-callout: default; /* Abilita long press su iOS */
+            -webkit-user-select: auto; /* Permetti selezione per iOS */
+            user-select: auto;
+        }
+        .iphone-instructions {
+            display: none;
+            text-align: center;
+            padding: 12px;
+            margin: 10px 0;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        @media (max-width: 768px) {
+            .iphone-instructions {
+                display: block;
+            }
         }
         .photo-actions {
             display: flex;
@@ -185,6 +200,7 @@
         <div id="error" class="error" style="display: none;"></div>
         
         <div id="photosContainer" style="display: none;">
+            <div class="iphone-instructions" id="iphoneInstructions"></div>
             <div class="photos-grid" id="photosGrid"></div>
             <a href="/" class="back-button" id="backButton">Back to photos</a>
         </div>
@@ -206,7 +222,8 @@
                 btn_open: "Open",
                 btn_download: "Download",
                 btn_back: "Back to photos",
-                btn_buy_more: "Buy more photos"
+                btn_buy_more: "Buy more photos",
+                iphone_instructions: "📱 iPhone: Press and hold the photo, then select \"Save to Photos\" to download in original quality"
             },
             it: {
                 success_title: "Pagamento completato",
@@ -216,7 +233,8 @@
                 btn_open: "Apri",
                 btn_download: "Scarica",
                 btn_back: "Torna alle foto",
-                btn_buy_more: "Acquista altre foto"
+                btn_buy_more: "Acquista altre foto",
+                iphone_instructions: "📱 iPhone: Premi a lungo sulla foto e seleziona \"Salva in Galleria\" per scaricare in qualità originale"
             },
             es: {
                 success_title: "Pago completado",
@@ -226,7 +244,8 @@
                 btn_open: "Abrir",
                 btn_download: "Descargar",
                 btn_back: "Volver a las fotos",
-                btn_buy_more: "Comprar más fotos"
+                btn_buy_more: "Comprar más fotos",
+                iphone_instructions: "📱 iPhone: Mantén presionada la foto y selecciona \"Guardar en Fotos\" para descargar en calidad original"
             },
             fr: {
                 success_title: "Paiement terminé",
@@ -236,7 +255,8 @@
                 btn_open: "Ouvrir",
                 btn_download: "Télécharger",
                 btn_back: "Retour aux photos",
-                btn_buy_more: "Acheter plus de photos"
+                btn_buy_more: "Acheter plus de photos",
+                iphone_instructions: "📱 iPhone: Appuyez longuement sur la photo et sélectionnez \"Enregistrer dans Photos\" pour télécharger en qualité originale"
             },
             de: {
                 success_title: "Zahlung abgeschlossen",
@@ -246,7 +266,8 @@
                 btn_open: "Öffnen",
                 btn_download: "Herunterladen",
                 btn_back: "Zurück zu den Fotos",
-                btn_buy_more: "Mehr Fotos kaufen"
+                btn_buy_more: "Mehr Fotos kaufen",
+                iphone_instructions: "📱 iPhone: Halten Sie das Foto gedrückt und wählen Sie \"In Fotos speichern\" aus, um in Originalqualität herunterzuladen"
             },
             nl: {
                 success_title: "Betaling voltooid",
@@ -256,7 +277,8 @@
                 btn_open: "Openen",
                 btn_download: "Downloaden",
                 btn_back: "Terug naar foto's",
-                btn_buy_more: "Meer foto's kopen"
+                btn_buy_more: "Meer foto's kopen",
+                iphone_instructions: "📱 iPhone: Houd de foto ingedrukt en selecteer \"Opslaan in Foto's\" om in originele kwaliteit te downloaden"
             }
         };
         
@@ -488,15 +510,28 @@
             grid.innerHTML = '';
             
             photoIds.forEach((photoId, index) => {
-                // URL per full quality (per download/viewer)
+                // URL per full quality (per download/viewer) - SEMPRE senza watermark per foto pagate
                 const fullQualityUrl = unlockedUrls && unlockedUrls[photoId] 
                     ? unlockedUrls[photoId]
                     : (email 
                         ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
                         : `/photo/${encodeURIComponent(photoId)}?paid=true`);
                 
-                // URL per thumbnail (caricamento veloce iniziale)
-                const thumbUrl = `/photo/${encodeURIComponent(photoId)}?variant=thumb`;
+                // IMPORTANTE: Per foto pagate, carichiamo FULL QUALITY direttamente
+                // Questo permette a iOS di salvare in full quality con long press
+                // Safari mobile può gestire immagini grandi, le carichiamo progressivamente
+                
+                // URL per visualizzazione: usa full quality (per long press su iOS)
+                const displayUrl = fullQualityUrl;
+                
+                // Fallback: thumb senza watermark se full quality è troppo lento
+                const paidThumbUrl = email 
+                    ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
+                    : `/photo/${encodeURIComponent(photoId)}?paid=true`;
+                
+                // Fallback: thumb normale (con watermark) solo se paid fallisce
+                const fallbackThumbUrl = `/photo/${encodeURIComponent(photoId)}?variant=thumb`;
+                const fallbackWmUrl = `/photo/${encodeURIComponent(photoId)}?variant=wm`;
                 
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
@@ -508,12 +543,14 @@
                 img.dataset.fullUrl = fullQualityUrl;
                 img.dataset.index = index;
                 
-                // IMPORTANTE: Safari mobile ha problemi con immagini molto grandi (20MB)
-                // Carica SEMPRE thumb prima, mai full quality direttamente per la visualizzazione
-                const wmUrl = `/photo/${encodeURIComponent(photoId)}?variant=wm`;
+                // IMPORTANTE: Carica full quality per permettere long press su iOS
+                // Safari gestirà automaticamente il resize per la visualizzazione
+                // Quando l'utente fa long press, salverà la full quality
+                img.src = displayUrl;
                 
-                // Carica thumbnail immediatamente (più piccolo, veloce)
-                img.src = thumbUrl;
+                // Imposta attributi per iOS long press
+                img.setAttribute('draggable', 'false'); // Evita drag su desktop
+                img.style.webkitTouchCallout = 'default'; // Abilita menu contestuale iOS
                 
                 // Safari mobile: usa loading solo se supportato
                 if ('loading' in HTMLImageElement.prototype) {
@@ -555,33 +592,40 @@
                     preloadFullQuality(fullQualityUrl, photoId);
                 }
                 
-                // Gestisci errori con fallback progressivo (thumb -> wm -> full quality)
+                // Gestisci errori con fallback progressivo (paid -> thumb -> wm -> full quality)
                 let retryCount = 0;
-                const maxRetries = 5;
+                const maxRetries = 6;
                 img.onerror = function() {
                     retryCount++;
-                    console.warn(`[SUCCESS] Error loading image for ${photoId}, retry ${retryCount}/${maxRetries}, current src: ${this.src}`);
+                    console.warn(`[SUCCESS] Error loading paid image for ${photoId}, retry ${retryCount}/${maxRetries}, current src: ${this.src}`);
                     
                     if (retryCount === 1) {
-                        // Primo retry: prova thumb di nuovo
+                        // Primo retry: prova paid URL di nuovo
                         setTimeout(() => {
-                            this.src = thumbUrl;
-                        }, 300);
+                            this.src = paidThumbUrl;
+                        }, 500);
                     } else if (retryCount === 2) {
-                        // Secondo retry: prova wm (watermarked, più piccolo di full quality)
-                        console.log(`[SUCCESS] Trying WM for ${photoId}`);
+                        // Secondo retry: prova thumb normale (con watermark, ma più piccolo)
+                        console.log(`[SUCCESS] Trying fallback thumb for ${photoId}`);
                         setTimeout(() => {
-                            this.src = wmUrl;
-                        }, 300);
+                            this.src = fallbackThumbUrl;
+                        }, 500);
+                    } else if (retryCount === 3) {
+                        // Terzo retry: prova wm (watermarked)
+                        console.log(`[SUCCESS] Trying fallback WM for ${photoId}`);
+                        setTimeout(() => {
+                            this.src = fallbackWmUrl;
+                        }, 500);
                     } else if (retryCount <= maxRetries) {
-                        // Altri retry: alterna tra thumb e wm
-                        const nextUrl = retryCount % 2 === 0 ? thumbUrl : wmUrl;
+                        // Altri retry: alterna tra paid, thumb e wm
+                        const urls = [paidThumbUrl, fallbackThumbUrl, fallbackWmUrl];
+                        const nextUrl = urls[(retryCount - 1) % urls.length];
                         setTimeout(() => {
                             this.src = nextUrl;
-                        }, 300 * retryCount);
+                        }, 500 * retryCount);
                     } else {
-                        // Ultimo tentativo: prova full quality (ma Safari potrebbe non renderizzarla)
-                        console.warn(`[SUCCESS] All retries failed, trying full quality for ${photoId} (Safari might not render large images)`);
+                        // Ultimo tentativo: prova full quality
+                        console.warn(`[SUCCESS] All retries failed, trying full quality for ${photoId}`);
                         this.src = fullQualityUrl;
                         // Se anche questo fallisce, mostra errore
                         this.onerror = function() {
@@ -598,8 +642,8 @@
                 };
                 
                 img.onclick = () => {
-                    // Apri viewer immediatamente con thumb, poi sostituisci con full quality
-                    openPhotoViewer(fullQualityUrl, photoId, thumbUrl);
+                    // Apri viewer immediatamente con foto paid (senza watermark), poi sostituisci con full quality
+                    openPhotoViewer(fullQualityUrl, photoId, paidThumbUrl);
                 };
                 
                 const actions = document.createElement('div');
@@ -609,8 +653,8 @@
                 btnOpen.className = 'btn-open';
                 btnOpen.textContent = t('btn_open');
                 btnOpen.onclick = () => {
-                    // Apri viewer immediatamente
-                    openPhotoViewer(fullQualityUrl, photoId, thumbUrl);
+                    // Apri viewer immediatamente con foto paid (senza watermark)
+                    openPhotoViewer(fullQualityUrl, photoId, paidThumbUrl);
                 };
                 
                 const btnDownload = document.createElement('button');
@@ -634,6 +678,10 @@
             document.getElementById('successSubtitle').textContent = t('success_subtitle');
             const backButton = document.getElementById('backButton');
             backButton.textContent = t('btn_back');
+            const iphoneInstructions = document.getElementById('iphoneInstructions');
+            if (iphoneInstructions) {
+                iphoneInstructions.innerHTML = t('iphone_instructions') || '📱 <strong>iPhone:</strong> Press and hold the photo, then select "Save to Photos" to download in original quality';
+            }
             
             // Update back button URL with email if available
             if (email) {
