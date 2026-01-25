@@ -664,39 +664,17 @@
             document.getElementById('photoViewer').classList.remove('active');
         };
         
-        // Download photo instant (usa cache se disponibile, altrimenti inizia subito)
+        // Download photo instant (SEMPRE full quality originale dal server)
         async function downloadPhotoInstant(photoUrl, photoId) {
             try {
-                // Controlla se full quality è già in cache
-                const cached = fullQualityCache.get(photoId);
-                if (cached && cached.status === 'ready' && cached.img) {
-                    // Usa immagine già caricata (istantaneo)
-                    const canvas = document.createElement('canvas');
-                    canvas.width = cached.img.naturalWidth;
-                    canvas.height = cached.img.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(cached.img, 0, 0);
-                    
-                    canvas.toBlob((blob) => {
-                        const blobUrl = window.URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        link.href = blobUrl;
-                        link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                        link.style.display = 'none';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
-                    }, 'image/jpeg', 0.95);
-                    return;
-                }
-                
-                // Altrimenti inizia download immediato (non aspettare caricamento completo)
+                // IMPORTANTE: sempre scarica full quality originale dal server
+                // Non usare la cache perché potrebbe degradare la qualità JPEG
                 const downloadUrl = photoUrl.includes('?') 
                     ? `${photoUrl}&download=true`
                     : `${photoUrl}?download=true`;
                 
                 // Usa link diretto per download immediato (browser gestisce il download)
+                // Il download inizia subito, anche se il file è grande
                 const link = document.createElement('a');
                 link.href = downloadUrl;
                 link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
@@ -705,9 +683,10 @@
                 link.click();
                 document.body.removeChild(link);
                 
-                // In background, preload per prossimi download
+                // In background, continua preload per visualizzazione veloce
+                const cached = fullQualityCache.get(photoId);
                 if (!cached || cached.status !== 'loading') {
-                    preloadFullQuality(photoUrl, photoId);
+                    preloadFullQuality(photoUrl.replace(/[?&]download=true/, ''), photoId);
                 }
             } catch (error) {
                 console.error('Download error:', error);
