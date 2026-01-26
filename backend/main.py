@@ -1,7 +1,7 @@
 # File principale dell'API FaceSite
 # BUILD_VERSION: 2026-01-23-SUCCESS-PAGE-FIX
 # FORCE_RELOAD: Questo commento forza Render a ricompilare il file
-APP_BUILD_ID = "deploy-2026-01-24-instant-download"
+APP_BUILD_ID = "deploy-2026-01-23-test-mode-fix-v2"
 
 # Carica variabili d'ambiente da .env (PRIMA di qualsiasi os.getenv)
 from pathlib import Path
@@ -3682,64 +3682,6 @@ async def fix_paid_photos(email: str = Query(..., description="Email utente")):
         logger.error(f"Error fixing paid photos: {e}", exc_info=True)
         return {"error": str(e)}
 
-@app.post("/debug/verify-r2-photos")
-async def verify_r2_photos(email: str = Query(..., description="Email utente")):
-    """Verifica quali foto pagate esistono realmente in R2 e aggiorna r2_exists"""
-    try:
-        email = _normalize_email(email)
-        logger.info(f"Verifying R2 photos for {email}")
-        
-        # Recupera tutte le foto pagate per questa email
-        paid_rows = await _db_execute("""
-            SELECT photo_id, status, r2_exists FROM user_photos 
-            WHERE email = $1 AND status = 'paid' AND expires_at > NOW()
-        """, (email,))
-        
-        if not paid_rows:
-            return {"ok": False, "message": f"No paid photos found for {email}"}
-        
-        # Ottieni set delle chiavi R2 esistenti
-        r2_keys_set = await get_r2_keys_set_cached()
-        
-        # Verifica ogni foto
-        exists_in_r2 = []
-        missing_in_r2 = []
-        
-        for row in paid_rows:
-            photo_id = row['photo_id']
-            exists = photo_id in r2_keys_set
-            
-            if exists:
-                exists_in_r2.append(photo_id)
-                # Aggiorna r2_exists se non è già TRUE
-                if not row.get('r2_exists', False):
-                    await _db_execute_write("""
-                        UPDATE user_photos SET r2_exists = TRUE, r2_last_checked = NOW()
-                        WHERE email = $1 AND photo_id = $2
-                    """, (email, photo_id))
-            else:
-                missing_in_r2.append(photo_id)
-                # Marca come deleted se non esiste in R2
-                await _db_execute_write("""
-                    UPDATE user_photos 
-                    SET status = 'deleted', r2_exists = FALSE, r2_last_checked = NOW()
-                    WHERE email = $1 AND photo_id = $2
-                """, (email, photo_id))
-        
-        return {
-            "ok": True,
-            "email": email,
-            "total_paid_photos": len(paid_rows),
-            "exists_in_r2": len(exists_in_r2),
-            "missing_in_r2": len(missing_in_r2),
-            "exists_photo_ids": exists_in_r2,
-            "missing_photo_ids": missing_in_r2,
-            "message": f"Found {len(exists_in_r2)} photos in R2, {len(missing_in_r2)} missing"
-        }
-    except Exception as e:
-        logger.error(f"Error verifying R2 photos: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
-
 @app.get("/thumb/{photo_id:path}")
 async def serve_thumb(photo_id: str):
     """Endpoint per servire thumbnail: redirect a R2 pubblico (deprecato, usa /photo?variant=thumb)"""
@@ -3852,72 +3794,11 @@ async def serve_photo(
         except Exception as e:
             logger.error(f"Error checking paid photos: {e}")
 
-    # Costruisci object_key in modo flessibile:
-    # - Se (paid=true e verificato) -> cerca in tutte le cartelle usando cache R2
+    # Costruisci object_key in modo deterministico:
+    # - Se (paid=true e verificato) -> originals/<filename>
     # - Altrimenti -> variant default "thumb": thumbs/<filename> oppure wm/<filename>
     if wants_original and is_paid:
-        # Per foto pagate, usa cache R2 per trovare rapidamente la foto in qualsiasi cartella
-        object_key = None
-        
-        # Usa cache R2 per ricerca veloce (evita head_object multipli)
-        try:
-            r2_keys_set = await get_r2_keys_set_cached()
-            
-            # Ordine di ricerca: originals/ -> root -> wm/ -> thumbs/ -> qualsiasi cartella che finisce con il filename
-            possible_keys = [
-                f"originals/{original_key}",
-                original_key,  # Root del bucket (senza cartella)
-                f"wm/{original_key}",
-                f"thumbs/{original_key}"
-            ]
-            
-            # Cerca prima nelle cartelle standard
-            for test_key in possible_keys:
-                if test_key in r2_keys_set:
-                    object_key = test_key
-                    logger.info(f"[PHOTO] Found paid photo at: {object_key} (via cache)")
-                    break
-            
-            # Se non trovata, cerca in qualsiasi cartella che finisce con il filename
-            if not object_key:
-                filename_only = original_key.split('/')[-1]  # Solo il nome file
-                for key in r2_keys_set:
-                    # Cerca key che finisce con /filename o è esattamente filename
-                    if key.endswith(f"/{filename_only}") or key == filename_only:
-                        object_key = key
-                        logger.info(f"[PHOTO] Found paid photo at: {object_key} (via cache search)")
-                        break
-            
-            # Se ancora non trovata, prova head_object come fallback (per foto appena aggiunte)
-            if not object_key:
-                for test_key in possible_keys:
-                    try:
-                        r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
-                        object_key = test_key
-                        logger.info(f"[PHOTO] Found paid photo at: {object_key} (via head_object)")
-                        break
-                    except ClientError as e:
-                        error_code = e.response.get('Error', {}).get('Code', '')
-                        if error_code not in ('404', 'NoSuchKey'):
-                            logger.warning(f"[PHOTO] Error checking {test_key}: {error_code}")
-                        continue
-            
-        except Exception as e:
-            logger.warning(f"[PHOTO] Error using R2 cache, falling back to direct search: {e}")
-            # Fallback: prova direttamente head_object
-            for test_key in possible_keys:
-                try:
-                    r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
-                    object_key = test_key
-                    logger.info(f"[PHOTO] Found paid photo at: {object_key} (via fallback)")
-                    break
-                except ClientError:
-                    continue
-        
-        if not object_key:
-            # Nessuna cartella ha la foto, usa originals/ come default (verrà gestito l'errore dopo)
-            object_key = f"originals/{original_key}"
-            logger.warning(f"[PHOTO] Photo not found in any folder, using default: {object_key}")
+        object_key = f"originals/{original_key}"
     else:
         variant_effective = (variant or "thumb").lower()
         if variant_effective == "thumb":
@@ -3930,11 +3811,15 @@ async def serve_photo(
     # Render: deve essere SEMPRE settato per avere foto istantanee.
     is_render = (os.getenv("RENDER", "").lower() == "true") or bool(os.getenv("RENDER_SERVICE_ID"))
 
-    # IMPORTANTE: Per foto pagate (paid=true), serviamo sempre direttamente dal backend
-    # invece di fare redirect a R2, per garantire controllo completo e gestione errori
-    # Solo per foto non pagate (thumb/wm) usiamo redirect se R2_PUBLIC_BASE_URL è configurato
-    if R2_PUBLIC_BASE_URL and not download and not (is_paid and wants_original):
+    # Se R2_PUBLIC_BASE_URL è configurato e NON serve download forzato, usa redirect (produzione).
+    # Se serve download forzato, serviamo direttamente per controllare Content-Disposition.
+    if R2_PUBLIC_BASE_URL and not download:
         public_url = _get_r2_public_url(object_key)
+
+        # Track download se pagato (solo per originals/*)
+        if is_paid and wants_original:
+            from pathlib import Path
+            _track_download(Path(original_key).name)
 
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         logger.info(f"[PHOTO] Redirecting to R2 public URL: {object_key}")

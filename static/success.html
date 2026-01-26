@@ -73,24 +73,9 @@
             object-fit: contain;
             background: rgba(0, 0, 0, 0.2);
             cursor: pointer;
-            -webkit-touch-callout: default; /* Abilita long press su iOS */
-            -webkit-user-select: auto; /* Permetti selezione per iOS */
-            user-select: auto;
-        }
-        .iphone-instructions {
-            display: none;
-            text-align: center;
-            padding: 12px;
-            margin: 10px 0;
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 8px;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-        @media (max-width: 768px) {
-            .iphone-instructions {
-                display: block;
-            }
+            -webkit-touch-callout: default;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .photo-actions {
             display: flex;
@@ -200,7 +185,6 @@
         <div id="error" class="error" style="display: none;"></div>
         
         <div id="photosContainer" style="display: none;">
-            <div class="iphone-instructions" id="iphoneInstructions"></div>
             <div class="photos-grid" id="photosGrid"></div>
             <a href="/" class="back-button" id="backButton">Back to photos</a>
         </div>
@@ -222,8 +206,7 @@
                 btn_open: "Open",
                 btn_download: "Download",
                 btn_back: "Back to photos",
-                btn_buy_more: "Buy more photos",
-                iphone_instructions: "📱 iPhone: Press and hold the photo, then select \"Save to Photos\" to download in original quality"
+                btn_buy_more: "Buy more photos"
             },
             it: {
                 success_title: "Pagamento completato",
@@ -233,8 +216,7 @@
                 btn_open: "Apri",
                 btn_download: "Scarica",
                 btn_back: "Torna alle foto",
-                btn_buy_more: "Acquista altre foto",
-                iphone_instructions: "📱 iPhone: Premi a lungo sulla foto e seleziona \"Salva in Galleria\" per scaricare in qualità originale"
+                btn_buy_more: "Acquista altre foto"
             },
             es: {
                 success_title: "Pago completado",
@@ -244,8 +226,7 @@
                 btn_open: "Abrir",
                 btn_download: "Descargar",
                 btn_back: "Volver a las fotos",
-                btn_buy_more: "Comprar más fotos",
-                iphone_instructions: "📱 iPhone: Mantén presionada la foto y selecciona \"Guardar en Fotos\" para descargar en calidad original"
+                btn_buy_more: "Comprar más fotos"
             },
             fr: {
                 success_title: "Paiement terminé",
@@ -255,8 +236,7 @@
                 btn_open: "Ouvrir",
                 btn_download: "Télécharger",
                 btn_back: "Retour aux photos",
-                btn_buy_more: "Acheter plus de photos",
-                iphone_instructions: "📱 iPhone: Appuyez longuement sur la photo et sélectionnez \"Enregistrer dans Photos\" pour télécharger en qualité originale"
+                btn_buy_more: "Acheter plus de photos"
             },
             de: {
                 success_title: "Zahlung abgeschlossen",
@@ -266,8 +246,7 @@
                 btn_open: "Öffnen",
                 btn_download: "Herunterladen",
                 btn_back: "Zurück zu den Fotos",
-                btn_buy_more: "Mehr Fotos kaufen",
-                iphone_instructions: "📱 iPhone: Halten Sie das Foto gedrückt und wählen Sie \"In Fotos speichern\" aus, um in Originalqualität herunterzuladen"
+                btn_buy_more: "Mehr Fotos kaufen"
             },
             nl: {
                 success_title: "Betaling voltooid",
@@ -277,8 +256,7 @@
                 btn_open: "Openen",
                 btn_download: "Downloaden",
                 btn_back: "Terug naar foto's",
-                btn_buy_more: "Meer foto's kopen",
-                iphone_instructions: "📱 iPhone: Houd de foto ingedrukt en selecteer \"Opslaan in Foto's\" om in originele kwaliteit te downloaden"
+                btn_buy_more: "Meer foto's kopen"
             }
         };
         
@@ -480,138 +458,33 @@
             };
         }
         
-        // Cache per foto full quality preloadate
-        const fullQualityCache = new Map();
-        
-        // Preload full quality in background
-        function preloadFullQuality(url, photoId) {
-            if (fullQualityCache.has(photoId)) {
-                return; // Già in cache
-            }
-            
-            // Marca come in caricamento
-            fullQualityCache.set(photoId, { status: 'loading', url });
-            
-            const img = new Image();
-            img.onload = () => {
-                fullQualityCache.set(photoId, { status: 'ready', url, img });
-                console.log(`[SUCCESS] Preloaded full quality: ${photoId}`);
-            };
-            img.onerror = () => {
-                fullQualityCache.set(photoId, { status: 'error', url });
-                console.warn(`[SUCCESS] Preload failed for ${photoId}`);
-            };
-            img.src = url;
-        }
-        
-        // Render photos grid with aggressive preloading
+        // Render photos grid
         function renderPhotos(photoIds, email, unlockedUrls, remainingPhotoIds) {
             const grid = document.getElementById('photosGrid');
             grid.innerHTML = '';
             
-            photoIds.forEach((photoId, index) => {
-                // URL per full quality (per download/viewer) - SEMPRE senza watermark per foto pagate
-                const fullQualityUrl = unlockedUrls && unlockedUrls[photoId] 
+            photoIds.forEach(photoId => {
+                // Usa unlocked_urls se disponibile (full quality R2), altrimenti fallback a /photo
+                const photoUrl = unlockedUrls && unlockedUrls[photoId] 
                     ? unlockedUrls[photoId]
                     : (email 
                         ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
                         : `/photo/${encodeURIComponent(photoId)}?paid=true`);
                 
-                // IMPORTANTE: Per foto pagate, usiamo SEMPRE URL paid (SENZA WATERMARK)
-                // Nessun fallback a thumb/wm che hanno watermark
-                // URL paid è sempre senza watermark per foto pagate
-                const paidUrl = email 
-                    ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
-                    : `/photo/${encodeURIComponent(photoId)}?paid=true`;
-                
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
                 
                 const img = document.createElement('img');
+                img.src = photoUrl;
                 img.alt = 'Photo';
                 img.className = 'photo-img';
-                img.dataset.photoId = photoId;
-                img.dataset.fullUrl = fullQualityUrl;
-                img.dataset.index = index;
-                
-                // IMPORTANTE: Carica SEMPRE paid URL (senza watermark)
-                // Safari gestirà automaticamente il resize per la visualizzazione
-                // Quando l'utente fa long press, salverà la full quality senza watermark
-                img.src = paidUrl;
-                
-                // Imposta attributi per iOS long press
-                img.setAttribute('draggable', 'false'); // Evita drag su desktop
-                img.style.webkitTouchCallout = 'default'; // Abilita menu contestuale iOS
-                
-                // Safari mobile: usa loading solo se supportato
-                if ('loading' in HTMLImageElement.prototype) {
-                    img.loading = index < 6 ? 'eager' : 'lazy';
-                }
-                
-                // fetchPriority supportato solo su browser moderni
-                if (index < 6 && 'fetchPriority' in HTMLImageElement.prototype) {
-                    try {
-                        img.fetchPriority = 'high';
-                    } catch (e) {
-                        // Ignora se non supportato
-                    }
-                }
-                
-                // Preload full quality in background per tutte le foto visibili
-                // Fallback per Safari che potrebbe non supportare IntersectionObserver
-                if ('IntersectionObserver' in window) {
-                    const observer = new IntersectionObserver((entries) => {
-                        entries.forEach(entry => {
-                            if (entry.isIntersecting) {
-                                // Foto visibile: preload full quality in background
-                                preloadFullQuality(fullQualityUrl, photoId);
-                                observer.unobserve(entry.target);
-                            }
-                        });
-                    }, { rootMargin: '200px' }); // Inizia preload 200px prima che entri nel viewport
-                    
-                    observer.observe(img);
-                } else {
-                    // Fallback: preload tutte le foto visibili immediatamente (Safari vecchio)
-                    if (index < 12) {
-                        preloadFullQuality(fullQualityUrl, photoId);
-                    }
-                }
-                
-                // Preload immediato per le prime 6 foto
-                if (index < 6) {
-                    preloadFullQuality(fullQualityUrl, photoId);
-                }
-                
-                // Gestisci errori: riprova SOLO con paid URL (mai thumb/wm con watermark)
-                let retryCount = 0;
-                const maxRetries = 5;
+                img.loading = 'lazy';
+                img.onclick = () => openPhotoViewer(photoUrl);
+                // Gestisci errori di caricamento
                 img.onerror = function() {
-                    retryCount++;
-                    console.warn(`[SUCCESS] Error loading paid image (no watermark) for ${photoId}, retry ${retryCount}/${maxRetries}, current src: ${this.src}`);
-                    
-                    if (retryCount <= maxRetries) {
-                        // IMPORTANTE: riprova SEMPRE con paid URL (senza watermark)
-                        // Non usare mai thumb/wm che hanno watermark
-                        setTimeout(() => {
-                            this.src = paidUrl;
-                        }, 500 * retryCount);
-                    } else {
-                        // Dopo max retry, mostra errore ma NON usare thumb/wm con watermark
-                        this.style.opacity = '0.5';
-                        this.style.background = 'rgba(255,0,0,0.1)';
-                        console.error(`[SUCCESS] Failed to load paid photo (no watermark) for ${photoId} after ${maxRetries} retries`);
-                    }
-                };
-                
-                // Log caricamento riuscito (per debug Safari)
-                img.onload = function() {
-                    console.log(`[SUCCESS] Loaded image for ${photoId}, size: ${this.naturalWidth}x${this.naturalHeight}`);
-                };
-                
-                img.onclick = () => {
-                    // Apri viewer immediatamente con foto paid (senza watermark)
-                    openPhotoViewer(fullQualityUrl, photoId, paidUrl);
+                    console.error(`[SUCCESS] Error loading photo: ${photoUrl}`);
+                    this.src = '/static/placeholder.jpg'; // Fallback se disponibile
+                    this.style.opacity = '0.5';
                 };
                 
                 const actions = document.createElement('div');
@@ -620,18 +493,12 @@
                 const btnOpen = document.createElement('button');
                 btnOpen.className = 'btn-open';
                 btnOpen.textContent = t('btn_open');
-                btnOpen.onclick = () => {
-                    // Apri viewer immediatamente con foto paid (senza watermark)
-                    openPhotoViewer(fullQualityUrl, photoId, paidUrl);
-                };
+                btnOpen.onclick = () => openPhotoViewer(photoUrl);
                 
                 const btnDownload = document.createElement('button');
                 btnDownload.className = 'btn-download btn-download-desktop';
                 btnDownload.textContent = t('btn_download');
-                btnDownload.onclick = () => {
-                    // Download immediato senza aspettare
-                    downloadPhotoInstant(fullQualityUrl, photoId);
-                };
+                btnDownload.onclick = () => downloadPhoto(photoUrl, photoId);
                 
                 actions.appendChild(btnOpen);
                 actions.appendChild(btnDownload);
@@ -646,10 +513,6 @@
             document.getElementById('successSubtitle').textContent = t('success_subtitle');
             const backButton = document.getElementById('backButton');
             backButton.textContent = t('btn_back');
-            const iphoneInstructions = document.getElementById('iphoneInstructions');
-            if (iphoneInstructions) {
-                iphoneInstructions.innerHTML = t('iphone_instructions') || '📱 <strong>iPhone:</strong> Press and hold the photo, then select "Save to Photos" to download in original quality';
-            }
             
             // Update back button URL with email if available
             if (email) {
@@ -691,37 +554,15 @@
             document.getElementById('photosContainer').style.display = 'block';
         }
         
-        // Open photo in viewer (instant: show thumb first, then full quality)
-        function openPhotoViewer(photoUrl, photoId, thumbUrl) {
+        // Open photo in viewer (cross-platform: inline display)
+        function openPhotoViewer(photoUrl) {
+            // Usa URL relativo con parametro per visualizzazione inline
             const viewer = document.getElementById('photoViewer');
             const viewerImage = document.getElementById('viewerImage');
+            // Assicurati che l'URL sia relativo e senza download=true
             const openUrl = photoUrl.replace(/[?&]download=true/, '').replace(/&download=true/, '');
-            
-            // Mostra subito la thumb se disponibile (istantaneo)
-            if (thumbUrl) {
-                viewerImage.src = thumbUrl;
-                viewer.classList.add('active');
-            } else {
-                viewerImage.src = openUrl;
-                viewer.classList.add('active');
-            }
-            
-            // Controlla se full quality è già in cache
-            const cached = fullQualityCache.get(photoId);
-            if (cached && cached.status === 'ready' && cached.img) {
-                // Usa immagine già caricata (istantaneo)
-                viewerImage.src = cached.img.src;
-            } else {
-                // Carica full quality in background e sostituisci quando pronta
-                const fullImg = new Image();
-                fullImg.onload = () => {
-                    viewerImage.src = fullImg.src;
-                };
-                fullImg.onerror = () => {
-                    console.warn(`[SUCCESS] Full quality failed in viewer for ${photoId}`);
-                };
-                fullImg.src = openUrl;
-            }
+            viewerImage.src = openUrl;
+            viewer.classList.add('active');
         }
         
         // Close photo viewer
@@ -729,29 +570,52 @@
             document.getElementById('photoViewer').classList.remove('active');
         };
         
-        // Download photo instant (SEMPRE full quality originale dal server)
-        async function downloadPhotoInstant(photoUrl, photoId) {
+        // Download photo (cross-platform: attachment download)
+        async function downloadPhoto(photoUrl, photoId) {
             try {
-                // IMPORTANTE: sempre scarica full quality originale dal server
-                // Non usare la cache perché potrebbe degradare la qualità JPEG
-                const downloadUrl = photoUrl.includes('?') 
-                    ? `${photoUrl}&download=true`
-                    : `${photoUrl}?download=true`;
-                
-                // Usa link diretto per download immediato (browser gestisce il download)
-                // Il download inizia subito, anche se il file è grande
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                link.style.display = 'none';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // In background, continua preload per visualizzazione veloce
-                const cached = fullQualityCache.get(photoId);
-                if (!cached || cached.status !== 'loading') {
-                    preloadFullQuality(photoUrl.replace(/[?&]download=true/, ''), photoId);
+                // Se è un URL diretto R2, usa direttamente
+                if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+                    // URL diretto R2: usa fetch e blob
+                    const response = await fetch(photoUrl);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const blob = await response.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+                } else {
+                    // URL relativo: aggiungi download=true
+                    const downloadUrl = photoUrl.includes('?') 
+                        ? `${photoUrl}&download=true`
+                        : `${photoUrl}?download=true`;
+                    
+                    const response = await fetch(downloadUrl);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const blob = await response.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
                 }
             } catch (error) {
                 console.error('Download error:', error);
