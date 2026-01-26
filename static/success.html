@@ -458,14 +458,30 @@
             };
         }
         
-        // Render photos grid
+        // Cache per preload full quality
+        const fullQualityCache = new Map();
+        
+        // Preload full quality in background
+        function preloadFullQuality(url, photoId) {
+            if (fullQualityCache.has(photoId)) return;
+            fullQualityCache.set(photoId, { status: 'loading' });
+            const img = new Image();
+            img.onload = () => fullQualityCache.set(photoId, { status: 'ready', url });
+            img.onerror = () => fullQualityCache.set(photoId, { status: 'error' });
+            img.src = url;
+        }
+        
+        // Render photos grid - VELOCITÀ MASSIMA
         function renderPhotos(photoIds, email, unlockedUrls, remainingPhotoIds) {
             const grid = document.getElementById('photosGrid');
             grid.innerHTML = '';
             
-            photoIds.forEach(photoId => {
-                // Usa unlocked_urls se disponibile (full quality R2), altrimenti fallback a /photo
-                const photoUrl = unlockedUrls && unlockedUrls[photoId] 
+            photoIds.forEach((photoId, index) => {
+                // THUMB_URL: per preview istantanea (veloce)
+                const thumbUrl = `/photo/${encodeURIComponent(photoId)}?variant=thumb`;
+                
+                // ORIGINAL_URL: per download/viewer (full quality)
+                const originalUrl = unlockedUrls && unlockedUrls[photoId] 
                     ? unlockedUrls[photoId]
                     : (email 
                         ? `/photo/${encodeURIComponent(photoId)}?paid=true&email=${encodeURIComponent(email)}`
@@ -475,11 +491,30 @@
                 photoItem.className = 'photo-item';
                 
                 const img = document.createElement('img');
-                img.src = photoUrl;
+                // IMPORTANTE: usa thumb per preview istantanea
+                img.src = thumbUrl;
                 img.alt = 'Photo';
                 img.className = 'photo-img';
-                img.loading = 'lazy';
-                img.onclick = () => openPhotoViewer(photoUrl);
+                // Prime 6 foto: eager loading per velocità
+                img.loading = index < 6 ? 'eager' : 'lazy';
+                img.onclick = () => openPhotoViewer(originalUrl, thumbUrl);
+                
+                // Preload full quality in background (per download/viewer veloce)
+                if (index < 6) {
+                    // Prime 6: preload immediato
+                    preloadFullQuality(originalUrl, photoId);
+                } else if ('IntersectionObserver' in window) {
+                    // Altre: preload quando entrano nel viewport
+                    const observer = new IntersectionObserver((entries) => {
+                        entries.forEach(entry => {
+                            if (entry.isIntersecting) {
+                                preloadFullQuality(originalUrl, photoId);
+                                observer.unobserve(entry.target);
+                            }
+                        });
+                    }, { rootMargin: '200px' });
+                    observer.observe(img);
+                }
                 // Gestisci errori di caricamento
                 let retryCount = 0;
                 const maxRetries = 2;
@@ -505,12 +540,12 @@
                 const btnOpen = document.createElement('button');
                 btnOpen.className = 'btn-open';
                 btnOpen.textContent = t('btn_open');
-                btnOpen.onclick = () => openPhotoViewer(photoUrl);
+                btnOpen.onclick = () => openPhotoViewer(originalUrl, thumbUrl);
                 
                 const btnDownload = document.createElement('button');
                 btnDownload.className = 'btn-download btn-download-desktop';
                 btnDownload.textContent = t('btn_download');
-                btnDownload.onclick = () => downloadPhoto(photoUrl, photoId);
+                btnDownload.onclick = () => downloadPhotoInstant(originalUrl, photoId);
                 
                 actions.appendChild(btnOpen);
                 actions.appendChild(btnDownload);
@@ -566,15 +601,30 @@
             document.getElementById('photosContainer').style.display = 'block';
         }
         
-        // Open photo in viewer (cross-platform: inline display)
-        function openPhotoViewer(photoUrl) {
-            // Usa URL relativo con parametro per visualizzazione inline
+        // Open photo in viewer - VELOCITÀ: mostra thumb subito, poi full quality
+        function openPhotoViewer(originalUrl, thumbUrl) {
             const viewer = document.getElementById('photoViewer');
             const viewerImage = document.getElementById('viewerImage');
-            // Assicurati che l'URL sia relativo e senza download=true
-            const openUrl = photoUrl.replace(/[?&]download=true/, '').replace(/&download=true/, '');
-            viewerImage.src = openUrl;
-            viewer.classList.add('active');
+            const cleanUrl = originalUrl.replace(/[?&]download=true/, '').replace(/&download=true/, '');
+            
+            // Estrai photoId dall'URL per la cache
+            const photoId = cleanUrl.split('/photo/')[1]?.split('?')[0] || '';
+            
+            // Mostra thumb subito (istantaneo)
+            if (thumbUrl) {
+                viewerImage.src = thumbUrl;
+                viewer.classList.add('active');
+            }
+            
+            // Carica full quality in background e sostituisci quando pronta
+            const cached = fullQualityCache.get(photoId);
+            if (cached && cached.status === 'ready') {
+                viewerImage.src = cached.url;
+            } else {
+                const fullImg = new Image();
+                fullImg.onload = () => viewerImage.src = fullImg.src;
+                fullImg.src = cleanUrl;
+            }
         }
         
         // Close photo viewer
@@ -582,53 +632,22 @@
             document.getElementById('photoViewer').classList.remove('active');
         };
         
-        // Download photo (cross-platform: attachment download)
-        async function downloadPhoto(photoUrl, photoId) {
+        // Download photo - VELOCITÀ MASSIMA: link diretto (più veloce di fetch+blob)
+        function downloadPhotoInstant(originalUrl, photoId) {
             try {
-                // Se è un URL diretto R2, usa direttamente
-                if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
-                    // URL diretto R2: usa fetch e blob
-                    const response = await fetch(photoUrl);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    
-                    const blob = await response.blob();
-                    const blobUrl = window.URL.createObjectURL(blob);
-                    
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
-                } else {
-                    // URL relativo: aggiungi download=true
-                    const downloadUrl = photoUrl.includes('?') 
-                        ? `${photoUrl}&download=true`
-                        : `${photoUrl}?download=true`;
-                    
-                    const response = await fetch(downloadUrl);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    
-                    const blob = await response.blob();
-                    const blobUrl = window.URL.createObjectURL(blob);
-                    
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
-                }
+                // Costruisci URL download diretto
+                const downloadUrl = originalUrl.includes('?') 
+                    ? `${originalUrl}&download=true`
+                    : `${originalUrl}?download=true`;
+                
+                // Link diretto: browser gestisce download immediato (più veloce)
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
             } catch (error) {
                 console.error('Download error:', error);
                 alert('Error downloading photo. Please try again.');
