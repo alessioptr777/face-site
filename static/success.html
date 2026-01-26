@@ -260,22 +260,35 @@
             }
         };
         
-        // Detect language from URL or localStorage
+        // Detect language from URL or localStorage (priorità: URL > localStorage > browser > en)
         function getLanguage() {
             const urlParams = new URLSearchParams(window.location.search);
-            const lang = urlParams.get('lang') || localStorage.getItem('selectedLanguage') || 'en';
+            let lang = urlParams.get('lang');
+            
+            // Se non in URL, cerca in localStorage
+            if (!lang) {
+                lang = localStorage.getItem('selectedLanguage');
+            }
+            
+            // Se ancora non trovata, prova a rilevare dal browser (solo per it/es/fr/de/nl)
+            if (!lang) {
+                const browserLang = navigator.language || navigator.userLanguage || '';
+                const browserLangCode = browserLang.split('-')[0].toLowerCase();
+                if (['it', 'es', 'fr', 'de', 'nl'].includes(browserLangCode)) {
+                    lang = browserLangCode;
+                }
+            }
+            
+            // Default: inglese
+            lang = lang || 'en';
+            
+            // Verifica che la lingua sia supportata
             return I18N[lang] ? lang : 'en';
         }
         
         function t(key) {
             const lang = getLanguage();
             return I18N[lang]?.[key] || I18N.en[key] || key;
-        }
-        
-        // Detect if we're in DEV mode (localhost)
-        function isDevMode() {
-            const hostname = window.location.hostname;
-            return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
         }
         
         // Detect if we're in DEV mode (localhost)

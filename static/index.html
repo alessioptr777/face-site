@@ -2787,6 +2787,8 @@
     function setLanguage(lang) {
       currentLang = lang;
       selectedLanguage = lang;
+      // Salva in localStorage per persistenza (usato anche dalla success page)
+      localStorage.setItem('selectedLanguage', lang);
       applyTranslations();
       refreshDynamicTexts();
     }
