@@ -481,10 +481,22 @@
                 img.loading = 'lazy';
                 img.onclick = () => openPhotoViewer(photoUrl);
                 // Gestisci errori di caricamento
+                let retryCount = 0;
+                const maxRetries = 3;
                 img.onerror = function() {
-                    console.error(`[SUCCESS] Error loading photo: ${photoUrl}`);
-                    this.src = '/static/placeholder.jpg'; // Fallback se disponibile
-                    this.style.opacity = '0.5';
+                    retryCount++;
+                    console.warn(`[SUCCESS] Error loading photo (${retryCount}/${maxRetries}): ${photoUrl}`);
+                    if (retryCount <= maxRetries) {
+                        // Riprova dopo un breve delay
+                        setTimeout(() => {
+                            this.src = photoUrl + (photoUrl.includes('?') ? '&' : '?') + '_retry=' + retryCount;
+                        }, 1000 * retryCount);
+                    } else {
+                        // Dopo max retry, mostra errore visivo
+                        this.style.opacity = '0.5';
+                        this.style.background = 'rgba(255,0,0,0.1)';
+                        this.alt = 'Photo failed to load';
+                    }
                 };
                 
                 const actions = document.createElement('div');
