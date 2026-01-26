@@ -3811,16 +3811,11 @@ async def serve_photo(
     # Render: deve essere SEMPRE settato per avere foto istantanee.
     is_render = (os.getenv("RENDER", "").lower() == "true") or bool(os.getenv("RENDER_SERVICE_ID"))
 
-    # Se R2_PUBLIC_BASE_URL è configurato e NON serve download forzato, usa redirect (produzione).
-    # Se serve download forzato, serviamo direttamente per controllare Content-Disposition.
-    if R2_PUBLIC_BASE_URL and not download:
+    # IMPORTANTE: Per foto pagate, serviamo SEMPRE direttamente dal backend (no redirect)
+    # Questo garantisce compatibilità Safari iPhone e controllo completo
+    # Solo per foto non pagate (thumb/wm) usiamo redirect se R2_PUBLIC_BASE_URL è configurato
+    if R2_PUBLIC_BASE_URL and not download and not (is_paid and wants_original):
         public_url = _get_r2_public_url(object_key)
-
-        # Track download se pagato (solo per originals/*)
-        if is_paid and wants_original:
-            from pathlib import Path
-            _track_download(Path(original_key).name)
-
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         logger.info(f"[PHOTO] Redirecting to R2 public URL: {object_key}")
         return RedirectResponse(url=public_url, status_code=302, headers=headers)

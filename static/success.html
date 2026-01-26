@@ -482,14 +482,14 @@
                 img.onclick = () => openPhotoViewer(photoUrl);
                 // Gestisci errori di caricamento
                 let retryCount = 0;
-                const maxRetries = 3;
+                const maxRetries = 2;
                 img.onerror = function() {
                     retryCount++;
-                    console.warn(`[SUCCESS] Error loading photo (${retryCount}/${maxRetries}): ${photoUrl}`);
                     if (retryCount <= maxRetries) {
-                        // Riprova dopo un breve delay
+                        // Riprova con URL pulito (rimuovi parametri retry se presenti)
+                        const cleanUrl = photoUrl.split('&_retry=')[0].split('?_retry=')[0];
                         setTimeout(() => {
-                            this.src = photoUrl + (photoUrl.includes('?') ? '&' : '?') + '_retry=' + retryCount;
+                            this.src = cleanUrl;
                         }, 1000 * retryCount);
                     } else {
                         // Dopo max retry, mostra errore visivo
