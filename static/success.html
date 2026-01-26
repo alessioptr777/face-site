@@ -632,13 +632,17 @@
             document.getElementById('photoViewer').classList.remove('active');
         };
         
-        // Download photo - VELOCITÀ MASSIMA: link diretto (più veloce di fetch+blob)
+        // Download photo - SEMPRE FULL QUALITY (originalUrl, mai thumbUrl)
+        // VELOCITÀ MASSIMA: link diretto (più veloce di fetch+blob)
         function downloadPhotoInstant(originalUrl, photoId) {
             try {
-                // Costruisci URL download diretto
+                // IMPORTANTE: originalUrl è sempre full quality (paid=true serve originals/ da R2)
+                // Mai usare thumbUrl qui - garantisce massima qualità al download
                 const downloadUrl = originalUrl.includes('?') 
                     ? `${originalUrl}&download=true`
                     : `${originalUrl}?download=true`;
+                
+                console.log(`[DOWNLOAD] Starting full quality download: ${photoId} from ${downloadUrl}`);
                 
                 // Link diretto: browser gestisce download immediato (più veloce)
                 const link = document.createElement('a');
