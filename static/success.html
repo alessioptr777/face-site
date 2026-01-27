@@ -135,11 +135,15 @@
         }
         @media (max-width: 767px) {
             .mobile-save-banner {
-                display: block;
+                display: block !important;
             }
         }
         .mobile-save-banner.hidden {
             display: none !important;
+        }
+        /* Assicurati che il banner sia visibile quando non è hidden */
+        .mobile-save-banner:not(.hidden) {
+            display: block !important;
         }
         .mobile-save-banner-content {
             display: flex;
@@ -520,7 +524,16 @@
         
         // Render photos grid - VELOCITÀ MASSIMA
         function renderPhotos(photoIds, email, unlockedUrls, remainingPhotoIds) {
+            console.log(`[SUCCESS] Rendering ${photoIds.length} photos`);
+            console.log(`[SUCCESS] Email: ${email || 'none'}`);
+            console.log(`[SUCCESS] Example thumbUrl: /photo/${encodeURIComponent(photoIds[0] || '')}?variant=thumb`);
+            console.log(`[SUCCESS] Example originalUrl: /photo/${encodeURIComponent(photoIds[0] || '')}?paid=true&email=${encodeURIComponent(email || '')}`);
+            
             const grid = document.getElementById('photosGrid');
+            if (!grid) {
+                console.error('[SUCCESS] photosGrid element not found!');
+                return;
+            }
             grid.innerHTML = '';
             
             photoIds.forEach((photoId, index) => {
@@ -564,7 +577,13 @@
                 // Carica l'immagine e mostra quando pronta
                 img.onload = function() {
                     this.classList.add('loaded');
+                    console.log(`[SUCCESS] Photo loaded: ${photoId}`);
                 };
+                
+                // Se l'immagine è già in cache, mostra subito
+                if (img.complete && img.naturalWidth > 0) {
+                    img.classList.add('loaded');
+                }
                 
                 // Imposta src dopo aver aggiunto gli event listener
                 img.src = thumbUrl;
@@ -587,20 +606,28 @@
                 }
                 // Gestisci errori di caricamento (usa sempre thumbUrl per preview)
                 let retryCount = 0;
-                const maxRetries = 2;
+                const maxRetries = 3;
                 img.onerror = function() {
+                    console.error(`[SUCCESS] Photo load error (attempt ${retryCount + 1}): ${photoId} from ${thumbUrl}`);
                     retryCount++;
                     if (retryCount <= maxRetries) {
                         // Riprova con thumbUrl pulito (rimuovi parametri retry se presenti)
                         const cleanUrl = thumbUrl.split('&_retry=')[0].split('?_retry=')[0];
+                        const retryUrl = `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}_retry=${retryCount}`;
                         setTimeout(() => {
-                            this.src = cleanUrl;
+                            console.log(`[SUCCESS] Retrying photo load: ${retryUrl}`);
+                            this.src = retryUrl;
                         }, 1000 * retryCount);
                     } else {
-                        // Dopo max retry, mostra errore visivo
+                        // Dopo max retry, mostra errore visivo ma rendi visibile
+                        console.error(`[SUCCESS] Photo failed to load after ${maxRetries} retries: ${photoId}`);
+                        this.classList.add('loaded'); // Mostra comunque l'immagine (anche se broken)
                         this.style.opacity = '0.5';
                         this.style.background = 'rgba(255,0,0,0.1)';
                         this.alt = 'Photo failed to load';
+                        // Prova a usare originalUrl come fallback
+                        const fallbackUrl = originalUrl.split('?')[0] + '?variant=thumb';
+                        this.src = fallbackUrl;
                     }
                 };
                 
@@ -687,17 +714,31 @@
         
         // Mostra banner mobile per salvataggio con long-press
         function showMobileSaveBanner() {
+            console.log('[SUCCESS] showMobileSaveBanner called');
             // Solo su mobile
-            if (!isMobile()) return;
+            if (!isMobile()) {
+                console.log('[SUCCESS] Not mobile, skipping banner');
+                return;
+            }
             
             // Controlla se è stato chiuso
             const bannerClosed = localStorage.getItem('mobileSaveBannerClosed');
-            if (bannerClosed === 'true') return;
+            if (bannerClosed === 'true') {
+                console.log('[SUCCESS] Banner was closed by user, skipping');
+                return;
+            }
             
             const banner = document.getElementById('mobileSaveBanner');
             const bannerText = document.getElementById('mobileSaveBannerText');
             
-            if (!banner || !bannerText) return;
+            if (!banner) {
+                console.error('[SUCCESS] Banner element not found!');
+                return;
+            }
+            if (!bannerText) {
+                console.error('[SUCCESS] Banner text element not found!');
+                return;
+            }
             
             // Testo diverso per iPhone/Android
             if (isIOS()) {
@@ -708,14 +749,18 @@
                 bannerText.textContent = t('mobile_save_generic') || 'Mantieni premuto sulla foto per salvare';
             }
             
-            // Mostra banner
+            // Mostra banner - rimuovi hidden e assicurati che sia visibile
             banner.classList.remove('hidden');
+            banner.style.display = 'block'; // Forza display block su mobile
+            console.log('[SUCCESS] Banner shown');
             
             // Chiudi banner al click su X
             const closeBtn = document.getElementById('mobileSaveBannerClose');
             if (closeBtn) {
                 closeBtn.onclick = () => {
+                    console.log('[SUCCESS] Banner closed by user');
                     banner.classList.add('hidden');
+                    banner.style.display = 'none';
                     localStorage.setItem('mobileSaveBannerClosed', 'true');
                 };
             }
