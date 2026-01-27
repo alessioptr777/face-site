@@ -42,11 +42,20 @@
       height: 100vh; /* Fallback */
       display: none;
       flex-direction: column;
-      overflow: hidden;
+      overflow-y: auto; /* Permette scroll su mobile */
+      overflow-x: hidden;
       position: relative;
     }
     .screen.active{
       display: flex;
+    }
+    
+    /* Android Mobile Optimization - schermi piccoli */
+    @media (max-height: 800px) {
+      .screen {
+        min-height: calc(100dvh - env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
     }
     
     /* Language Selection Screen */
@@ -55,6 +64,14 @@
       justify-content: center;
       padding: 40px 20px;
       text-align: center;
+    }
+    
+    @media (max-height: 800px) {
+      .language-screen {
+        padding: 20px 15px;
+        justify-content: flex-start;
+        padding-top: 30px;
+      }
     }
     
     .language-title{
@@ -68,6 +85,17 @@
       font-size: 16px;
       color: var(--text-muted);
       margin-bottom: 40px;
+    }
+    
+    @media (max-height: 800px) {
+      .language-title {
+        font-size: 22px;
+        margin-bottom: 8px;
+      }
+      .language-subtitle {
+        font-size: 14px;
+        margin-bottom: 20px;
+      }
     }
     
     .language-grid{
@@ -90,6 +118,23 @@
       flex-direction: column;
       align-items: center;
       gap: 12px;
+    }
+    
+    @media (max-height: 800px) {
+      .language-grid {
+        gap: 12px;
+        max-width: 100%;
+      }
+      .language-option {
+        padding: 15px 12px;
+        gap: 8px;
+      }
+      .language-flag {
+        font-size: 36px;
+      }
+      .language-name {
+        font-size: 14px;
+      }
     }
     
     .language-option:hover{
@@ -129,6 +174,25 @@
       font-size: 16px;
       color: var(--text-muted);
       margin-bottom: 30px;
+    }
+    
+    @media (max-height: 800px) {
+      .email-screen {
+        padding: 20px 15px 80px 15px;
+        justify-content: flex-start;
+        padding-top: 30px;
+      }
+      .email-title {
+        font-size: 22px;
+        margin-bottom: 8px;
+      }
+      .email-subtitle {
+        font-size: 14px;
+        margin-bottom: 20px;
+      }
+      .email-input-container {
+        margin-bottom: 20px;
+      }
     }
     
     .email-input-container{
@@ -264,7 +328,25 @@
     /* Selfie Screen */
     .selfie-screen{
       padding: 10px;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    
+    @media (max-height: 800px) {
+      .selfie-screen {
+        padding: 8px 8px 80px 8px;
+      }
+      .selfie-header h2 {
+        font-size: 18px;
+      }
+      .selfie-controls {
+        margin-top: 10px;
+        margin-bottom: 15px;
+      }
+      .camera-btn {
+        width: 70px;
+        height: 70px;
+      }
     }
     
     .selfie-header{
@@ -458,7 +540,8 @@
       padding: 10px 20px;
       align-items: center;
       justify-content: center;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
     
     .confirm-title{
@@ -508,6 +591,7 @@
       gap: 12px;
       width: 100%;
       max-width: 400px;
+      margin-bottom: 20px; /* Spazio per navigation bar Android */
     }
     
     .btn-confirm{
@@ -532,6 +616,37 @@
       cursor: pointer;
     }
     
+    /* Android Mobile: riduci dimensioni per far entrare tutto */
+    @media (max-height: 800px) {
+      .confirm-screen {
+        padding: 15px 15px 80px 15px; /* Extra padding bottom per navigation bar */
+        justify-content: flex-start;
+        padding-top: 20px;
+      }
+      .confirm-title {
+        font-size: 20px;
+        margin-bottom: 15px;
+      }
+      .confirm-preview {
+        max-width: 250px;
+        margin-bottom: 12px;
+      }
+      .confirm-privacy {
+        font-size: 12px;
+        margin-bottom: 15px;
+        padding: 0 10px;
+      }
+      .confirm-buttons {
+        gap: 10px;
+        margin-bottom: 30px;
+      }
+      .btn-confirm,
+      .btn-retake {
+        padding: 12px;
+        font-size: 14px;
+      }
+    }
+    
     /* Add People Screen */
     .add-people-screen{
       padding: 40px 20px;
@@ -544,6 +659,26 @@
       font-size: 24px;
       font-weight: 700;
       margin-bottom: 30px;
+    }
+    
+    @media (max-height: 800px) {
+      .add-people-screen {
+        padding: 20px 15px 80px 15px;
+        justify-content: flex-start;
+        padding-top: 30px;
+      }
+      .add-people-title {
+        font-size: 20px;
+        margin-bottom: 20px;
+      }
+      .people-list {
+        margin-bottom: 25px;
+      }
+      .person-avatar,
+      .add-person-btn {
+        width: 70px;
+        height: 70px;
+      }
     }
     
     .people-list{
