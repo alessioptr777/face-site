@@ -550,22 +550,6 @@
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
                 
-                // Link invisibile che avvolge l'immagine per long press download (mobile)
-                // Il link punta all'originalUrl per download full quality
-                const downloadLink = document.createElement('a');
-                downloadLink.href = originalUrl;
-                downloadLink.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
-                downloadLink.style.cssText = 'display: block; width: 100%; text-decoration: none;';
-                // Su mobile, il long press su un link apre il menu con "Download Link"
-                // Su desktop, il click normale scarica direttamente
-                downloadLink.onclick = (e) => {
-                    // Su mobile, previeni il click normale (usa solo long press)
-                    if (isMobile()) {
-                        e.preventDefault();
-                    }
-                    // Su desktop, il download avviene automaticamente tramite il link
-                };
-                
                 const img = document.createElement('img');
                 // IMPORTANTE: usa thumb per preview istantanea
                 img.alt = 'Photo';
@@ -574,18 +558,49 @@
                 img.loading = index < 6 ? 'eager' : 'lazy';
                 // RIMOSSO: click per ingrandire - solo long press per download
                 
+                // Su mobile: long press cambia temporaneamente l'immagine all'originalUrl
+                // così il menu nativo del browser scarica la full quality
+                let longPressTimer = null;
+                let originalSrc = null;
+                
+                if (isMobile()) {
+                    img.addEventListener('touchstart', (e) => {
+                        originalSrc = img.src;
+                        longPressTimer = setTimeout(() => {
+                            // Cambia temporaneamente all'originalUrl per il download full quality
+                            img.src = originalUrl;
+                            console.log(`[SUCCESS] Long press detected, switched to originalUrl for ${photoId}`);
+                        }, 300); // 300ms per long press
+                    }, { passive: true });
+                    
+                    img.addEventListener('touchend', () => {
+                        if (longPressTimer) {
+                            clearTimeout(longPressTimer);
+                            longPressTimer = null;
+                        }
+                        // Ripristina il thumb dopo un breve delay
+                        if (originalSrc && img.src !== originalSrc) {
+                            setTimeout(() => {
+                                img.src = originalSrc;
+                            }, 500);
+                        }
+                    }, { passive: true });
+                    
+                    img.addEventListener('touchmove', () => {
+                        if (longPressTimer) {
+                            clearTimeout(longPressTimer);
+                            longPressTimer = null;
+                        }
+                    }, { passive: true });
+                }
+                
                 // Carica l'immagine e mostra quando pronta
                 img.onload = function() {
                     this.classList.add('loaded');
                     console.log(`[SUCCESS] Photo loaded: ${photoId}`);
                 };
                 
-                // Se l'immagine è già in cache, mostra subito
-                if (img.complete && img.naturalWidth > 0) {
-                    img.classList.add('loaded');
-                }
-                
-                // Imposta src dopo aver aggiunto gli event listener
+                // Imposta src
                 img.src = thumbUrl;
                 
                 // Preload full quality in background (per download veloce)
@@ -631,8 +646,8 @@
                     }
                 };
                 
-                // Aggiungi immagine al link
-                downloadLink.appendChild(img);
+                // Aggiungi immagine direttamente al photoItem
+                photoItem.appendChild(img);
                 
                 // Desktop: bottone Download (mobile usa long-press)
                 const actions = document.createElement('div');
