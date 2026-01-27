@@ -3795,22 +3795,21 @@ async def serve_photo(
             logger.error(f"Error checking paid photos: {e}")
 
     # Costruisci object_key in modo flessibile:
-    # - Se (paid=true e verificato) -> cerca in tutte le cartelle usando cache R2
+    # - Se (paid=true e verificato) -> cerca SOLO in originals/ e root (FULL QUALITY)
     # - Altrimenti -> variant default "thumb": thumbs/<filename> oppure wm/<filename>
     if wants_original and is_paid:
-        # Per foto pagate, usa cache R2 per trovare rapidamente la foto in qualsiasi cartella
+        # IMPORTANTE: Per foto pagate, serviamo SEMPRE full quality (originals/ o root)
+        # MAI wm/ o thumbs/ che sono versioni ridotte
         object_key = None
         
         # Usa cache R2 per ricerca veloce (evita head_object multipli)
         try:
             r2_keys_set = await get_r2_keys_set_cached()
             
-            # Ordine di ricerca: originals/ -> root -> wm/ -> thumbs/ -> qualsiasi cartella che finisce con il filename
+            # Ordine di ricerca SOLO per full quality: originals/ -> root -> qualsiasi cartella che finisce con il filename (escludi wm/ e thumbs/)
             possible_keys = [
                 f"originals/{original_key}",
-                original_key,  # Root del bucket (senza cartella)
-                f"wm/{original_key}",
-                f"thumbs/{original_key}"
+                original_key  # Root del bucket (senza cartella) - potrebbe essere full quality
             ]
             
             # Cerca prima nelle cartelle standard
@@ -3820,17 +3819,19 @@ async def serve_photo(
                     logger.info(f"[PHOTO] Found paid photo at: {object_key} (via cache)")
                     break
             
-            # Se non trovata, cerca in qualsiasi cartella che finisce con il filename
+            # Se non trovata, cerca in qualsiasi cartella che finisce con il filename (ESCLUDI wm/ e thumbs/)
             if not object_key:
                 filename_only = original_key.split('/')[-1]  # Solo il nome file
                 for key in r2_keys_set:
                     # Cerca key che finisce con /filename o è esattamente filename
-                    if key.endswith(f"/{filename_only}") or key == filename_only:
+                    # MAI wm/ o thumbs/ che sono versioni ridotte
+                    if (key.endswith(f"/{filename_only}") or key == filename_only) and not key.startswith("wm/") and not key.startswith("thumbs/"):
                         object_key = key
                         logger.info(f"[PHOTO] Found paid photo at: {object_key} (via cache search)")
                         break
             
             # Se ancora non trovata, prova head_object come fallback (per foto appena aggiunte)
+            # IMPORTANTE: prova SOLO originals/ e root, MAI wm/ o thumbs/
             if not object_key:
                 for test_key in possible_keys:
                     try:
@@ -3846,7 +3847,7 @@ async def serve_photo(
             
         except Exception as e:
             logger.warning(f"[PHOTO] Error using R2 cache, falling back to direct search: {e}")
-            # Fallback: prova direttamente head_object
+            # Fallback: prova direttamente head_object (SOLO originals/ e root)
             for test_key in possible_keys:
                 try:
                     r2_client.head_object(Bucket=R2_BUCKET, Key=test_key)
@@ -3857,9 +3858,10 @@ async def serve_photo(
                     continue
         
         if not object_key:
-            # Nessuna cartella ha la foto, usa originals/ come default (verrà gestito l'errore dopo)
+            # Nessuna cartella ha la foto full quality, usa originals/ come default (verrà gestito l'errore dopo)
+            # IMPORTANTE: MAI usare wm/ o thumbs/ come fallback per foto pagate
             object_key = f"originals/{original_key}"
-            logger.warning(f"[PHOTO] Photo not found in any folder, using default: {object_key}")
+            logger.warning(f"[PHOTO] Full quality photo not found, using default: {object_key}")
     else:
         variant_effective = (variant or "thumb").lower()
         if variant_effective == "thumb":

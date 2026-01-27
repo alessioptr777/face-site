@@ -528,14 +528,14 @@
                     }, { rootMargin: '200px' });
                     observer.observe(img);
                 }
-                // Gestisci errori di caricamento
+                // Gestisci errori di caricamento (usa sempre thumbUrl per preview)
                 let retryCount = 0;
                 const maxRetries = 2;
                 img.onerror = function() {
                     retryCount++;
                     if (retryCount <= maxRetries) {
-                        // Riprova con URL pulito (rimuovi parametri retry se presenti)
-                        const cleanUrl = photoUrl.split('&_retry=')[0].split('?_retry=')[0];
+                        // Riprova con thumbUrl pulito (rimuovi parametri retry se presenti)
+                        const cleanUrl = thumbUrl.split('&_retry=')[0].split('?_retry=')[0];
                         setTimeout(() => {
                             this.src = cleanUrl;
                         }, 1000 * retryCount);
