@@ -537,6 +537,22 @@
                 const photoItem = document.createElement('div');
                 photoItem.className = 'photo-item';
                 
+                // Link invisibile che avvolge l'immagine per long press download (mobile)
+                // Il link punta all'originalUrl per download full quality
+                const downloadLink = document.createElement('a');
+                downloadLink.href = originalUrl;
+                downloadLink.download = photoId.split('/').pop() || `photo_${photoId}.jpg`;
+                downloadLink.style.cssText = 'display: block; width: 100%; text-decoration: none;';
+                // Su mobile, il long press su un link apre il menu con "Download Link"
+                // Su desktop, il click normale scarica direttamente
+                downloadLink.onclick = (e) => {
+                    // Su mobile, previeni il click normale (usa solo long press)
+                    if (isMobile()) {
+                        e.preventDefault();
+                    }
+                    // Su desktop, il download avviene automaticamente tramite il link
+                };
+                
                 const img = document.createElement('img');
                 // IMPORTANTE: usa thumb per preview istantanea
                 img.alt = 'Photo';
@@ -553,7 +569,7 @@
                 // Imposta src dopo aver aggiunto gli event listener
                 img.src = thumbUrl;
                 
-                // Preload full quality in background (per download/viewer veloce)
+                // Preload full quality in background (per download veloce)
                 if (index < 6) {
                     // Prime 6: preload immediato
                     preloadFullQuality(originalUrl, photoId);
@@ -588,40 +604,8 @@
                     }
                 };
                 
-                // Long press per download su mobile (menu nativo del browser)
-                // Su mobile, il long press apre il menu nativo con "Save Image" / "Download Image"
-                // L'immagine deve puntare all'originalUrl per il download full quality
-                let longPressTimer = null;
-                let hasLongPressed = false;
-                
-                img.addEventListener('touchstart', (e) => {
-                    hasLongPressed = false;
-                    longPressTimer = setTimeout(() => {
-                        hasLongPressed = true;
-                        // Cambia temporaneamente l'immagine all'originalUrl per il download
-                        const currentSrc = img.src;
-                        img.src = originalUrl;
-                        // Dopo un breve delay, ripristina il thumb per la preview
-                        setTimeout(() => {
-                            if (!hasLongPressed) return;
-                            img.src = currentSrc;
-                        }, 100);
-                    }, 500); // 500ms per long press
-                }, { passive: true });
-                
-                img.addEventListener('touchend', () => {
-                    if (longPressTimer) {
-                        clearTimeout(longPressTimer);
-                        longPressTimer = null;
-                    }
-                }, { passive: true });
-                
-                img.addEventListener('touchmove', () => {
-                    if (longPressTimer) {
-                        clearTimeout(longPressTimer);
-                        longPressTimer = null;
-                    }
-                }, { passive: true });
+                // Aggiungi immagine al link
+                downloadLink.appendChild(img);
                 
                 // Desktop: bottone Download (mobile usa long-press)
                 const actions = document.createElement('div');
@@ -634,7 +618,7 @@
                 
                 actions.appendChild(btnDownload);
                 
-                photoItem.appendChild(img);
+                photoItem.appendChild(downloadLink);
                 photoItem.appendChild(actions);
                 grid.appendChild(photoItem);
             });
