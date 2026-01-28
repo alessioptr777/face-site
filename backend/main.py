@@ -2129,18 +2129,29 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
     except Exception:
         text_w, text_h = draw.textsize(WATERMARK_TEXT, font=font)
 
-    # Segmenti più lunghi: base * 0.60 (invece di 0.42)
-    seg_len = int(base * 0.60)
     # Gap più grande per far respirare testo e linee: 1.25 (invece di 0.75)
     gap = int(max(text_w, text_h) * 1.25)
     # Margin interno per evitare che segmenti tocchino i bordi delle celle
     margin = int(base * 0.12)
+    
+    # Limita seg_len in base allo spazio disponibile dentro la cella
+    max_seg = (step_x // 2) - margin - (gap // 2) - 1
+    if max_seg < 10:
+        max_seg = 10  # Minimo ragionevole se calcolo va negativo
+    seg_len = min(int(base * 0.60), max_seg)
 
     start_x = -step_x
     start_y = -step_y
 
+    # Funzione helper per clamp valori dentro range
+    def clamp(v, lo, hi):
+        return max(lo, min(hi, v))
+
     for y in range(start_y, height + step_y, step_y):
-        x_offset = (step_x // 2) if ((y // step_y) % 2) else 0
+        # Offset righe stabile (fix per y negative)
+        row_i = (y - start_y) // step_y
+        x_offset = (step_x // 2) if (row_i % 2) else 0
+        
         for x in range(start_x, width + step_x, step_x):
             cx = x + x_offset
             cy = y
@@ -2157,9 +2168,16 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
             y1a = max(cell_top, cy - seg_len)
             x1b = cx - gap // 2
             y1b = cy - gap // 2
+            # Clamp punti vicini al gap dentro la cella
+            x1b = clamp(x1b, cell_left, cell_right)
+            y1b = clamp(y1b, cell_top, cell_bottom)
+            
             # Segmento inferiore destro
             x1c = cx + gap // 2
             y1c = cy + gap // 2
+            # Clamp punti vicini al gap dentro la cella
+            x1c = clamp(x1c, cell_left, cell_right)
+            y1c = clamp(y1c, cell_top, cell_bottom)
             x1d = min(cell_right, cx + seg_len)
             y1d = min(cell_bottom, cy + seg_len)
 
@@ -2169,9 +2187,16 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
             y2a = min(cell_bottom, cy + seg_len)
             x2b = cx - gap // 2
             y2b = cy + gap // 2
+            # Clamp punti vicini al gap dentro la cella
+            x2b = clamp(x2b, cell_left, cell_right)
+            y2b = clamp(y2b, cell_top, cell_bottom)
+            
             # Segmento superiore destro
             x2c = cx + gap // 2
             y2c = cy - gap // 2
+            # Clamp punti vicini al gap dentro la cella
+            x2c = clamp(x2c, cell_left, cell_right)
+            y2c = clamp(y2c, cell_top, cell_bottom)
             x2d = min(cell_right, cx + seg_len)
             y2d = max(cell_top, cy - seg_len)
 
