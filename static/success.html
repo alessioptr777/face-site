@@ -218,7 +218,6 @@
                 </div>
             </div>
             <div class="photos-grid" id="photosGrid"></div>
-            <a href="/" class="back-button" id="backButton">Back to photos</a>
         </div>
     </div>
     
@@ -669,43 +668,6 @@
             // Update translations
             document.getElementById('successTitle').textContent = t('success_title');
             document.getElementById('successSubtitle').textContent = t('success_subtitle');
-            const backButton = document.getElementById('backButton');
-            backButton.textContent = t('btn_back');
-            
-            // Update back button URL with email if available
-            if (email) {
-                backButton.href = `/?email=${encodeURIComponent(email)}&view_album=true`;
-            } else {
-                backButton.href = '/';
-            }
-            
-            // Se ci sono remaining_photo_ids, aggiungi bottone "Acquista altre foto"
-            if (remainingPhotoIds && remainingPhotoIds.length > 0) {
-                // Rimuovi eventuale bottone esistente
-                const existingBuyMore = document.getElementById('buyMoreBtn');
-                if (existingBuyMore) {
-                    existingBuyMore.remove();
-                }
-                
-                const buyMoreBtn = document.createElement('a');
-                buyMoreBtn.id = 'buyMoreBtn';
-                buyMoreBtn.href = '#';
-                buyMoreBtn.className = 'back-button';
-                buyMoreBtn.style.cssText = 'background: rgba(255, 255, 255, 0.9); color: #5f58ff; margin-top: 20px;';
-                buyMoreBtn.textContent = t('btn_buy_more') || `Acquista altre ${remainingPhotoIds.length} foto`;
-                buyMoreBtn.onclick = (e) => {
-                    e.preventDefault();
-                    // Salva remaining_photo_ids in sessionStorage per la pagina principale
-                    sessionStorage.setItem('remaining_photo_ids', JSON.stringify(remainingPhotoIds));
-                    window.location.href = '/';
-                };
-                
-                const container = document.getElementById('photosContainer');
-                if (container) {
-                    // Inserisci prima del back button
-                    container.insertBefore(buyMoreBtn, backButton);
-                }
-            }
             
             // Show photos container
             document.getElementById('loading').style.display = 'none';
