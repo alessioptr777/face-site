@@ -1847,6 +1847,16 @@
     @keyframes dealPopIn{
       to { transform: translate(-50%, -50%) scale(1); }
     }
+    @keyframes slideUpBanner {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    }
   </style>
 </head>
 <body>
@@ -2165,9 +2175,9 @@
       <button id="lightboxNext" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.6); color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; display: none;">→</button>
       <button id="lightboxDownload" style="position: absolute; bottom: 20px; right: 20px; background: rgba(123, 116, 255, 0.9); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; z-index: 10; display: none;" data-i18n="lightbox_download">📥 Download</button>
       <div id="lightboxIOSInstruction" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.85); color: white; padding: 14px 20px; border-radius: 12px; font-size: 15px; font-weight: 500; text-align: center; z-index: 10; pointer-events: none; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-i18n="lightbox_ios_hint">📱 Tieni premuto sull'immagine e tocca 'Salva in Foto'</div>
-      <div id="lightboxCartCTA" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(123, 116, 255, 0.95); color: white; padding: 16px 24px; border-radius: 12px; text-align: center; z-index: 10; display: none; max-width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: auto;">
-        <button id="lightboxAddCartBtn" style="background: white; color: rgba(123, 116, 255, 1); border: none; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 8px;" data-i18n="lightbox_add_to_cart">Aggiungi al carrello</button>
-        <div style="font-size: 13px; opacity: 0.9;" data-i18n="lightbox_purchase_hint">Acquista per scaricare le foto senza watermark</div>
+      <div id="lightboxCartCTA" style="position: fixed; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #5f58ff; padding: 14px 20px; border-radius: 50px; text-align: center; z-index: 10; display: none; max-width: 85%; width: auto; min-width: 280px; box-shadow: 0 4px 20px rgba(95, 88, 255, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.5) inset, 0 8px 32px rgba(0, 0, 0, 0.15); border: 1px solid rgba(123, 116, 255, 0.2); pointer-events: auto; animation: slideUpBanner 0.4s ease-out;">
+        <button id="lightboxAddCartBtn" style="background: linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%); color: white; border: none; padding: 12px 28px; border-radius: 25px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; margin-bottom: 6px; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(95, 88, 255, 0.3);" data-i18n="lightbox_add_to_cart">Aggiungi al carrello</button>
+        <div style="font-size: 12px; opacity: 0.85; color: #5f58ff; line-height: 1.4;" data-i18n="lightbox_purchase_hint">Acquista per scaricare le foto senza watermark</div>
       </div>
       <img id="lightboxImage" style="max-width: 100%; max-height: 100%; object-fit: contain;" alt="Foto">
     </div>
@@ -7211,10 +7221,12 @@
               addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
               addCartBtnLightbox.style.background = '#ff4444';
               addCartBtnLightbox.style.color = 'white';
+              addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(255, 68, 68, 0.4)';
             } else {
               addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
-              addCartBtnLightbox.style.background = 'white';
-              addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+              addCartBtnLightbox.style.background = 'linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%)';
+              addCartBtnLightbox.style.color = 'white';
+              addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(95, 88, 255, 0.3)';
             }
             addCartBtnLightbox.onclick = (e) => {
               e.stopPropagation();
@@ -7227,10 +7239,12 @@
                     addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
                     addCartBtnLightbox.style.background = '#ff4444';
                     addCartBtnLightbox.style.color = 'white';
+                    addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(255, 68, 68, 0.4)';
                   } else {
                     addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
-                    addCartBtnLightbox.style.background = 'white';
-                    addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+                    addCartBtnLightbox.style.background = 'linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%)';
+                    addCartBtnLightbox.style.color = 'white';
+                    addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(95, 88, 255, 0.3)';
                   }
                 }
               }, 100);
@@ -7352,10 +7366,12 @@
               addCartBtnLightbox.textContent = t('lightbox_remove_from_cart');
               addCartBtnLightbox.style.background = '#ff4444';
               addCartBtnLightbox.style.color = 'white';
+              addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(255, 68, 68, 0.4)';
             } else {
               addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
-              addCartBtnLightbox.style.background = 'white';
-              addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+              addCartBtnLightbox.style.background = 'linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%)';
+              addCartBtnLightbox.style.color = 'white';
+              addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(95, 88, 255, 0.3)';
             }
           }
         }
@@ -7656,8 +7672,9 @@
       const addCartBtnLightbox = document.getElementById('lightboxAddCartBtn');
       if(addCartBtnLightbox) {
         addCartBtnLightbox.textContent = t('lightbox_add_to_cart');
-        addCartBtnLightbox.style.background = 'white';
-        addCartBtnLightbox.style.color = 'rgba(123, 116, 255, 1)';
+        addCartBtnLightbox.style.background = 'linear-gradient(135deg, #7b74ff 0%, #5f58ff 100%)';
+        addCartBtnLightbox.style.color = 'white';
+        addCartBtnLightbox.style.boxShadow = '0 2px 8px rgba(95, 88, 255, 0.3)';
       }
       
       console.log('[CART] Cart cleared');
