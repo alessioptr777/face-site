@@ -2917,7 +2917,6 @@
       const downloadBtn = document.getElementById('lightboxDownload');
       const iosInstruction = document.getElementById('lightboxIOSInstruction');
       const addCartBtn = document.getElementById('lightboxAddCartBtn');
-      const purchaseHint = document.querySelector('#lightboxCartCTA div');
       
       if(downloadBtn && downloadBtn.style.display !== 'none') {
         downloadBtn.textContent = t('lightbox_download');
@@ -2928,9 +2927,6 @@
       if(addCartBtn) {
         const isInCart = cartPhotoIds.includes(currentPhotoIndex >= 0 && allPhotos[currentPhotoIndex] ? allPhotos[currentPhotoIndex].photo_id : '');
         addCartBtn.textContent = isInCart ? t('lightbox_remove_from_cart') : t('lightbox_add_to_cart');
-      }
-      if(purchaseHint) {
-        purchaseHint.textContent = t('lightbox_purchase_hint');
       }
     }
     
