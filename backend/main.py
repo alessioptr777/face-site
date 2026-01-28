@@ -2084,9 +2084,10 @@ def _load_logo_for_watermark(target_size: int) -> Optional[Image.Image]:
 def _create_watermark_overlay(width: int, height: int) -> Image.Image:
     """Watermark con linee diagonali a X (senza incrocio) e testo MetaProos ripetuto.
     - Testo fisso: "MetaProos" (M e P maiuscole) e NON deve mai cambiare.
-    - Pattern ripetuto su tutta l'immagine.
+    - Pattern ripetuto su tutta l'immagine con celle quadrate e ariose.
     - Due linee diagonali che suggeriscono una X ma lasciano un gap centrale.
     - La scritta è orizzontale e posizionata nel punto in cui le linee si incrocierebbero.
+    - Linee e testo BIANCHI con segmenti lunghi e puliti.
     """
     from pathlib import Path
     from PIL import Image, ImageDraw, ImageFont
@@ -2098,10 +2099,10 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
 
     base = max(260, int(min(width, height) * 0.28))
     step_x = base
-    step_y = int(base * 0.62)
+    step_y = base  # Celle quadrate invece di rettangolari
 
-    line_alpha = 90
-    text_alpha = 110
+    line_alpha = 85  # Opacità linee (80-90)
+    text_alpha = 110  # Opacità testo (100-120)
     line_width = max(2, int(min(width, height) / 900))
 
     font_size = max(28, int(min(width, height) / 18))
@@ -2128,8 +2129,12 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
     except Exception:
         text_w, text_h = draw.textsize(WATERMARK_TEXT, font=font)
 
-    seg_len = int(base * 0.42)
-    gap = int(max(text_w, text_h) * 0.75)
+    # Segmenti più lunghi: base * 0.60 (invece di 0.42)
+    seg_len = int(base * 0.60)
+    # Gap più grande per far respirare testo e linee: 1.25 (invece di 0.75)
+    gap = int(max(text_w, text_h) * 1.25)
+    # Margin interno per evitare che segmenti tocchino i bordi delle celle
+    margin = int(base * 0.12)
 
     start_x = -step_x
     start_y = -step_y
@@ -2140,26 +2145,46 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
             cx = x + x_offset
             cy = y
 
-            # \\ spezzata
-            x1a, y1a = cx - seg_len, cy - seg_len
-            x1b, y1b = cx - gap // 2, cy - gap // 2
-            x1c, y1c = cx + gap // 2, cy + gap // 2
-            x1d, y1d = cx + seg_len, cy + seg_len
+            # Calcola i limiti della cella con margin interno
+            cell_left = cx - step_x // 2 + margin
+            cell_right = cx + step_x // 2 - margin
+            cell_top = cy - step_y // 2 + margin
+            cell_bottom = cy + step_y // 2 - margin
 
-            # / spezzata
-            x2a, y2a = cx - seg_len, cy + seg_len
-            x2b, y2b = cx - gap // 2, cy + gap // 2
-            x2c, y2c = cx + gap // 2, cy - gap // 2
-            x2d, y2d = cx + seg_len, cy - seg_len
+            # \\ spezzata - segmenti dentro i limiti della cella
+            # Segmento superiore sinistro
+            x1a = max(cell_left, cx - seg_len)
+            y1a = max(cell_top, cy - seg_len)
+            x1b = cx - gap // 2
+            y1b = cy - gap // 2
+            # Segmento inferiore destro
+            x1c = cx + gap // 2
+            y1c = cy + gap // 2
+            x1d = min(cell_right, cx + seg_len)
+            y1d = min(cell_bottom, cy + seg_len)
 
-            draw.line([(x1a, y1a), (x1b, y1b)], fill=(0, 0, 0, line_alpha), width=line_width)
-            draw.line([(x1c, y1c), (x1d, y1d)], fill=(0, 0, 0, line_alpha), width=line_width)
-            draw.line([(x2a, y2a), (x2b, y2b)], fill=(0, 0, 0, line_alpha), width=line_width)
-            draw.line([(x2c, y2c), (x2d, y2d)], fill=(0, 0, 0, line_alpha), width=line_width)
+            # / spezzata - segmenti dentro i limiti della cella
+            # Segmento inferiore sinistro
+            x2a = max(cell_left, cx - seg_len)
+            y2a = min(cell_bottom, cy + seg_len)
+            x2b = cx - gap // 2
+            y2b = cy + gap // 2
+            # Segmento superiore destro
+            x2c = cx + gap // 2
+            y2c = cy - gap // 2
+            x2d = min(cell_right, cx + seg_len)
+            y2d = max(cell_top, cy - seg_len)
 
+            # Disegna linee BIANCHE (invece di nere)
+            draw.line([(x1a, y1a), (x1b, y1b)], fill=(255, 255, 255, line_alpha), width=line_width)
+            draw.line([(x1c, y1c), (x1d, y1d)], fill=(255, 255, 255, line_alpha), width=line_width)
+            draw.line([(x2a, y2a), (x2b, y2b)], fill=(255, 255, 255, line_alpha), width=line_width)
+            draw.line([(x2c, y2c), (x2d, y2d)], fill=(255, 255, 255, line_alpha), width=line_width)
+
+            # Disegna testo BIANCO (invece di nero) centrato nel gap
             tx = cx - text_w // 2
             ty = cy - text_h // 2
-            draw.text((tx, ty), WATERMARK_TEXT, font=font, fill=(0, 0, 0, text_alpha))
+            draw.text((tx, ty), WATERMARK_TEXT, font=font, fill=(255, 255, 255, text_alpha))
 
     return overlay
 
