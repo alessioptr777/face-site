@@ -737,13 +737,6 @@
                 return;
             }
             
-            // Controlla se è stato chiuso
-            const bannerClosed = localStorage.getItem('mobileSaveBannerClosed');
-            if (bannerClosed === 'true') {
-                console.log('[SUCCESS] Banner was closed by user, skipping');
-                return;
-            }
-            
             const banner = document.getElementById('mobileSaveBanner');
             const bannerText = document.getElementById('mobileSaveBannerText');
             
@@ -772,22 +765,12 @@
                 banner.style.display = 'block';
                 banner.style.visibility = 'visible';
             }
-            console.log('[SUCCESS] Banner shown (removed hidden class)', {
+            console.log('[SUCCESS] Banner shown (fixed, not closable)', {
                 hasHidden: banner.classList.contains('hidden'),
                 display: banner.style.display,
                 visibility: banner.style.visibility,
                 windowWidth: window.innerWidth
             });
-            
-            // Chiudi banner al click su X
-            const closeBtn = document.getElementById('mobileSaveBannerClose');
-            if (closeBtn) {
-                closeBtn.onclick = () => {
-                    console.log('[SUCCESS] Banner closed by user');
-                    banner.classList.add('hidden'); // Il CSS nasconderà il banner
-                    localStorage.setItem('mobileSaveBannerClosed', 'true');
-                };
-            }
         }
         
         // Download photo - SEMPRE FULL QUALITY (originalUrl, mai thumbUrl)
