@@ -119,6 +119,7 @@
         .mobile-save-banner {
             display: none; /* Nascosto di default (desktop) */
             position: fixed;
+            visibility: hidden; /* Nascondi anche visivamente */
             bottom: 20%;
             left: 50%;
             transform: translateX(-50%);
@@ -154,9 +155,11 @@
         @media (max-width: 767px) {
             .mobile-save-banner:not(.hidden) {
                 display: block !important;
+                visibility: visible !important;
             }
             .mobile-save-banner.hidden {
                 display: none !important;
+                visibility: hidden !important;
             }
         }
         .mobile-save-banner-content {
@@ -788,8 +791,17 @@
             
             // Mostra banner - rimuovi hidden (il CSS mobile lo renderà visibile)
             banner.classList.remove('hidden');
-            // Non serve forzare display perché il CSS media query lo gestisce
-            console.log('[SUCCESS] Banner shown (removed hidden class)');
+            // Forza display e visibility su mobile per sicurezza
+            if (window.innerWidth <= 767) {
+                banner.style.display = 'block';
+                banner.style.visibility = 'visible';
+            }
+            console.log('[SUCCESS] Banner shown (removed hidden class)', {
+                hasHidden: banner.classList.contains('hidden'),
+                display: banner.style.display,
+                visibility: banner.style.visibility,
+                windowWidth: window.innerWidth
+            });
             
             // Chiudi banner al click su X
             const closeBtn = document.getElementById('mobileSaveBannerClose');
