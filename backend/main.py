@@ -96,8 +96,8 @@ STATIC_DIR = REPO_ROOT / "static"  # Static files dalla root del repo
 # R2_ONLY_MODE: disabilita completamente filesystem per foto e index
 R2_ONLY_MODE = os.getenv("R2_ONLY_MODE", "1") == "1"
 
-# R2_PHOTOS_PREFIX: prefisso per le foto su R2 (default vuoto o "photos/")
-R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "")
+# R2_PHOTOS_PREFIX: prefisso per le foto originali su R2 (default "originals/" - sovrascrivibile da env su Render)
+R2_PHOTOS_PREFIX = os.getenv("R2_PHOTOS_PREFIX", "originals/")
 
 # Configurazione indexing automatico
 # Accetta "1", "true", "yes", "on" come valori validi (case-insensitive)
@@ -2383,6 +2383,14 @@ async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
     from pathlib import Path
     filename = Path(r2_key).name
     
+    # Chiave per scaricare l'originale: se r2_key è già path (es. originals/IMG.jpg) usalo; altrimenti prova prefisso se impostato
+    if "/" in r2_key:
+        original_key_to_fetch = r2_key
+    elif R2_PHOTOS_PREFIX:
+        original_key_to_fetch = (R2_PHOTOS_PREFIX.rstrip("/") + "/" + filename)
+    else:
+        original_key_to_fetch = r2_key
+    
     # Costruisci chiavi thumb/wm semplici
     thumb_key = f"{THUMB_PREFIX}{filename}"
     wm_key = f"{WM_PREFIX}{filename}"
@@ -2399,8 +2407,14 @@ async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
         if error_code in ('404', 'NoSuchKey'):
             # Non esiste, genera
             try:
-                # Scarica originale
-                original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+                # Scarica originale (rispetta R2_PHOTOS_PREFIX / originals/)
+                try:
+                    original_bytes = await _r2_get_object_bytes(original_key_to_fetch, mark_missing=True)
+                except HTTPException as ex:
+                    if ex.status_code == 404 and original_key_to_fetch != r2_key:
+                        original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+                    else:
+                        raise
                 # Genera thumb
                 thumb_bytes = _generate_thumb(original_bytes)
                 # Upload su R2
@@ -2423,9 +2437,15 @@ async def ensure_previews_for_photo(r2_key: str) -> tuple[bool, bool]:
         if error_code in ('404', 'NoSuchKey'):
             # Non esiste, genera
             try:
-                # Scarica originale se non già scaricato
+                # Scarica originale se non già scaricato (stessa logica prefisso/fallback)
                 if original_bytes is None:
-                    original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+                    try:
+                        original_bytes = await _r2_get_object_bytes(original_key_to_fetch, mark_missing=True)
+                    except HTTPException as ex:
+                        if ex.status_code == 404 and original_key_to_fetch != r2_key:
+                            original_bytes = await _r2_get_object_bytes(r2_key, mark_missing=True)
+                        else:
+                            raise
                 # Genera wm
                 wm_bytes = _generate_wm_preview(original_bytes)
                 # Upload su R2
@@ -3245,20 +3265,33 @@ async def sync_index_with_r2_incremental():
             r2_originals_list = sorted(list(r2_originals_keys))
             logger.info(f"[INDEXING] after filter originals: {len(r2_originals_list)} keys, sample={r2_originals_list[:20]}")
             
-            # ========== STEP 2: Costruisci set delle foto già indicizzate ==========
-            indexed_keys_set = set()
+            # ========== STEP 2: Costruisci set delle foto già indicizzate (filename per confronto) ==========
+            # Meta può avere r2_key come "originals/IMG.jpg" (full rebuild) o "IMG.jpg" (sync); normalizziamo a filename
+            from pathlib import Path
+            indexed_filenames = set()
             if meta_rows:
                 for row in meta_rows:
-                    # Supporta sia r2_key (nuovo) che photo_id (retrocompatibilità)
                     r2_key = row.get("r2_key") or row.get("photo_id")
                     if r2_key:
-                        indexed_keys_set.add(r2_key)
+                        indexed_filenames.add(Path(r2_key).name)
             
-            # ========== STEP 3: Calcola differenze ==========
-            to_add = r2_originals_keys - indexed_keys_set
-            to_remove = indexed_keys_set - r2_originals_keys
+            # ========== STEP 3: Calcola differenze (entrambi set di filename) ==========
+            to_add = r2_originals_keys - indexed_filenames
+            to_remove = indexed_filenames - r2_originals_keys
             
-            logger.info(f"[INDEXING] r2_originals={len(r2_originals_keys)} indexed={len(indexed_keys_set)} to_add={len(to_add)} to_remove={len(to_remove)}")
+            logger.info(f"[INDEXING] r2_originals={len(r2_originals_keys)} indexed={len(indexed_filenames)} to_add={len(to_add)} to_remove={len(to_remove)}")
+            
+            # Rimuovi da R2 thumb e wm per le foto che non sono più tra gli originali (evita orfani)
+            for filename in to_remove:
+                for key in (f"{THUMB_PREFIX}{filename}", f"{WM_PREFIX}{filename}"):
+                    try:
+                        r2_client.delete_object(Bucket=R2_BUCKET, Key=key)
+                        logger.info(f"[INDEXING] Deleted orphan preview: {key}")
+                    except ClientError as e:
+                        if e.response.get('Error', {}).get('Code') not in ('404', 'NoSuchKey'):
+                            logger.warning(f"[INDEXING] Error deleting {key}: {e}")
+                    except Exception as e:
+                        logger.warning(f"[INDEXING] Error deleting {key}: {e}")
             
             # ========== STEP 4: Remove (senza ricalcolare embeddings) ==========
             # Filtra meta_rows mantenendo solo quelle NON in to_remove
@@ -3269,7 +3302,7 @@ async def sync_index_with_r2_incremental():
             if faiss_index is not None and faiss_index.ntotal > 0:
                 for old_idx, row in enumerate(meta_rows):
                     r2_key = row.get("r2_key") or row.get("photo_id")
-                    if r2_key and r2_key not in to_remove:
+                    if r2_key and Path(r2_key).name not in to_remove:
                         new_meta_rows.append(row)
                         old_idx_to_new_idx[old_idx] = new_idx
                         new_idx += 1
@@ -3280,7 +3313,7 @@ async def sync_index_with_r2_incremental():
                 
                 for old_idx, row in enumerate(meta_rows):
                     r2_key = row.get("r2_key") or row.get("photo_id")
-                    if r2_key and r2_key not in to_remove:
+                    if r2_key and Path(r2_key).name not in to_remove:
                         try:
                             # Ricostruisci embedding dal vecchio index
                             embedding = faiss_index.reconstruct(int(old_idx))
@@ -3407,6 +3440,47 @@ async def sync_index_with_r2_incremental():
         except Exception as e:
             logger.error(f"[INDEXING] Error in SYNC: {e}", exc_info=True)
             raise
+
+@app.post("/admin/previews/regenerate")
+async def admin_previews_regenerate(password: Optional[str] = Query(None)):
+    """Rigenera thumb e wm per tutte le foto (da meta). Utile dopo aver svuotato thumbs/ e wm/ su R2."""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    if not meta_rows:
+        return {"ok": True, "message": "No photos in index", "thumb_created": 0, "wm_created": 0, "processed": 0}
+    
+    # Un solo r2_key per foto (meta ha una riga per volto)
+    photo_ids = set()
+    for row in meta_rows:
+        r2_key = row.get("r2_key") or row.get("photo_id")
+        if r2_key and not r2_key.startswith(THUMB_PREFIX) and not r2_key.startswith(WM_PREFIX):
+            photo_ids.add(r2_key)
+    
+    thumb_created = 0
+    wm_created = 0
+    errors = 0
+    for r2_key in sorted(photo_ids):
+        try:
+            t, w = await ensure_previews_for_photo(r2_key)
+            if t:
+                thumb_created += 1
+            if w:
+                wm_created += 1
+        except Exception as e:
+            logger.warning(f"[PREVIEW] Regenerate failed for {r2_key}: {e}")
+            errors += 1
+    
+    logger.info(f"[PREVIEW] Regenerate done: {len(photo_ids)} photos, thumb_created={thumb_created} wm_created={wm_created} errors={errors}")
+    return {
+        "ok": True,
+        "message": "Preview regeneration completed",
+        "processed": len(photo_ids),
+        "thumb_created": thumb_created,
+        "wm_created": wm_created,
+        "errors": errors,
+    }
+
 
 @app.post("/admin/index/sync")
 async def admin_index_sync(password: Optional[str] = Query(None)):
