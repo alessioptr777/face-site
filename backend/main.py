@@ -2082,29 +2082,54 @@ def _load_logo_for_watermark(target_size: int) -> Optional[Image.Image]:
     return logo_img
 
 def _create_watermark_overlay(width: int, height: int) -> Image.Image:
-    """Watermark con linee diagonali a X (senza incrocio) e testo MetaProos ripetuto.
-    - Testo fisso: "MetaProos" (M e P maiuscole) e NON deve mai cambiare.
-    - Pattern ripetuto su tutta l'immagine con celle quadrate e ariose.
-    - Due linee diagonali che suggeriscono una X ma lasciano un gap centrale.
-    - La scritta è orizzontale e posizionata nel punto in cui le linee si incrocierebbero.
-    - Linee e testo BIANCHI con segmenti lunghi e puliti.
-    """
+    """Griglia diagonale: due famiglie di linee parallele (\ e /) su tutta l'immagine,
+    con gap agli incroci e testo 'MetaProos' centrato. Implementazione con maschera L
+    per linee continue e buchi puliti. Colore bianco, nessun logo."""
     from pathlib import Path
     from PIL import Image, ImageDraw, ImageFont
 
-    WATERMARK_TEXT = "MetaProos"  # FISSO: non usare APP_NAME, env, config, ecc.
+    WATERMARK_TEXT = "MetaProos"  # FISSO: non usare env/config
 
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-
-    base = max(260, int(min(width, height) * 0.28))
-    step_x = base
-    step_y = base  # Celle quadrate invece di rettangolari
-
-    line_alpha = 85  # Opacità linee (80-90)
-    text_alpha = 110  # Opacità testo (100-120)
+    spacing = max(260, int(min(width, height) * 0.28))
     line_width = max(2, int(min(width, height) / 900))
+    line_alpha = 85
+    text_alpha = 110
 
+    def segment_slash(c: float):
+        """Retta y = x + c: restituisce i due punti di intersezione con il rettangolo [0,w]x[0,h]."""
+        pts = []
+        if 0 <= c <= height:
+            pts.append((0, int(round(c))))
+        if 0 <= width + c <= height:
+            pts.append((width, int(round(width + c))))
+        if 0 <= -c <= width:
+            pts.append((int(round(-c)), 0))
+        if 0 <= height - c <= width:
+            pts.append((int(round(height - c)), height))
+        pts = [(x, y) for x, y in pts if 0 <= x <= width and 0 <= y <= height]
+        if len(pts) < 2:
+            return None
+        pts.sort(key=lambda p: p[0])
+        return (pts[0], pts[-1])
+
+    def segment_backslash(d: float):
+        """Retta y = -x + d: restituisce i due punti di intersezione con il rettangolo [0,w]x[0,h]."""
+        pts = []
+        if 0 <= d <= height:
+            pts.append((0, int(round(d))))
+        if 0 <= d - width <= height:
+            pts.append((width, int(round(d - width))))
+        if 0 <= d <= width:
+            pts.append((int(round(d)), 0))
+        if 0 <= d - height <= width:
+            pts.append((int(round(d - height)), height))
+        pts = [(x, y) for x, y in pts if 0 <= x <= width and 0 <= y <= height]
+        if len(pts) < 2:
+            return None
+        pts.sort(key=lambda p: p[0])
+        return (pts[0], pts[-1])
+
+    # Font e dimensioni testo
     font_size = max(28, int(min(width, height) / 18))
     font = None
     for fp in (
@@ -2121,95 +2146,63 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
             pass
     if font is None:
         font = ImageFont.load_default()
-
     try:
-        bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
+        bbox = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textbbox((0, 0), WATERMARK_TEXT, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
     except Exception:
-        text_w, text_h = draw.textsize(WATERMARK_TEXT, font=font)
+        text_w, text_h = 80, 20
+    gap_radius = int(max(text_w, text_h) * 0.90)
 
-    # Gap più grande per far respirare testo e linee: 1.25 (invece di 0.75)
-    gap = int(max(text_w, text_h) * 1.25)
-    # Margin interno per evitare che segmenti tocchino i bordi delle celle
-    margin = int(base * 0.12)
-    
-    # Limita seg_len in base allo spazio disponibile dentro la cella
-    max_seg = (step_x // 2) - margin - (gap // 2) - 1
-    if max_seg < 10:
-        max_seg = 10  # Minimo ragionevole se calcolo va negativo
-    seg_len = min(int(base * 0.60), max_seg)
+    # 1) Maschera L per le linee
+    line_mask = Image.new("L", (width, height), 0)
+    draw_mask = ImageDraw.Draw(line_mask)
 
-    start_x = -step_x
-    start_y = -step_y
+    c_min, c_max = -width - spacing, height + width + spacing
+    d_min, d_max = -spacing, width + height + spacing
+    c_values = list(range(c_min, c_max + 1, spacing))
+    d_values = list(range(d_min, d_max + 1, spacing))
 
-    # Funzione helper per clamp valori dentro range
-    def clamp(v, lo, hi):
-        return max(lo, min(hi, v))
+    for c in c_values:
+        seg = segment_slash(c)
+        if seg:
+            draw_mask.line([seg[0], seg[1]], fill=line_alpha, width=line_width)
+    for d in d_values:
+        seg = segment_backslash(d)
+        if seg:
+            draw_mask.line([seg[0], seg[1]], fill=line_alpha, width=line_width)
 
-    for y in range(start_y, height + step_y, step_y):
-        # Offset righe stabile (fix per y negative)
-        row_i = (y - start_y) // step_y
-        x_offset = (step_x // 2) if (row_i % 2) else 0
-        
-        for x in range(start_x, width + step_x, step_x):
-            cx = x + x_offset
-            cy = y
+    # 2) Buchi sulla maschera alle intersezioni (gap)
+    intersections = []
+    for i, c in enumerate(c_values):
+        for j, d in enumerate(d_values):
+            x = (d - c) / 2.0
+            y = (d + c) / 2.0
+            if -gap_radius <= x <= width + gap_radius and -gap_radius <= y <= height + gap_radius:
+                intersections.append((x, y, i, j))
+    for x, y, i, j in intersections:
+        x0 = int(round(x - gap_radius))
+        y0 = int(round(y - gap_radius))
+        x1 = int(round(x + gap_radius))
+        y1 = int(round(y + gap_radius))
+        draw_mask.ellipse((x0, y0, x1, y1), fill=0)
 
-            # Calcola i limiti della cella con margin interno
-            cell_left = cx - step_x // 2 + margin
-            cell_right = cx + step_x // 2 - margin
-            cell_top = cy - step_y // 2 + margin
-            cell_bottom = cy + step_y // 2 - margin
+    # 3) Overlay RGBA bianco con alpha dalla maschera
+    overlay = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+    overlay.putalpha(line_mask)
+    draw_overlay = ImageDraw.Draw(overlay)
 
-            # \\ spezzata - segmenti dentro i limiti della cella
-            # Segmento superiore sinistro
-            x1a = max(cell_left, cx - seg_len)
-            y1a = max(cell_top, cy - seg_len)
-            x1b = cx - gap // 2
-            y1b = cy - gap // 2
-            # Clamp punti vicini al gap dentro la cella
-            x1b = clamp(x1b, cell_left, cell_right)
-            y1b = clamp(y1b, cell_top, cell_bottom)
-            
-            # Segmento inferiore destro
-            x1c = cx + gap // 2
-            y1c = cy + gap // 2
-            # Clamp punti vicini al gap dentro la cella
-            x1c = clamp(x1c, cell_left, cell_right)
-            y1c = clamp(y1c, cell_top, cell_bottom)
-            x1d = min(cell_right, cx + seg_len)
-            y1d = min(cell_bottom, cy + seg_len)
-
-            # / spezzata - segmenti dentro i limiti della cella
-            # Segmento inferiore sinistro
-            x2a = max(cell_left, cx - seg_len)
-            y2a = min(cell_bottom, cy + seg_len)
-            x2b = cx - gap // 2
-            y2b = cy + gap // 2
-            # Clamp punti vicini al gap dentro la cella
-            x2b = clamp(x2b, cell_left, cell_right)
-            y2b = clamp(y2b, cell_top, cell_bottom)
-            
-            # Segmento superiore destro
-            x2c = cx + gap // 2
-            y2c = cy - gap // 2
-            # Clamp punti vicini al gap dentro la cella
-            x2c = clamp(x2c, cell_left, cell_right)
-            y2c = clamp(y2c, cell_top, cell_bottom)
-            x2d = min(cell_right, cx + seg_len)
-            y2d = max(cell_top, cy - seg_len)
-
-            # Disegna linee BIANCHE (invece di nere)
-            draw.line([(x1a, y1a), (x1b, y1b)], fill=(255, 255, 255, line_alpha), width=line_width)
-            draw.line([(x1c, y1c), (x1d, y1d)], fill=(255, 255, 255, line_alpha), width=line_width)
-            draw.line([(x2a, y2a), (x2b, y2b)], fill=(255, 255, 255, line_alpha), width=line_width)
-            draw.line([(x2c, y2c), (x2d, y2d)], fill=(255, 255, 255, line_alpha), width=line_width)
-
-            # Disegna testo BIANCO (invece di nero) centrato nel gap
-            tx = cx - text_w // 2
-            ty = cy - text_h // 2
-            draw.text((tx, ty), WATERMARK_TEXT, font=font, fill=(255, 255, 255, text_alpha))
+    # 4) Testo "MetaProos" centrato su ogni intersezione (scacchiera: (i+j)%2 == 0)
+    margin_w = text_w // 2 + 4
+    margin_h = text_h // 2 + 4
+    for x, y, i, j in intersections:
+        if (i + j) % 2 != 0:
+            continue
+        xi, yi = int(round(x)), int(round(y))
+        if margin_w <= xi <= width - margin_w and margin_h <= yi <= height - margin_h:
+            tx = xi - text_w // 2
+            ty = yi - text_h // 2
+            draw_overlay.text((tx, ty), WATERMARK_TEXT, font=font, fill=(255, 255, 255, text_alpha))
 
     return overlay
 
