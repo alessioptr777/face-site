@@ -2031,7 +2031,7 @@ def _generate_occlusion_variants(img: np.ndarray) -> List[np.ndarray]:
     return embeddings
 
 # Cache per overlay watermark (chiave: (width, height) -> overlay Image)
-# NOTA: Cache svuotata per forzare rigenerazione con nuovo watermark "MetaProos"
+# NOTA: Cache svuotata per forzare rigenerazione con nuovo watermark "Metaproos"
 _watermark_overlay_cache: Dict[Tuple[int, int], Image.Image] = {}
 
 # Cache per logo watermark (chiave: target_size -> Image)
@@ -2083,16 +2083,16 @@ def _load_logo_for_watermark(target_size: int) -> Optional[Image.Image]:
 
 def _create_watermark_overlay(width: int, height: int) -> Image.Image:
     """Griglia diagonale: due famiglie di linee parallele (\ e /) su tutta l'immagine,
-    con gap agli incroci e testo 'MetaProos' centrato. Implementazione con maschera L
+    con gap agli incroci e testo 'Metaproos' centrato. Implementazione con maschera L
     per linee continue e buchi puliti. Colore bianco, nessun logo."""
     from pathlib import Path
     from PIL import Image, ImageDraw, ImageFont
 
-    WATERMARK_TEXT = "MetaProos"  # FISSO: non usare env/config
+    WATERMARK_TEXT = "Metaproos"  # FISSO: non usare env/config
 
     spacing = max(260, int(min(width, height) * 0.28))
-    line_width = max(2, int(min(width, height) / 900))
-    line_alpha = 85
+    line_width = max(3, int(min(width, height) / 600))  # più spesse (prima 900→600, min 3px)
+    line_alpha = 140   # più visibili (prima 85, ora ~55% opacità)
     text_alpha = 110
 
     def segment_slash(c: float):
@@ -2192,7 +2192,7 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
     overlay.putalpha(line_mask)
     draw_overlay = ImageDraw.Draw(overlay)
 
-    # 4) Testo "MetaProos" centrato su ogni intersezione (scacchiera: (i+j)%2 == 0)
+    # 4) Testo "Metaproos" centrato su ogni intersezione (scacchiera: (i+j)%2 == 0)
     margin_w = text_w // 2 + 4
     margin_h = text_h // 2 + 4
     for x, y, i, j in intersections:
@@ -2209,7 +2209,7 @@ def _create_watermark_overlay(width: int, height: int) -> Image.Image:
 def _add_watermark(image_path: Path) -> bytes:
     """Aggiunge watermark pattern premium a griglia (stile GetPica) con logo Metaproos, linee e nodi"""
     logger.info(f"WATERMARK DEBUG: _add_watermark called for {image_path}")
-    logger.info(f"WATERMARK DEBUG: This function will use text='MetaProos' (forced, never 'MetaProos' variants)")
+    logger.info(f"WATERMARK DEBUG: This function will use text='Metaproos' (forced, never 'Metaproos' variants)")
     try:
         # Apri immagine con Pillow
         img = Image.open(image_path)
@@ -3045,8 +3045,8 @@ def debug_watermark():
         source = inspect.getsource(_create_watermark_overlay)
         watermark_text = None
         for line in source.split('\n'):
-            if 'text =' in line and 'MetaProos' in line:
-                watermark_text = 'MetaProos'
+            if 'text =' in line and 'Metaproos' in line:
+                watermark_text = 'Metaproos'
                 break
             elif 'text =' in line and ('tenerife' in line.lower() or 'pictures' in line.lower()):
                 watermark_text = 'ERRORE: testo watermark non valido!'
@@ -3057,7 +3057,7 @@ def debug_watermark():
             "overlay_created": test_overlay is not None,
             "overlay_size": test_overlay.size if test_overlay else None,
             "function_file": str(Path(__file__).resolve()),
-            "assertion": "MetaProos" if watermark_text == "MetaProos" else "ERROR: Wrong text!"
+            "assertion": "Metaproos" if watermark_text == "Metaproos" else "ERROR: Wrong text!"
         }
     except Exception as e:
         return {"error": str(e), "traceback": str(e.__traceback__)}
