@@ -120,6 +120,11 @@ MIN_FACE_DET_SCORE_FOR_FILTER = float(os.getenv("MIN_FACE_DET_SCORE_FOR_FILTER",
 DOWNLOAD_EXPIRY_DAYS = int(os.getenv("DOWNLOAD_EXPIRY_DAYS", "7"))  # Giorni prima di cancellare
 MAX_DOWNLOADS_PER_PHOTO = int(os.getenv("MAX_DOWNLOADS_PER_PHOTO", "3"))  # Max download prima di cancellare
 
+# Diagnostica match selfie: log e DEBUG_CROPS (solo se DEBUG_CROPS=1)
+DEBUG_CROPS = str(os.getenv("DEBUG_CROPS", "0")).strip().lower() in {"1", "true", "yes", "on"}
+_DIAG_EMB_CACHE_MAX = 10
+_DIAG_EMB_CACHE: Dict[str, np.ndarray] = {}  # file_sha1 -> emb0 per confronto cosine tra run
+
 # Configurazione family members
 MAX_FAMILY_MEMBERS = int(os.getenv("MAX_FAMILY_MEMBERS", "8"))  # Max membri famiglia per email
 
@@ -1341,28 +1346,47 @@ def _normalize(v: np.ndarray) -> np.ndarray:
         return v
     return v / n
 
-def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int = 2) -> List[np.ndarray]:
+
+def _face_sort_key(f: Any) -> Tuple[float, float, float, float, float, float]:
+    """Chiave di ordinamento deterministica: area DESC, det_score DESC, bbox x1,y1,x2,y2 ASC."""
+    area = (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+    det = float(getattr(f, "det_score", 0.0))
+    x1, y1, x2, y2 = float(f.bbox[0]), float(f.bbox[1]), float(f.bbox[2]), float(f.bbox[3])
+    return (-area, -det, x1, y1, x2, y2)
+
+
+def _generate_multi_embeddings_from_image(
+    img: np.ndarray,
+    num_embeddings: int = 2,
+    request_id: Optional[str] = None,
+    file_sha1: Optional[str] = None,
+) -> List[np.ndarray]:
     """
-    Genera 3-4 embeddings di riferimento per migliorare il riconoscimento di foto difficili:
-    - emb0: originale
-    - emb1: flip orizzontale
-    - emb2: rotazione leggera +5 gradi (per catturare profili)
-    - emb3: rotazione leggera -5 gradi (per catturare profili)
+    Genera 3-4 embeddings di riferimento per migliorare il riconoscimento di foto difficili.
     Usa UNA sola detection: crop dal bbox + (se disponibile) alignment con landmarks.
+    Ordinamento volti deterministico: area DESC, det_score DESC, bbox x1,y1,x2,y2 ASC.
     """
     assert face_app is not None
 
     faces = face_app.get(img)
     if not faces:
         return []
-    faces_sorted = sorted(
-        faces,
-        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-        reverse=True
-    )
+    faces_sorted = sorted(faces, key=_face_sort_key)
     if not faces_sorted:
         return []
     main_face = faces_sorted[0]
+    main_face_index = 0
+
+    # --- Log diagnostica SELFIE ---
+    n_faces = len(faces)
+    face_details = []
+    for i, f in enumerate(faces_sorted):
+        area = (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+        det = float(getattr(f, "det_score", 0.0))
+        bbox_int = (int(round(f.bbox[0])), int(round(f.bbox[1])), int(round(f.bbox[2])), int(round(f.bbox[3])))
+        face_details.append({"idx": i, "det_score": round(det, 4), "area": int(area), "bbox": bbox_int})
+    crop_method = "none"
+    crop_h, crop_w = 0, 0
 
     # Prova a usare alignment con kps se disponibile
     aligned = None
@@ -1370,6 +1394,8 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
         from insightface.utils import face_align
         if hasattr(main_face, "kps") and main_face.kps is not None:
             aligned = face_align.norm_crop(img, main_face.kps)
+            crop_method = "kps_align"
+            crop_h, crop_w = aligned.shape[0], aligned.shape[1]
     except Exception:
         aligned = None
 
@@ -1380,12 +1406,40 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
         x1 = max(0, int(x1)); y1 = max(0, int(y1))
         x2 = min(w, int(x2)); y2 = min(h, int(y2))
         aligned = img[y1:y2, x1:x2].copy()
+        crop_method = "bbox"
+        crop_h, crop_w = aligned.shape[0], aligned.shape[1]
+
+    crop_bytes = cv2.imencode(".png", aligned)[1].tobytes()
+    crop_sha1 = hashlib.sha1(crop_bytes).hexdigest()[:16]
+    logger.info(
+        f"[DIAG_SELFIE] request_id={request_id or 'n/a'} n_faces={n_faces} main_face_rank=0 "
+        f"face_details={face_details} crop_method={crop_method} crop_size={crop_w}x{crop_h} crop_sha1={crop_sha1}"
+    )
+
+    if DEBUG_CROPS and request_id:
+        try:
+            debug_dir = Path("/tmp/face_debug") / request_id
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            crop_path = debug_dir / "selfie_crop.png"
+            cv2.imwrite(str(crop_path), aligned)
+            logger.info(f"[DEBUG_CROPS] saved {crop_path}")
+        except Exception as e:
+            logger.warning(f"[DEBUG_CROPS] failed to save selfie_crop: {e}")
 
     embeddings = []
-    
-    # embedding originale: usa face.embedding (già calcolato nella detection)
     emb0 = _normalize(main_face.embedding.astype(np.float32))
     embeddings.append(emb0)
+
+    # --- Cache cosine tra run stesso file (emb0) ---
+    if file_sha1:
+        global _DIAG_EMB_CACHE
+        prev = _DIAG_EMB_CACHE.get(file_sha1)
+        if prev is not None:
+            cos_sim = float(np.dot(emb0, prev))
+            logger.info(f"[DIAG_EMB_RERUN] file_sha1={file_sha1[:12]}... cosine_similarity_emb0={cos_sim:.6f} (same file, previous run)")
+        if len(_DIAG_EMB_CACHE) >= _DIAG_EMB_CACHE_MAX:
+            _DIAG_EMB_CACHE.pop(next(iter(_DIAG_EMB_CACHE)))
+        _DIAG_EMB_CACHE[file_sha1] = emb0.copy()
 
     # embedding flip: prova prima con recognition model, poi fallback a seconda detection
     emb1 = None
@@ -1397,17 +1451,12 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
     except Exception:
         emb1 = None
 
-    # Fallback: se recog.get() fallisce, fai una seconda detection sull'immagine flippata
     if emb1 is None:
         try:
             flip_img = cv2.flip(img, 1)
             flip_faces = face_app.get(flip_img)
             if flip_faces:
-                flip_faces_sorted = sorted(
-                    flip_faces,
-                    key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
-                    reverse=True
-                )
+                flip_faces_sorted = sorted(flip_faces, key=_face_sort_key)
                 if flip_faces_sorted:
                     flip_face = flip_faces_sorted[0]
                     emb1 = _normalize(flip_face.embedding.astype(np.float32))
@@ -1415,7 +1464,7 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
             pass
 
     if emb1 is None:
-        emb1 = emb0.copy()  # Duplica originale se flip fallisce
+        emb1 = emb0.copy()
     embeddings.append(emb1)
 
     # Embeddings con rotazioni leggere per catturare profili (solo se abbiamo recog model)
@@ -1449,6 +1498,11 @@ def _generate_multi_embeddings_from_image(img: np.ndarray, num_embeddings: int =
         while len(embeddings) < 2:
             embeddings.append(emb0.copy())
 
+    # Log diagnostica per tutti i ref embeddings
+    for ei, emb in enumerate(embeddings):
+        en = float(np.linalg.norm(emb))
+        e5 = [round(float(x), 6) for x in emb[:5].tolist()]
+        logger.info(f"[DIAG_EMB] request_id={request_id or 'n/a'} ref_idx={ei} norm={en:.6f} first5={e5}")
     logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings (original+flip+rotations)")
     return embeddings
 
@@ -1611,7 +1665,10 @@ def _read_selfie_image_with_resize(file_bytes: bytes, max_side: int = 1024) -> n
     try:
         from PIL import Image, ImageOps
         pil_img = Image.open(BytesIO(file_bytes))
+        before_exif_w, before_exif_h = pil_img.size
         pil_img = ImageOps.exif_transpose(pil_img)
+        after_exif_w, after_exif_h = pil_img.size
+        exif_applied = (before_exif_w, before_exif_h) != (after_exif_w, after_exif_h)
         if pil_img.mode != 'RGB':
             pil_img = pil_img.convert('RGB')
         input_w, input_h = pil_img.size
@@ -1624,6 +1681,10 @@ def _read_selfie_image_with_resize(file_bytes: bytes, max_side: int = 1024) -> n
                 resized_h = max_side
                 resized_w = int(input_w * (max_side / input_h))
             pil_img = pil_img.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
+        logger.info(
+            f"[DIAG_PREPROC_SELFIE] exif_transpose={'applied' if exif_applied else 'no_change'} "
+            f"before_resize={input_w}x{input_h} after_resize={resized_w}x{resized_h}"
+        )
         logger.info(f"[SELFIE] input_w={input_w} input_h={input_h} resized_w={resized_w} resized_h={resized_h}")
         img_array = np.array(pil_img)
         return cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
@@ -2798,11 +2859,13 @@ async def startup():
                         # Scarica foto da R2
                         photo_bytes = await _r2_get_object_bytes(r2_key)
                         
-                        # Decodifica immagine
+                        # Decodifica immagine (galleria: cv2.imdecode, nessuna correzione EXIF)
                         nparr = np.frombuffer(photo_bytes, np.uint8)
                         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                         if img is None:
                             continue
+                        if photo_idx == 0:
+                            logger.info("[DIAG_PREPROC_GALLERY] gallery indexing: cv2.imdecode, EXIF not applied (no orientation correction)")
                         
                         # Estrai volti
                         faces = face_app.get(img)
@@ -3326,6 +3389,7 @@ async def sync_index_with_r2_incremental():
             faces_total = len(new_meta_rows)  # Conta già le facce mantenute
             new_faces_count = 0
             previews_generated_count = 0
+            _diag_gallery_inc_logged = False
             
             for filename in to_add:
                 try:
@@ -3346,11 +3410,14 @@ async def sync_index_with_r2_incremental():
                     # Scarica foto da R2
                     photo_bytes = await _r2_get_object_bytes(r2_key_to_download)
                     
-                    # Decodifica immagine
+                    # Decodifica immagine (galleria: cv2.imdecode, nessuna correzione EXIF)
                     nparr = np.frombuffer(photo_bytes, np.uint8)
                     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if img is None:
                         continue
+                    if not _diag_gallery_inc_logged:
+                        logger.info("[DIAG_PREPROC_GALLERY] gallery incremental indexing: cv2.imdecode, EXIF not applied")
+                        _diag_gallery_inc_logged = True
                     
                     # Estrai volti
                     faces = face_app.get(img)
@@ -5787,10 +5854,12 @@ async def match_selfie(
         content_type = selfie.content_type or ""
         filename = selfie.filename or ""
         
-        # Log upload
+        # Log upload e request_id per diagnostica (stesso file = stesso request_id)
         import hashlib
-        sha1_hash = hashlib.sha1(file_bytes).hexdigest()[:8]
-        logger.info(f"[UPLOAD] content_type={content_type} size={len(file_bytes)} sha1={sha1_hash}")
+        file_sha1_full = hashlib.sha1(file_bytes).hexdigest()
+        request_id = file_sha1_full[:12]
+        sha1_hash = file_sha1_full[:8]
+        logger.info(f"[UPLOAD] content_type={content_type} size={len(file_bytes)} sha1={sha1_hash} request_id={request_id}")
         
         # Determina se è video o immagine
         is_video = (
@@ -5832,7 +5901,7 @@ async def match_selfie(
             ref_embeddings = frame_embeddings
             logger.info(f"[VIDEO] frames_ok={len(frames)} ref_embeddings={len(ref_embeddings)}")
         else:
-            # Immagine: genera multipli embeddings con augmentazioni
+            # Immagine: genera multipli embeddings con augmentazioni leggere
             img = _read_selfie_image_with_resize(file_bytes, max_side=1024)
             assert face_app is not None
             faces = face_app.get(img)
@@ -5847,8 +5916,10 @@ async def match_selfie(
                     "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
                 }
             
-            # Genera multipli embeddings con augmentazioni leggere
-            ref_embeddings = _generate_multi_embeddings_from_image(img, num_embeddings=2)
+            # Genera multipli embeddings (request_id/file_sha1 per diagnostica)
+            ref_embeddings = _generate_multi_embeddings_from_image(
+                img, num_embeddings=2, request_id=request_id, file_sha1=file_sha1_full
+            )
             
             if len(ref_embeddings) == 0:
                 return {
@@ -5970,11 +6041,10 @@ async def match_selfie(
                             "r2_key": r2_key,
                             "best_score": s,
                             "best_idx": idx,
+                            "best_ref_index": ref_idx,
                             "det_score": det_f,
                             "area": area,
-                            # face_scores: best score per face idx (across ref embeddings)
                             "face_scores": {idx: s},
-                            # ref_max: best score per ref embedding
                             "ref_max": [0.0] * len(ref_embeddings),
                         }
                         candidates_by_photo[r2_key] = entry
@@ -5986,12 +6056,31 @@ async def match_selfie(
                         if s > entry["best_score"]:
                             entry["best_score"] = s
                             entry["best_idx"] = idx
+                            entry["best_ref_index"] = ref_idx
                             det = row.get("det_score") or row.get("score")
                             entry["det_score"] = float(det) if det is not None else 0.0
                             entry["area"] = _compute_face_area(row)
-                    # aggiorna ref_max
                     if ref_idx < len(entry["ref_max"]) and s > entry["ref_max"][ref_idx]:
                         entry["ref_max"][ref_idx] = s
+
+            # Log candidati prima dei filtri (top 10) per confronto tra run
+            def _bucket_for_candidate(det_f: float, area_f: float) -> str:
+                if area_f < 30000 or det_f < 0.75:
+                    return "small"
+                if area_f < 60000 or det_f < 0.85:
+                    return "medium"
+                return "large"
+            candidates_list = sorted(
+                candidates_by_photo.items(),
+                key=lambda x: x[1]["best_score"],
+                reverse=True,
+            )[:10]
+            for r2_k, cand in candidates_list:
+                b = _bucket_for_candidate(float(cand.get("det_score") or 0), float(cand.get("area") or 0))
+                logger.info(
+                    f"[DIAG_CANDIDATES_BEFORE_FILTER] r2_key={r2_k} best_score={cand['best_score']:.4f} "
+                    f"det={cand.get('det_score', 0):.4f} area={int(cand.get('area', 0))} bucket={b}"
+                )
 
             results: List[Dict[str, Any]] = []
             rejected: List[Dict[str, Any]] = []
@@ -6269,6 +6358,9 @@ async def match_selfie(
                         "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
                     })
                 else:
+                    is_borderline = (
+                        best_score >= min_score_dyn - 0.08 or hits_count >= 1
+                    )
                     rejected.append({
                         "r2_key": r2_key,
                         "score": best_score,
@@ -6280,7 +6372,62 @@ async def match_selfie(
                         "hits": hits_count,
                         "bucket": bucket,
                         "reason": reject_reason,
+                        "best_idx": c.get("best_idx"),
+                        "best_ref_index": c.get("best_ref_index"),
+                        "ref_max": c.get("ref_max", []),
+                        "borderline": is_borderline,
                     })
+
+            # Log scoring per candidato (top 20 risultati + top 10 rejected) per diagnostica D
+            results_sorted_for_diag = sorted(results, key=lambda x: x.get("score", 0), reverse=True)
+            for r in results_sorted_for_diag[:20]:
+                rk = r.get("r2_key") or r.get("photo_id")
+                cand = candidates_by_photo.get(rk) if rk else None
+                if cand:
+                    ref_max_str = [round(float(x), 4) for x in cand.get("ref_max", [])]
+                    logger.info(
+                        f"[DIAG_SCORING] ACCEPTED r2_key={rk} face_idx={cand.get('best_idx')} "
+                        f"best_ref_index={cand.get('best_ref_index')} ref_max={ref_max_str} best_score={cand['best_score']:.4f}"
+                    )
+            rejected.sort(key=lambda x: x["score"], reverse=True)
+            for r in rejected[:10]:
+                ref_max_str = [round(float(x), 4) for x in r.get("ref_max", [])]
+                logger.info(
+                    f"[DIAG_SCORING] REJECTED r2_key={r['r2_key']} face_idx={r.get('best_idx')} "
+                    f"best_ref_index={r.get('best_ref_index')} ref_max={ref_max_str} best_score={r['score']:.4f} reason={r['reason']}"
+                )
+
+            # DEBUG_CROPS: salva crop candidati borderline rejected (solo se DEBUG_CROPS=1)
+            if DEBUG_CROPS and request_id and not is_video:
+                debug_dir = Path("/tmp/face_debug") / request_id
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                border_rej = [x for x in rejected if x.get("borderline")][:20]
+                for r in border_rej:
+                    r2_k, idx = r.get("r2_key"), r.get("best_idx")
+                    if r2_k is None or idx is None or idx >= len(meta_rows):
+                        continue
+                    row = meta_rows[idx]
+                    bbox = row.get("bbox")
+                    if not bbox or len(bbox) != 4:
+                        continue
+                    try:
+                        photo_bytes = await _r2_get_object_bytes(r2_k)
+                        nparr = np.frombuffer(photo_bytes, np.uint8)
+                        img_photo = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if img_photo is None:
+                            continue
+                        h, w = img_photo.shape[:2]
+                        x1 = max(0, int(round(bbox[0])))
+                        y1 = max(0, int(round(bbox[1])))
+                        x2 = min(w, int(round(bbox[2])))
+                        y2 = min(h, int(round(bbox[3])))
+                        crop = img_photo[y1:y2, x1:x2]
+                        safe_name = r2_k.replace("/", "_").replace("\\", "_")
+                        crop_path = debug_dir / f"candidate_{safe_name}_face{idx}.png"
+                        cv2.imwrite(str(crop_path), crop)
+                        logger.info(f"[DEBUG_CROPS] saved {crop_path}")
+                    except Exception as e:
+                        logger.warning(f"[DEBUG_CROPS] failed candidate crop {r2_k}: {e}")
 
             # Deduplica risultati per r2_key (evita foto duplicate)
             seen_r2_keys = set()
