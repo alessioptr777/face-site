@@ -1355,16 +1355,21 @@ def _face_sort_key(f: Any) -> Tuple[float, float, float, float, float, float]:
     return (-area, -det, x1, y1, x2, y2)
 
 
+# Numero di reference embeddings per match selfie (augment controllati: orig, flip, crop ±8%, gamma/brightness)
+NUM_REF_EMBEDDINGS = 8
+
+
 def _generate_multi_embeddings_from_image(
     img: np.ndarray,
-    num_embeddings: int = 2,
+    num_embeddings: int = NUM_REF_EMBEDDINGS,
     request_id: Optional[str] = None,
     file_sha1: Optional[str] = None,
 ) -> List[np.ndarray]:
     """
-    Genera 3-4 embeddings di riferimento per migliorare il riconoscimento di foto difficili.
+    Genera 6-10 embeddings di riferimento con augment controllati: originale, flip, crop ±8%, gamma/brightness.
     Usa UNA sola detection: crop dal bbox + (se disponibile) alignment con landmarks.
     Ordinamento volti deterministico: area DESC, det_score DESC, bbox x1,y1,x2,y2 ASC.
+    score_final = max(score su tutte le ref) già gestito in match_selfie.
     """
     assert face_app is not None
 
@@ -1375,7 +1380,6 @@ def _generate_multi_embeddings_from_image(
     if not faces_sorted:
         return []
     main_face = faces_sorted[0]
-    main_face_index = 0
 
     # --- Log diagnostica SELFIE ---
     n_faces = len(faces)
@@ -1388,7 +1392,7 @@ def _generate_multi_embeddings_from_image(
     crop_method = "none"
     crop_h, crop_w = 0, 0
 
-    # Prova a usare alignment con kps se disponibile
+    # Prova alignment con kps, altrimenti bbox
     aligned = None
     try:
         from insightface.utils import face_align
@@ -1400,7 +1404,6 @@ def _generate_multi_embeddings_from_image(
         aligned = None
 
     if aligned is None:
-        # Fallback: crop da bbox
         h, w = img.shape[:2]
         x1, y1, x2, y2 = main_face.bbox
         x1 = max(0, int(x1)); y1 = max(0, int(y1))
@@ -1430,7 +1433,6 @@ def _generate_multi_embeddings_from_image(
     emb0 = _normalize(main_face.embedding.astype(np.float32))
     embeddings.append(emb0)
 
-    # --- Cache cosine tra run stesso file (emb0) ---
     if file_sha1:
         global _DIAG_EMB_CACHE
         prev = _DIAG_EMB_CACHE.get(file_sha1)
@@ -1441,16 +1443,20 @@ def _generate_multi_embeddings_from_image(
             _DIAG_EMB_CACHE.pop(next(iter(_DIAG_EMB_CACHE)))
         _DIAG_EMB_CACHE[file_sha1] = emb0.copy()
 
-    # embedding flip: prova prima con recognition model, poi fallback a seconda detection
-    emb1 = None
-    try:
-        recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
-        if recog is not None:
-            flip_crop = cv2.flip(aligned, 1)
-            emb1 = _normalize(recog.get(flip_crop).astype(np.float32))
-    except Exception:
-        emb1 = None
+    recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
+    target_count = max(num_embeddings, NUM_REF_EMBEDDINGS)
 
+    def _emb_from_crop(crop_img: np.ndarray) -> Optional[np.ndarray]:
+        if recog is None:
+            return None
+        try:
+            return _normalize(recog.get(crop_img).astype(np.float32))
+        except Exception:
+            return None
+
+    # 1) Flip
+    flip_crop = cv2.flip(aligned, 1)
+    emb1 = _emb_from_crop(flip_crop)
     if emb1 is None:
         try:
             flip_img = cv2.flip(img, 1)
@@ -1458,52 +1464,74 @@ def _generate_multi_embeddings_from_image(
             if flip_faces:
                 flip_faces_sorted = sorted(flip_faces, key=_face_sort_key)
                 if flip_faces_sorted:
-                    flip_face = flip_faces_sorted[0]
-                    emb1 = _normalize(flip_face.embedding.astype(np.float32))
+                    emb1 = _normalize(flip_faces_sorted[0].embedding.astype(np.float32))
         except Exception:
             pass
-
     if emb1 is None:
         emb1 = emb0.copy()
     embeddings.append(emb1)
 
-    # Embeddings con rotazioni leggere per catturare profili (solo se abbiamo recog model)
-    try:
-        recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
-        if recog is not None:
-            # Rotazione +5 gradi (profilo sinistro)
-            center = (aligned.shape[1] // 2, aligned.shape[0] // 2)
-            M_rot_pos = cv2.getRotationMatrix2D(center, 5, 1.0)
-            rotated_pos = cv2.warpAffine(aligned, M_rot_pos, (aligned.shape[1], aligned.shape[0]))
-            try:
-                emb2 = _normalize(recog.get(rotated_pos).astype(np.float32))
-                embeddings.append(emb2)
-            except Exception:
-                pass
+    ah, aw = aligned.shape[0], aligned.shape[1]
 
-            # Rotazione -5 gradi (profilo destro)
-            M_rot_neg = cv2.getRotationMatrix2D(center, -5, 1.0)
-            rotated_neg = cv2.warpAffine(aligned, M_rot_neg, (aligned.shape[1], aligned.shape[0]))
-            try:
-                emb3 = _normalize(recog.get(rotated_neg).astype(np.float32))
-                embeddings.append(emb3)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # Se abbiamo meno di 2 embeddings, duplica l'originale
-    if len(embeddings) < 2:
-        logger.warning(f"[MULTI_EMB] Only {len(embeddings)} embeddings generated, duplicating original")
-        while len(embeddings) < 2:
+    # 2) Crop -8% (centro 84% di width/height) — slot fisso 2
+    if ah > 10 and aw > 10:
+        margin_h, margin_w = int(ah * 0.08), int(aw * 0.08)
+        crop_tight = aligned[margin_h : ah - margin_h, margin_w : aw - margin_w]
+        if crop_tight.size > 0:
+            e = _emb_from_crop(crop_tight)
+            embeddings.append(e if e is not None else emb0.copy())
+        else:
             embeddings.append(emb0.copy())
+    else:
+        embeddings.append(emb0.copy())
 
-    # Log diagnostica per tutti i ref embeddings
+    # 3) Crop +8% (bbox espanso) — slot fisso 3
+    h_img, w_img = img.shape[:2]
+    x1, y1, x2, y2 = main_face.bbox
+    bw, bh = x2 - x1, y2 - y1
+    pad_w, pad_h = int(bw * 0.04), int(bh * 0.04)
+    x1e = max(0, int(x1) - pad_w)
+    y1e = max(0, int(y1) - pad_h)
+    x2e = min(w_img, int(x2) + pad_w)
+    y2e = min(h_img, int(y2) + pad_h)
+    crop_wide = img[y1e:y2e, x1e:x2e]
+    if crop_wide.size > 0:
+        e = _emb_from_crop(crop_wide)
+        embeddings.append(e if e is not None else emb0.copy())
+    else:
+        embeddings.append(emb0.copy())
+
+    # 4) Gamma 0.9 — slot 4
+    inv_gamma_lo = 1.0 / 0.9
+    lut = np.array([((i / 255.0) ** inv_gamma_lo) * 255 for i in range(256)], dtype=np.uint8)
+    gamma_lo = cv2.LUT(aligned, lut)
+    e = _emb_from_crop(gamma_lo)
+    embeddings.append(e if e is not None else emb0.copy())
+
+    # 5) Gamma 1.1 — slot 5
+    inv_gamma_hi = 1.0 / 1.1
+    lut = np.array([((i / 255.0) ** inv_gamma_hi) * 255 for i in range(256)], dtype=np.uint8)
+    gamma_hi = cv2.LUT(aligned, lut)
+    e = _emb_from_crop(gamma_hi)
+    embeddings.append(e if e is not None else emb0.copy())
+
+    # 6) Brightness 0.95 — slot 6
+    bright_lo = cv2.convertScaleAbs(aligned, alpha=0.95, beta=0)
+    e = _emb_from_crop(bright_lo)
+    embeddings.append(e if e is not None else emb0.copy())
+
+    # 7) Brightness 1.05 — slot 7
+    bright_hi = cv2.convertScaleAbs(aligned, alpha=1.05, beta=0)
+    e = _emb_from_crop(bright_hi)
+    embeddings.append(e if e is not None else emb0.copy())
+
+    embeddings = embeddings[:target_count]
+
     for ei, emb in enumerate(embeddings):
         en = float(np.linalg.norm(emb))
         e5 = [round(float(x), 6) for x in emb[:5].tolist()]
         logger.info(f"[DIAG_EMB] request_id={request_id or 'n/a'} ref_idx={ei} norm={en:.6f} first5={e5}")
-    logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings (original+flip+rotations)")
+    logger.info(f"[MULTI_EMB] Generated {len(embeddings)} reference embeddings (orig+flip+crop±8%+gamma+brightness)")
     return embeddings
 
 def _load_meta_jsonl(meta_path: Path) -> List[Dict[str, Any]]:
@@ -5812,6 +5840,7 @@ async def match_selfie(
     _ensure_ready()
     
     start_time = time.time()
+    t_match_start = time.perf_counter()
     
     # Salva meta_rows originale per ripristino (prima di qualsiasi return)
     old_meta_rows = meta_rows
@@ -5870,6 +5899,8 @@ async def match_selfie(
         
         ref_embeddings: List[np.ndarray] = []
         selfie_start = time.time()
+        decode_selfie_ms = 0.0
+        face_get_selfie_ms = 0.0
         
         if is_video:
             # Estrai frame da video
@@ -5901,11 +5932,13 @@ async def match_selfie(
             ref_embeddings = frame_embeddings
             logger.info(f"[VIDEO] frames_ok={len(frames)} ref_embeddings={len(ref_embeddings)}")
         else:
-            # Immagine: genera multipli embeddings con augmentazioni leggere
+            # Immagine: decode + face get + multi embeddings
+            t0 = time.perf_counter()
             img = _read_selfie_image_with_resize(file_bytes, max_side=1024)
+            t1 = time.perf_counter()
+            decode_selfie_ms = (t1 - t0) * 1000
             assert face_app is not None
             faces = face_app.get(img)
-            
             if not faces:
                 return {
                     "ok": True,
@@ -5915,12 +5948,11 @@ async def match_selfie(
                     "matched_count": 0,
                     "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
                 }
-            
-            # Genera multipli embeddings (request_id/file_sha1 per diagnostica)
             ref_embeddings = _generate_multi_embeddings_from_image(
-                img, num_embeddings=2, request_id=request_id, file_sha1=file_sha1_full
+                img, num_embeddings=NUM_REF_EMBEDDINGS, request_id=request_id, file_sha1=file_sha1_full
             )
-            
+            t2 = time.perf_counter()
+            face_get_selfie_ms = (t2 - t1) * 1000
             if len(ref_embeddings) == 0:
                 return {
                     "ok": True,
@@ -6018,7 +6050,10 @@ async def match_selfie(
         try:
             candidates_by_photo: Dict[str, Dict[str, Any]] = {}
             total_candidates = 0
+            faiss_search_ms = 0.0
+            scoring_ms = 0.0
 
+            t_faiss_start = time.perf_counter()
             # Single-pass FAISS search (top_k)
             for ref_idx, ref_emb in enumerate(ref_embeddings):
                 D, I = faiss_index.search(ref_emb.reshape(1, -1), top_k)
@@ -6081,6 +6116,8 @@ async def match_selfie(
                     f"[DIAG_CANDIDATES_BEFORE_FILTER] r2_key={r2_k} best_score={cand['best_score']:.4f} "
                     f"det={cand.get('det_score', 0):.4f} area={int(cand.get('area', 0))} bucket={b}"
                 )
+            t_faiss_end = time.perf_counter()
+            faiss_search_ms = (t_faiss_end - t_faiss_start) * 1000
 
             results: List[Dict[str, Any]] = []
             rejected: List[Dict[str, Any]] = []
@@ -6090,8 +6127,9 @@ async def match_selfie(
             }
             
             # Log versione protezioni (per verificare che i cambiamenti siano attivi su Render)
-            logger.info("[PROTECTION_VERSION] det>=0.90: score>=0.50, det>=0.85: score>=0.50, det>=0.80: score>=0.30, det>=0.78: score>=0.25")
+            logger.info("[PROTECTION_VERSION] det>=0.90: score>=0.50 (eccezione: hits>=2 e score>=0.47), det>=0.85: score>=0.50, det>=0.80: score>=0.30, det>=0.78: score>=0.25")
 
+            t_scoring_start = time.perf_counter()
             for r2_key, c in candidates_by_photo.items():
                 best_score = float(c["best_score"])
                 det_score_val = float(c.get("det_score") or 0.0)
@@ -6111,15 +6149,13 @@ async def match_selfie(
                     bucket = "medium"
 
                 reject_reason = None
-                # PROTEZIONE CRITICA: det_score alto ma score molto basso = SEMPRE RIFIUTA (privacy)
-                # Non applicare tolleranza per evitare falsi positivi (privacy violata)
-                # Pattern tipico di falsi positivi: faccia ben visibile (det alto) ma match debole (score basso)
-                # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = soglia più alta
-                # VERSIONE: det>=0.90 richiede score>=0.50, det>=0.85 richiede score>=0.50 (ultra-aggressive)
-                # Se det_score >= 0.90, richiedi score >= 0.50 per evitare falsi positivi critici
+                # PROTEZIONE CRITICA: det_score alto ma score molto basso = RIFIUTA (privacy)
+                # Eccezione chirurgica: det>=0.90 e hits>=2 -> accetta anche se score>=0.47 (stabilità selfie diversi)
+                # Se det_score >= 0.90, richiedi score >= 0.50, tranne se hits>=2 e score>=0.47
                 if det_score_val >= 0.90 and best_score < 0.50:
-                    stats["filtered_by_score"] += 1
-                    reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto molto alto, falso positivo)"
+                    if not (hits_count >= 2 and best_score >= 0.47):
+                        stats["filtered_by_score"] += 1
+                        reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto molto alto, falso positivo)"
                 # Se det_score >= 0.85, richiedi score >= 0.50 per evitare falsi positivi (es. MIT00045.jpg, MIT00044.jpg, MIT00062.jpg)
                 elif det_score_val >= 0.85 and best_score < 0.50:
                     stats["filtered_by_score"] += 1
@@ -6179,7 +6215,7 @@ async def match_selfie(
                     # Se det_score >= 0.75 (faccia ben visibile) ma score < 0.20, richiedi SEMPRE 2/2 hits
                     # PROTEZIONE CRITICA: anche se score è >= 0.25 ma < 0.35 con det molto alto, richiedi 2/2
                     if det_score_val >= 0.90 and best_score < 0.50:
-                        required_hits = 2  # Det molto molto alto (>=0.90) + score basso = SEMPRE 2/2 hits (protezione critica)
+                        required_hits = 2  # Det molto alto + score basso = 2/2 hits (se hits>=2 e score>=0.47 accettato sopra)
                     elif det_score_val >= 0.85 and best_score < 0.50:
                         required_hits = 2  # Det molto alto (>=0.85) + score basso = SEMPRE 2/2 hits (protezione critica)
                     elif det_score_val >= 0.80 and best_score < 0.35:
@@ -6295,10 +6331,12 @@ async def match_selfie(
                             # Ma AUMENTA margin_min per foto con score bassi (protezione falsi positivi)
                             effective_margin_min = margin_min
                             # PROTEZIONE CRITICA: det_score alto ma score basso = AUMENTA margin_min
-                            # PROTEZIONE MOLTO AGGRESSIVA: det_score molto alto (>=0.85) = margin_min molto alto
+                            # Eccezione chirurgica: det>=0.90 e hits>=2 e score>=0.47 -> non alzare margin_min
                             if det_score_val >= 0.90 and best_score < 0.50:
-                                # Det molto molto alto (>=0.90) + score basso: margin_min molto alto
-                                effective_margin_min = max(margin_min, 0.15)  # Almeno 0.15
+                                if hits_count >= 2 and best_score >= 0.47:
+                                    pass  # chirurgica: usa margin_min normale
+                                else:
+                                    effective_margin_min = max(margin_min, 0.15)  # Almeno 0.15
                             elif det_score_val >= 0.85 and best_score < 0.50:
                                 # Det molto alto (>=0.85) + score basso: margin_min molto alto per evitare falsi positivi
                                 effective_margin_min = max(margin_min, 0.15)  # Almeno 0.15 (aumentato per MIT00045.jpg, MIT00044.jpg, MIT00062.jpg)
@@ -6377,6 +6415,8 @@ async def match_selfie(
                         "ref_max": c.get("ref_max", []),
                         "borderline": is_borderline,
                     })
+            t_scoring_end = time.perf_counter()
+            scoring_ms = (t_scoring_end - t_scoring_start) * 1000
 
             # Log scoring per candidato (top 20 risultati + top 10 rejected) per diagnostica D
             results_sorted_for_diag = sorted(results, key=lambda x: x.get("score", 0), reverse=True)
@@ -6428,6 +6468,12 @@ async def match_selfie(
                         logger.info(f"[DEBUG_CROPS] saved {crop_path}")
                     except Exception as e:
                         logger.warning(f"[DEBUG_CROPS] failed candidate crop {r2_k}: {e}")
+
+            total_match_ms = (time.perf_counter() - t_match_start) * 1000
+            logger.info(
+                f"[TIME] decode_selfie_ms={decode_selfie_ms:.2f} face_get_selfie_ms={face_get_selfie_ms:.2f} "
+                f"faiss_search_ms={faiss_search_ms:.2f} scoring_ms={scoring_ms:.2f} total_match_ms={total_match_ms:.2f}"
+            )
 
             # Deduplica risultati per r2_key (evita foto duplicate)
             seen_r2_keys = set()
