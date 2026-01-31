@@ -1429,22 +1429,6 @@ def _generate_multi_embeddings_from_image(
         except Exception as e:
             logger.warning(f"[DEBUG_CROPS] failed to save selfie_crop: {e}")
 
-    embeddings = []
-    _log_variant("orig", aligned)
-    emb0 = _normalize(main_face.embedding.astype(np.float32))
-    logger.info(f"[MULTI_EMB_VARIANT] orig -> emb (from main_face) norm={float(np.linalg.norm(emb0)):.6f} first5={[round(float(x), 6) for x in emb0[:5].tolist()]}")
-    embeddings.append(emb0)
-
-    if file_sha1:
-        global _DIAG_EMB_CACHE
-        prev = _DIAG_EMB_CACHE.get(file_sha1)
-        if prev is not None:
-            cos_sim = float(np.dot(emb0, prev))
-            logger.info(f"[DIAG_EMB_RERUN] file_sha1={file_sha1[:12]}... cosine_similarity_emb0={cos_sim:.6f} (same file, previous run)")
-        if len(_DIAG_EMB_CACHE) >= _DIAG_EMB_CACHE_MAX:
-            _DIAG_EMB_CACHE.pop(next(iter(_DIAG_EMB_CACHE)))
-        _DIAG_EMB_CACHE[file_sha1] = emb0.copy()
-
     recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
     target_count = max(num_embeddings, NUM_REF_EMBEDDINGS)
 
@@ -1478,6 +1462,22 @@ def _generate_multi_embeddings_from_image(
         except Exception as ex:
             logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} recog.get FAILED: {ex!r}")
             return None
+
+    embeddings = []
+    _log_variant("orig", aligned)
+    emb0 = _normalize(main_face.embedding.astype(np.float32))
+    logger.info(f"[MULTI_EMB_VARIANT] orig -> emb (from main_face) norm={float(np.linalg.norm(emb0)):.6f} first5={[round(float(x), 6) for x in emb0[:5].tolist()]}")
+    embeddings.append(emb0)
+
+    if file_sha1:
+        global _DIAG_EMB_CACHE
+        prev = _DIAG_EMB_CACHE.get(file_sha1)
+        if prev is not None:
+            cos_sim = float(np.dot(emb0, prev))
+            logger.info(f"[DIAG_EMB_RERUN] file_sha1={file_sha1[:12]}... cosine_similarity_emb0={cos_sim:.6f} (same file, previous run)")
+        if len(_DIAG_EMB_CACHE) >= _DIAG_EMB_CACHE_MAX:
+            _DIAG_EMB_CACHE.pop(next(iter(_DIAG_EMB_CACHE)))
+        _DIAG_EMB_CACHE[file_sha1] = emb0.copy()
 
     # 1) Flip — copia esplicita per variante diversa
     flip_crop = cv2.flip(aligned, 1).copy()
