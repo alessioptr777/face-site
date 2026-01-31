@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+data/
+
+# Environment variables (NON committare mai!)
+.env
+.env.*
+
+
+# local/runtime
+backend/photos/
+photos_backup/
+backend/data/
+.DS_Store
+_local_docs/
+
+# virtual env
+venv/
+.venv/
+
+# python cache
+__pycache__/
+*.pyc
+
+# mac
+.DS_Store

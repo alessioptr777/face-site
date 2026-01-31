@@ -1430,7 +1430,9 @@ def _generate_multi_embeddings_from_image(
             logger.warning(f"[DEBUG_CROPS] failed to save selfie_crop: {e}")
 
     embeddings = []
+    _log_variant("orig", aligned)
     emb0 = _normalize(main_face.embedding.astype(np.float32))
+    logger.info(f"[MULTI_EMB_VARIANT] orig -> emb (from main_face) norm={float(np.linalg.norm(emb0)):.6f} first5={[round(float(x), 6) for x in emb0[:5].tolist()]}")
     embeddings.append(emb0)
 
     if file_sha1:
@@ -1446,17 +1448,41 @@ def _generate_multi_embeddings_from_image(
     recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
     target_count = max(num_embeddings, NUM_REF_EMBEDDINGS)
 
-    def _emb_from_crop(crop_img: np.ndarray) -> Optional[np.ndarray]:
+    def _variant_sha1(arr: np.ndarray) -> str:
+        """SHA1 dei bytes dell'immagine per verificare che le varianti siano diverse."""
+        if arr.size == 0:
+            return "empty"
+        return hashlib.sha1(cv2.imencode(".png", np.ascontiguousarray(arr))[1].tobytes()).hexdigest()[:12]
+
+    def _log_variant(name: str, arr: np.ndarray) -> None:
+        if arr.size == 0:
+            logger.info(f"[MULTI_EMB_VARIANT] {name} shape=empty")
+            return
+        h, w, c = arr.shape[0], arr.shape[1], arr.shape[2] if arr.ndim >= 3 else 1
+        logger.info(
+            f"[MULTI_EMB_VARIANT] {name} shape={h}x{w}x{c} dtype={arr.dtype} "
+            f"min={float(arr.min()):.1f} max={float(arr.max()):.1f} sha1={_variant_sha1(arr)}"
+        )
+
+    def _emb_from_crop(crop_img: np.ndarray, variant_name: str = "") -> Optional[np.ndarray]:
         if recog is None:
             return None
+        # Assicura copia contigua (evita view condivise e problemi con recog.get)
+        img = np.ascontiguousarray(crop_img) if crop_img.flags.c_contiguous else crop_img.copy()
         try:
-            return _normalize(recog.get(crop_img).astype(np.float32))
-        except Exception:
+            out = _normalize(recog.get(img).astype(np.float32))
+            norm = float(np.linalg.norm(out))
+            first5 = [round(float(x), 6) for x in out[:5].tolist()]
+            logger.info(f"[MULTI_EMB_VARIANT] {variant_name} -> emb norm={norm:.6f} first5={first5}")
+            return out
+        except Exception as ex:
+            logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} recog.get FAILED: {ex!r}")
             return None
 
-    # 1) Flip
-    flip_crop = cv2.flip(aligned, 1)
-    emb1 = _emb_from_crop(flip_crop)
+    # 1) Flip — copia esplicita per variante diversa
+    flip_crop = cv2.flip(aligned, 1).copy()
+    _log_variant("flip", flip_crop)
+    emb1 = _emb_from_crop(flip_crop, "flip")
     if emb1 is None:
         try:
             flip_img = cv2.flip(img, 1)
@@ -1473,19 +1499,31 @@ def _generate_multi_embeddings_from_image(
 
     ah, aw = aligned.shape[0], aligned.shape[1]
 
-    # 2) Crop -8% (centro 84% di width/height) — slot fisso 2
+    # Dimensione attesa dal recognition (insightface di solito 112x112)
+    ref_h, ref_w = aligned.shape[0], aligned.shape[1]
+
+    def _resize_to_ref(arr: np.ndarray) -> np.ndarray:
+        if arr.size == 0:
+            return arr
+        if (arr.shape[0], arr.shape[1]) == (ref_h, ref_w):
+            return arr.copy()
+        return cv2.resize(arr, (ref_w, ref_h), interpolation=cv2.INTER_LINEAR)
+
+    # 2) Crop -8% (centro 84%) — copia esplicita, poi resize per recog
     if ah > 10 and aw > 10:
         margin_h, margin_w = int(ah * 0.08), int(aw * 0.08)
-        crop_tight = aligned[margin_h : ah - margin_h, margin_w : aw - margin_w]
+        crop_tight = aligned[margin_h : ah - margin_h, margin_w : aw - margin_w].copy()
         if crop_tight.size > 0:
-            e = _emb_from_crop(crop_tight)
+            crop_tight_resized = _resize_to_ref(crop_tight)
+            _log_variant("crop_tight", crop_tight_resized)
+            e = _emb_from_crop(crop_tight_resized, "crop_tight")
             embeddings.append(e if e is not None else emb0.copy())
         else:
             embeddings.append(emb0.copy())
     else:
         embeddings.append(emb0.copy())
 
-    # 3) Crop +8% (bbox espanso) — slot fisso 3
+    # 3) Crop +8% (bbox espanso) — copia, resize per recog
     h_img, w_img = img.shape[:2]
     x1, y1, x2, y2 = main_face.bbox
     bw, bh = x2 - x1, y2 - y1
@@ -1494,35 +1532,41 @@ def _generate_multi_embeddings_from_image(
     y1e = max(0, int(y1) - pad_h)
     x2e = min(w_img, int(x2) + pad_w)
     y2e = min(h_img, int(y2) + pad_h)
-    crop_wide = img[y1e:y2e, x1e:x2e]
+    crop_wide = img[y1e:y2e, x1e:x2e].copy()
     if crop_wide.size > 0:
-        e = _emb_from_crop(crop_wide)
+        crop_wide_resized = _resize_to_ref(crop_wide)
+        _log_variant("crop_wide", crop_wide_resized)
+        e = _emb_from_crop(crop_wide_resized, "crop_wide")
         embeddings.append(e if e is not None else emb0.copy())
     else:
         embeddings.append(emb0.copy())
 
-    # 4) Gamma 0.9 — slot 4
+    # 4) Gamma 0.9 — nuova immagine (LUT restituisce nuovo array)
     inv_gamma_lo = 1.0 / 0.9
     lut = np.array([((i / 255.0) ** inv_gamma_lo) * 255 for i in range(256)], dtype=np.uint8)
     gamma_lo = cv2.LUT(aligned, lut)
-    e = _emb_from_crop(gamma_lo)
+    _log_variant("gamma_lo", gamma_lo)
+    e = _emb_from_crop(gamma_lo, "gamma_lo")
     embeddings.append(e if e is not None else emb0.copy())
 
-    # 5) Gamma 1.1 — slot 5
+    # 5) Gamma 1.1
     inv_gamma_hi = 1.0 / 1.1
     lut = np.array([((i / 255.0) ** inv_gamma_hi) * 255 for i in range(256)], dtype=np.uint8)
     gamma_hi = cv2.LUT(aligned, lut)
-    e = _emb_from_crop(gamma_hi)
+    _log_variant("gamma_hi", gamma_hi)
+    e = _emb_from_crop(gamma_hi, "gamma_hi")
     embeddings.append(e if e is not None else emb0.copy())
 
-    # 6) Brightness 0.95 — slot 6
+    # 6) Brightness 0.95
     bright_lo = cv2.convertScaleAbs(aligned, alpha=0.95, beta=0)
-    e = _emb_from_crop(bright_lo)
+    _log_variant("bright_lo", bright_lo)
+    e = _emb_from_crop(bright_lo, "bright_lo")
     embeddings.append(e if e is not None else emb0.copy())
 
-    # 7) Brightness 1.05 — slot 7
+    # 7) Brightness 1.05
     bright_hi = cv2.convertScaleAbs(aligned, alpha=1.05, beta=0)
-    e = _emb_from_crop(bright_hi)
+    _log_variant("bright_hi", bright_hi)
+    e = _emb_from_crop(bright_hi, "bright_hi")
     embeddings.append(e if e is not None else emb0.copy())
 
     embeddings = embeddings[:target_count]
