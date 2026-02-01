@@ -1449,19 +1449,17 @@ def _generate_multi_embeddings_from_image(
         )
 
     def _emb_from_crop(crop_img: np.ndarray, variant_name: str = "") -> Optional[np.ndarray]:
-        if recog is None:
+        crop = np.ascontiguousarray(crop_img)
+        faces = face_app.get(crop)
+        if not faces:
+            logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} no face found")
             return None
-        # Assicura copia contigua (evita view condivise e problemi con recog.get)
-        img = np.ascontiguousarray(crop_img) if crop_img.flags.c_contiguous else crop_img.copy()
-        try:
-            out = _normalize(recog.get(img).astype(np.float32))
-            norm = float(np.linalg.norm(out))
-            first5 = [round(float(x), 6) for x in out[:5].tolist()]
-            logger.info(f"[MULTI_EMB_VARIANT] {variant_name} -> emb norm={norm:.6f} first5={first5}")
-            return out
-        except Exception as ex:
-            logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} recog.get FAILED: {ex!r}")
-            return None
+        best = max(faces, key=lambda f: float(getattr(f, "det_score", 0)))
+        emb = _normalize(best.embedding.astype(np.float32))
+        norm = float(np.linalg.norm(emb))
+        first5 = [round(float(x), 6) for x in emb[:5].tolist()]
+        logger.info(f"[MULTI_EMB_VARIANT] {variant_name} -> emb norm={norm:.6f} first5={first5}")
+        return emb
 
     embeddings = []
     _log_variant("orig", aligned)
