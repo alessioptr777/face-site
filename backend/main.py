@@ -1448,24 +1448,17 @@ def _generate_multi_embeddings_from_image(
             f"min={float(arr.min()):.1f} max={float(arr.max()):.1f} sha1={_variant_sha1(arr)}"
         )
 
-    def _emb_from_crop(crop_img: np.ndarray, variant_name: str = "") -> Optional[np.ndarray]:
-        crop = np.ascontiguousarray(crop_img)
+    def _emb_from_aligned(aligned_img: np.ndarray, variant_name: str = "") -> Optional[np.ndarray]:
+        """Embedding da immagine già allineata (es. 112x112) via recog.get_feat, senza detection."""
+        if recog is None:
+            return None
+        img = np.ascontiguousarray(aligned_img)
+        ref_size = getattr(recog, "input_size", (112, 112))
+        if img.shape[0] != ref_size[1] or img.shape[1] != ref_size[0]:
+            img = cv2.resize(img, (ref_size[0], ref_size[1]), interpolation=cv2.INTER_LINEAR)
         try:
-            faces = face_app.get(crop)
-            if not faces:
-                logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} no face found (fallback=emb0)")
-                return None
-            n_faces = len(faces)
-            best = max(faces, key=lambda f: (float(getattr(f, "det_score", 0)), (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])))
-            best_det_score = float(getattr(best, "det_score", 0))
-            bbox = getattr(best, "bbox", (0, 0, 0, 0))
-            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-            logger.info(f"[MULTI_EMB_VARIANT] {variant_name} n_faces={n_faces} best_det_score={best_det_score:.4f} bbox={tuple(int(x) for x in bbox)} area={int(area)}")
-            if recog is not None:
-                emb_raw = recog.get(crop, best)
-                emb = _normalize(np.asarray(emb_raw, dtype=np.float32).flatten())
-            else:
-                emb = _normalize(best.embedding.astype(np.float32))
+            feat = recog.get_feat(img)
+            emb = _normalize(np.asarray(feat, dtype=np.float32).flatten())
             norm = float(np.linalg.norm(emb))
             first5 = [round(float(x), 6) for x in emb[:5].tolist()]
             logger.info(f"[MULTI_EMB_VARIANT] {variant_name} -> emb norm={norm:.6f} first5={first5}")
@@ -1477,8 +1470,12 @@ def _generate_multi_embeddings_from_image(
 
     embeddings = []
     _log_variant("orig", aligned)
-    emb0 = _normalize(main_face.embedding.astype(np.float32))
-    logger.info(f"[MULTI_EMB_VARIANT] orig -> emb (from main_face) norm={float(np.linalg.norm(emb0)):.6f} first5={[round(float(x), 6) for x in emb0[:5].tolist()]}")
+    emb0 = _emb_from_aligned(aligned, "orig_feat")
+    if emb0 is None:
+        emb0 = _normalize(main_face.embedding.astype(np.float32))
+        logger.info(f"[MULTI_EMB_VARIANT] orig -> emb (fallback main_face) norm={float(np.linalg.norm(emb0)):.6f} first5={[round(float(x), 6) for x in emb0[:5].tolist()]}")
+    else:
+        logger.info(f"[MULTI_EMB_VARIANT] orig -> emb (from orig_feat) norm={float(np.linalg.norm(emb0)):.6f} first5={[round(float(x), 6) for x in emb0[:5].tolist()]}")
     embeddings.append(emb0)
 
     if file_sha1:
@@ -1494,17 +1491,7 @@ def _generate_multi_embeddings_from_image(
     # 1) Flip — copia esplicita per variante diversa
     flip_crop = cv2.flip(aligned, 1).copy()
     _log_variant("flip", flip_crop)
-    emb1 = _emb_from_crop(flip_crop, "flip")
-    if emb1 is None:
-        try:
-            flip_img = cv2.flip(img, 1)
-            flip_faces = face_app.get(flip_img)
-            if flip_faces:
-                flip_faces_sorted = sorted(flip_faces, key=_face_sort_key)
-                if flip_faces_sorted:
-                    emb1 = _normalize(flip_faces_sorted[0].embedding.astype(np.float32))
-        except Exception:
-            pass
+    emb1 = _emb_from_aligned(flip_crop, "flip")
     if emb1 is None:
         emb1 = emb0.copy()
     embeddings.append(emb1)
@@ -1528,7 +1515,7 @@ def _generate_multi_embeddings_from_image(
         if crop_tight.size > 0:
             crop_tight_resized = _resize_to_ref(crop_tight)
             _log_variant("crop_tight", crop_tight_resized)
-            e = _emb_from_crop(crop_tight_resized, "crop_tight")
+            e = _emb_from_aligned(crop_tight_resized, "crop_tight")
             embeddings.append(e if e is not None else emb0.copy())
         else:
             embeddings.append(emb0.copy())
@@ -1548,7 +1535,7 @@ def _generate_multi_embeddings_from_image(
     if crop_wide.size > 0:
         crop_wide_resized = _resize_to_ref(crop_wide)
         _log_variant("crop_wide", crop_wide_resized)
-        e = _emb_from_crop(crop_wide_resized, "crop_wide")
+        e = _emb_from_aligned(crop_wide_resized, "crop_wide")
         embeddings.append(e if e is not None else emb0.copy())
     else:
         embeddings.append(emb0.copy())
@@ -1558,7 +1545,7 @@ def _generate_multi_embeddings_from_image(
     lut = np.array([((i / 255.0) ** inv_gamma_lo) * 255 for i in range(256)], dtype=np.uint8)
     gamma_lo = cv2.LUT(aligned, lut)
     _log_variant("gamma_lo", gamma_lo)
-    e = _emb_from_crop(gamma_lo, "gamma_lo")
+    e = _emb_from_aligned(gamma_lo, "gamma_lo")
     embeddings.append(e if e is not None else emb0.copy())
 
     # 5) Gamma 1.1
@@ -1566,19 +1553,19 @@ def _generate_multi_embeddings_from_image(
     lut = np.array([((i / 255.0) ** inv_gamma_hi) * 255 for i in range(256)], dtype=np.uint8)
     gamma_hi = cv2.LUT(aligned, lut)
     _log_variant("gamma_hi", gamma_hi)
-    e = _emb_from_crop(gamma_hi, "gamma_hi")
+    e = _emb_from_aligned(gamma_hi, "gamma_hi")
     embeddings.append(e if e is not None else emb0.copy())
 
     # 6) Brightness 0.95
     bright_lo = cv2.convertScaleAbs(aligned, alpha=0.95, beta=0)
     _log_variant("bright_lo", bright_lo)
-    e = _emb_from_crop(bright_lo, "bright_lo")
+    e = _emb_from_aligned(bright_lo, "bright_lo")
     embeddings.append(e if e is not None else emb0.copy())
 
     # 7) Brightness 1.05
     bright_hi = cv2.convertScaleAbs(aligned, alpha=1.05, beta=0)
     _log_variant("bright_hi", bright_hi)
-    e = _emb_from_crop(bright_hi, "bright_hi")
+    e = _emb_from_aligned(bright_hi, "bright_hi")
     embeddings.append(e if e is not None else emb0.copy())
 
     embeddings = embeddings[:target_count]
