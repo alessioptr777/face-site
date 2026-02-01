@@ -1450,16 +1450,30 @@ def _generate_multi_embeddings_from_image(
 
     def _emb_from_crop(crop_img: np.ndarray, variant_name: str = "") -> Optional[np.ndarray]:
         crop = np.ascontiguousarray(crop_img)
-        faces = face_app.get(crop)
-        if not faces:
-            logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} no face found")
+        try:
+            faces = face_app.get(crop)
+            if not faces:
+                logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} no face found (fallback=emb0)")
+                return None
+            n_faces = len(faces)
+            best = max(faces, key=lambda f: (float(getattr(f, "det_score", 0)), (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])))
+            best_det_score = float(getattr(best, "det_score", 0))
+            bbox = getattr(best, "bbox", (0, 0, 0, 0))
+            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            logger.info(f"[MULTI_EMB_VARIANT] {variant_name} n_faces={n_faces} best_det_score={best_det_score:.4f} bbox={tuple(int(x) for x in bbox)} area={int(area)}")
+            if recog is not None:
+                emb_raw = recog.get(crop, best)
+                emb = _normalize(np.asarray(emb_raw, dtype=np.float32).flatten())
+            else:
+                emb = _normalize(best.embedding.astype(np.float32))
+            norm = float(np.linalg.norm(emb))
+            first5 = [round(float(x), 6) for x in emb[:5].tolist()]
+            logger.info(f"[MULTI_EMB_VARIANT] {variant_name} -> emb norm={norm:.6f} first5={first5}")
+            return emb
+        except Exception as e:
+            import traceback
+            logger.warning(f"[MULTI_EMB_VARIANT] {variant_name} FAILED: {e}\n{traceback.format_exc()}")
             return None
-        best = max(faces, key=lambda f: float(getattr(f, "det_score", 0)))
-        emb = _normalize(best.embedding.astype(np.float32))
-        norm = float(np.linalg.norm(emb))
-        first5 = [round(float(x), 6) for x in emb[:5].tolist()]
-        logger.info(f"[MULTI_EMB_VARIANT] {variant_name} -> emb norm={norm:.6f} first5={first5}")
-        return emb
 
     embeddings = []
     _log_variant("orig", aligned)
