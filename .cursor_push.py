@@ -23,9 +23,19 @@ def run_git_push():
         print("📝 Aggiungo modifiche...")
         subprocess.run(['git', 'add', '-A'], check=True)
         
+        # Rimuovi solo i lock noti (senza os.walk su .git che può bloccarsi)
+        for rel in ['HEAD.lock', 'refs/heads/main.lock']:
+            path = os.path.join(repo_path, '.git', rel)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    print(f"🔓 Rimosso lock: {rel}")
+                except OSError:
+                    pass
+        
         # Commit
         print("💾 Creo commit...")
-        commit_msg = "Fix: Stripe metadata 500 char limit - use token for long photo_ids lists"
+        commit_msg = "Index fallback det_area: baci/abbracci senza aspect, padding 20%, debug face0/face1"
         subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
         
         # Push

@@ -1363,9 +1363,10 @@ def _indexing_fallback_split_faces(
     img: np.ndarray, faces: List[Any], r2_key_or_filename: str, face_app: Any
 ) -> List[Any]:
     """
-    Se c'è una sola faccia ma la bbox è sospetta (aspect largo, area enorme, det basso+larga),
-    prova detection su ROI con padding e opzionalmente su metà left/right per separare baci/profili.
-    Restituisce le facce da usare (originali o separate); converte bbox/kps in coordinate immagine originale.
+    Se c'è una sola faccia ma la bbox è sospetta (det_area: det basso + area grande per baci;
+    oppure aspect largo / area_ratio / det_wide), prova detection su ROI con padding e
+    opzionalmente su metà left/right per separare baci/abbracci. Restituisce le facce da usare;
+    converte bbox/kps in coordinate immagine originale.
     """
     if len(faces) != 1:
         return faces
@@ -1383,15 +1384,28 @@ def _indexing_fallback_split_faces(
     if img_area <= 0:
         return faces
     area_ratio = area / img_area
-    suspicious = (
+    # det_area: baci/abbracci (bbox non necessariamente larga, aspect non usato)
+    det_area_suspicious = (
+        det <= 0.82
+        and (area >= 90000 or (bbox_w >= 280 and bbox_h >= 320))
+    )
+    # euristiche legacy (aspect largo, area enorme, det basso+larga)
+    legacy_suspicious = (
         aspect >= 1.25
         or area_ratio >= 0.08
         or (det < 0.80 and aspect >= 1.25)
     )
+    suspicious = det_area_suspicious or legacy_suspicious
     if not suspicious:
         return faces
-    pad_w = 0.12 * bbox_w
-    pad_h = 0.12 * bbox_h
+    reason = (
+        "det_area"
+        if det_area_suspicious
+        else ("aspect" if aspect >= 1.25 else "area_ratio" if area_ratio >= 0.08 else "det_wide")
+    )
+    pad_ratio = 0.20 if reason == "det_area" else 0.12
+    pad_w = pad_ratio * bbox_w
+    pad_h = pad_ratio * bbox_h
     x1_roi = max(0, int(bbox[0] - pad_w))
     y1_roi = max(0, int(bbox[1] - pad_h))
     x2_roi = min(w_img, int(bbox[2] + pad_w))
@@ -1400,7 +1414,6 @@ def _indexing_fallback_split_faces(
         return faces
     roi = img[y1_roi:y2_roi, x1_roi:x2_roi]
     roi_faces = face_app.get(roi, max_num=10)
-    reason = "aspect" if aspect >= 1.25 else "area_ratio" if area_ratio >= 0.08 else "det_wide"
 
     def add_offset(fs: List[Any], ox: float, oy: float) -> None:
         for f in fs:
@@ -1411,6 +1424,30 @@ def _indexing_fallback_split_faces(
             if getattr(f, "kps", None) is not None:
                 f.kps = f.kps + np.array([ox, oy], dtype=f.kps.dtype)
 
+    def _save_fallback_debug(result_faces: List[Any], base: str) -> None:
+        """Salva <base>_roi.jpg e debug_<base>_face{idx}_detX.png per ogni volto risultante."""
+        if not DEBUG:
+            return
+        try:
+            DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
+            cv2.imwrite(str(path_roi), roi)
+            logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
+            for idx, f in enumerate(result_faces):
+                d = float(getattr(f, "det_score", 0.0))
+                bx = getattr(f, "bbox", (0, 0, 0, 0))
+                x1 = max(0, int(bx[0]))
+                y1 = max(0, int(bx[1]))
+                x2 = min(w_img, int(bx[2]))
+                y2 = min(h_img, int(bx[3]))
+                if x2 > x1 and y2 > y1:
+                    crop = img[y1:y2, x1:x2].copy()
+                    path_face = DEBUG_INDEX_DIR / f"debug_{base}_face{idx}_det{d:.3f}.png"
+                    cv2.imwrite(str(path_face), crop)
+                    logger.info(f"[INDEX_FALLBACK] saved {path_face}")
+        except Exception as e:
+            logger.warning(f"[INDEX_FALLBACK] save debug failed: {e}")
+
     if len(roi_faces) >= 2:
         add_offset(roi_faces, float(x1_roi), float(y1_roi))
         logger.info(
@@ -1418,15 +1455,8 @@ def _indexing_fallback_split_faces(
             f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
             f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(roi_faces)}"
         )
-        if DEBUG:
-            try:
-                DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-                base = Path(r2_key_or_filename).stem
-                path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
-                cv2.imwrite(str(path_roi), roi)
-                logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
-            except Exception as e:
-                logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
+        base = Path(r2_key_or_filename).stem
+        _save_fallback_debug(roi_faces, base)
         return roi_faces
 
     if len(roi_faces) <= 1:
@@ -1468,15 +1498,8 @@ def _indexing_fallback_split_faces(
             f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
             f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(dedup)}"
         )
-        if DEBUG:
-            try:
-                DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-                base = Path(r2_key_or_filename).stem
-                path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
-                cv2.imwrite(str(path_roi), roi)
-                logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
-            except Exception as e:
-                logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
+        base = Path(r2_key_or_filename).stem
+        _save_fallback_debug(dedup, base)
         return dedup
     return faces
 
