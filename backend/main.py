@@ -122,6 +122,10 @@ MAX_DOWNLOADS_PER_PHOTO = int(os.getenv("MAX_DOWNLOADS_PER_PHOTO", "3"))  # Max 
 
 # Diagnostica match selfie: log e DEBUG_CROPS (solo se DEBUG_CROPS=1)
 DEBUG_CROPS = str(os.getenv("DEBUG_CROPS", "0")).strip().lower() in {"1", "true", "yes", "on"}
+# DEBUG=true abilita route /debug/list e /debug/file/<name> per ispezione crop indicizzazione
+DEBUG = str(os.getenv("DEBUG", "0")).strip().lower() in {"1", "true", "yes", "on"}
+# Cartella per salvare crop debug indicizzazione (es. IMG_1129); default static/debug
+DEBUG_INDEX_DIR = Path(os.getenv("DEBUG_INDEX_DIR", str(STATIC_DIR / "debug")))
 _DIAG_EMB_CACHE_MAX = 10
 _DIAG_EMB_CACHE: Dict[str, np.ndarray] = {}  # file_sha1 -> emb0 per confronto cosine tra run
 
@@ -1353,6 +1357,80 @@ def _face_sort_key(f: Any) -> Tuple[float, float, float, float, float, float]:
     det = float(getattr(f, "det_score", 0.0))
     x1, y1, x2, y2 = float(f.bbox[0]), float(f.bbox[1]), float(f.bbox[2]), float(f.bbox[3])
     return (-area, -det, x1, y1, x2, y2)
+
+
+def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str, face_app: Any) -> None:
+    """Debug solo per IMG_1129.jpg: log n_faces/det/bbox/area/kps, confronto emb get vs get_feat, salva crop su disk."""
+    base = Path(display_name).stem
+    if base != "IMG_1129":
+        return
+    recog = getattr(face_app, "models", {}).get("recognition") if face_app else None
+    n_faces = len(faces)
+    logger.info(f"[DEBUG_IMG_1129] n_faces={n_faces} display_name={display_name}")
+    try:
+        DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"[DEBUG_IMG_1129] Cannot create debug dir {DEBUG_INDEX_DIR}: {e}")
+        return
+    for idx, face in enumerate(faces):
+        det = float(getattr(face, "det_score", 0.0))
+        bbox = getattr(face, "bbox", (0, 0, 0, 0))
+        area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+        has_kps = getattr(face, "kps", None) is not None
+        kps_shape = face.kps.shape if has_kps else None
+        logger.info(f"[DEBUG_IMG_1129] face idx={idx} det_score={det:.4f} bbox={tuple(bbox)} area={int(area)} has_kps={has_kps} kps_shape={kps_shape}")
+        emb_get = None
+        emb_feat = None
+        aligned_crop = None
+        if recog is not None:
+            try:
+                emb_get = recog.get(img, face)
+                if emb_get is not None:
+                    emb_get = np.asarray(emb_get, dtype=np.float32).flatten()
+            except Exception as e:
+                logger.warning(f"[DEBUG_IMG_1129] face {idx} recog.get failed: {e}")
+            if has_kps:
+                try:
+                    from insightface.utils import face_align
+                    image_size = getattr(recog, "input_size", (112, 112))[0]
+                    aligned_crop = face_align.norm_crop(img, landmark=face.kps, image_size=image_size)
+                    emb_feat = recog.get_feat(aligned_crop)
+                    emb_feat = np.asarray(emb_feat, dtype=np.float32).flatten()
+                except Exception as e:
+                    logger.warning(f"[DEBUG_IMG_1129] face {idx} get_feat(aligned_crop) failed: {e}")
+        if emb_get is not None:
+            n_get = float(np.linalg.norm(emb_get))
+            logger.info(f"[DEBUG_IMG_1129] face {idx} emb_get norm={n_get:.6f}")
+        if emb_feat is not None:
+            n_feat = float(np.linalg.norm(emb_feat))
+            logger.info(f"[DEBUG_IMG_1129] face {idx} emb_feat norm={n_feat:.6f}")
+        if emb_get is not None and emb_feat is not None:
+            e1 = emb_get / (np.linalg.norm(emb_get) or 1e-9)
+            e2 = emb_feat / (np.linalg.norm(emb_feat) or 1e-9)
+            cos_sim = float(np.dot(e1, e2))
+            logger.info(f"[DEBUG_IMG_1129] face {idx} cosine_similarity(emb_get, emb_feat)={cos_sim:.6f}")
+        if aligned_crop is not None:
+            try:
+                fn = f"debug_{base}_face{idx}_det{det:.3f}.png"
+                path = DEBUG_INDEX_DIR / fn
+                cv2.imwrite(str(path), aligned_crop)
+                logger.info(f"[DEBUG_IMG_1129] saved {path}")
+            except Exception as e:
+                logger.warning(f"[DEBUG_IMG_1129] face {idx} save crop failed: {e}")
+    h, w = img.shape[:2]
+    max_side = max(h, w)
+    if max_side > 1024:
+        scale = 1024.0 / max_side
+        new_w, new_h = int(w * scale), int(h * scale)
+        img_small = cv2.resize(img, (new_w, new_h))
+    else:
+        img_small = img
+    try:
+        path_orig = DEBUG_INDEX_DIR / f"{base}_original.jpg"
+        cv2.imwrite(str(path_orig), img_small)
+        logger.info(f"[DEBUG_IMG_1129] saved original {path_orig}")
+    except Exception as e:
+        logger.warning(f"[DEBUG_IMG_1129] save original failed: {e}")
 
 
 # Numero di reference embeddings per match selfie (augment controllati: orig, flip, crop ±8%, gamma/brightness)
@@ -2945,6 +3023,9 @@ async def startup():
                             # Foto senza volti -> salta
                             continue
                         
+                        # Debug solo per IMG_1129.jpg (log + salva crop su disk)
+                        _debug_indexing_img1129(img, faces, display_name, face_app)
+                        
                         # Per ogni volto, crea embedding e metadata
                         for face in faces:
                             embedding = face.embedding.astype(np.float32)
@@ -3234,6 +3315,31 @@ def health():
         "index_size": index_size
     }
 
+
+if DEBUG:
+    @app.get("/debug/list")
+    async def debug_list():
+        """Lista file nella cartella debug indicizzazione (solo se DEBUG=true)."""
+        try:
+            if not DEBUG_INDEX_DIR.exists():
+                return {"files": [], "dir": str(DEBUG_INDEX_DIR)}
+            names = sorted(p.name for p in DEBUG_INDEX_DIR.iterdir() if p.is_file())
+            return {"files": names, "dir": str(DEBUG_INDEX_DIR)}
+        except Exception as e:
+            return {"error": str(e), "files": [], "dir": str(DEBUG_INDEX_DIR)}
+
+    @app.get("/debug/file/{name:path}")
+    async def debug_file(name: str):
+        """Serve un file dalla cartella debug (solo se DEBUG=true). name = filename (es. debug_IMG_1129_face0_det0.950.png)."""
+        from fastapi.responses import FileResponse
+        if ".." in name or "/" in name or "\\" in name:
+            raise HTTPException(status_code=404, detail="Invalid name")
+        path = DEBUG_INDEX_DIR / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        return FileResponse(str(path), media_type="image/png" if name.lower().endswith(".png") else "image/jpeg")
+
+
 # Cache per hash delle keys (per check veloce)
 _r2_keys_hash_cache = None
 
@@ -3496,6 +3602,9 @@ async def sync_index_with_r2_incremental():
                     if not faces:
                         # Foto senza volti -> salta
                         continue
+                    
+                    # Debug solo per IMG_1129.jpg (log + salva crop su disk)
+                    _debug_indexing_img1129(img, faces, filename, face_app)
                     
                     # Per ogni volto, crea embedding e metadata
                     for face in faces:
