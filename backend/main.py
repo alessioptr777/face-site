@@ -1359,19 +1359,21 @@ def _face_sort_key(f: Any) -> Tuple[float, float, float, float, float, float]:
     return (-area, -det, x1, y1, x2, y2)
 
 
-def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str, face_app: Any) -> None:
-    """Debug solo per IMG_1129.jpg: log n_faces/det/bbox/area/kps, confronto emb get vs get_feat, salva crop su disk."""
+def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str, face_app: Any, recog: Any = None) -> None:
+    """Debug solo per IMG_1129: log n_faces/det/bbox/area/kps, emb_feat norm+first5, salva original + crop (aligned o bbox) su disk."""
     base = Path(display_name).stem
     if base != "IMG_1129":
         return
-    recog = getattr(face_app, "models", {}).get("recognition") if face_app else None
+    if recog is None:
+        recog = getattr(face_app, "models", {}).get("recognition") if face_app else None
     n_faces = len(faces)
-    logger.info(f"[DEBUG_IMG_1129] n_faces={n_faces} display_name={display_name}")
+    logger.info(f"[DEBUG_IMG_1129] display_name={display_name} n_faces={n_faces}")
     try:
         DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger.warning(f"[DEBUG_IMG_1129] Cannot create debug dir {DEBUG_INDEX_DIR}: {e}")
         return
+    h_img, w_img = img.shape[:2]
     for idx, face in enumerate(faces):
         det = float(getattr(face, "det_score", 0.0))
         bbox = getattr(face, "bbox", (0, 0, 0, 0))
@@ -1381,7 +1383,7 @@ def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str
         logger.info(f"[DEBUG_IMG_1129] face idx={idx} det_score={det:.4f} bbox={tuple(bbox)} area={int(area)} has_kps={has_kps} kps_shape={kps_shape}")
         emb_get = None
         emb_feat = None
-        aligned_crop = None
+        crop_to_save = None
         if recog is not None:
             try:
                 emb_get = recog.get(img, face)
@@ -1394,26 +1396,32 @@ def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str
                     from insightface.utils import face_align
                     image_size = getattr(recog, "input_size", (112, 112))[0]
                     aligned_crop = face_align.norm_crop(img, landmark=face.kps, image_size=image_size)
+                    crop_to_save = aligned_crop
                     emb_feat = recog.get_feat(aligned_crop)
                     emb_feat = np.asarray(emb_feat, dtype=np.float32).flatten()
                 except Exception as e:
                     logger.warning(f"[DEBUG_IMG_1129] face {idx} get_feat(aligned_crop) failed: {e}")
+            else:
+                x1, y1, x2, y2 = max(0, int(bbox[0])), max(0, int(bbox[1])), min(w_img, int(bbox[2])), min(h_img, int(bbox[3]))
+                if x2 > x1 and y2 > y1:
+                    crop_to_save = img[y1:y2, x1:x2].copy()
         if emb_get is not None:
             n_get = float(np.linalg.norm(emb_get))
             logger.info(f"[DEBUG_IMG_1129] face {idx} emb_get norm={n_get:.6f}")
         if emb_feat is not None:
             n_feat = float(np.linalg.norm(emb_feat))
-            logger.info(f"[DEBUG_IMG_1129] face {idx} emb_feat norm={n_feat:.6f}")
+            first5 = [round(float(x), 6) for x in emb_feat[:5].tolist()]
+            logger.info(f"[DEBUG_IMG_1129] face {idx} emb_feat norm={n_feat:.6f} first5={first5}")
         if emb_get is not None and emb_feat is not None:
             e1 = emb_get / (np.linalg.norm(emb_get) or 1e-9)
             e2 = emb_feat / (np.linalg.norm(emb_feat) or 1e-9)
             cos_sim = float(np.dot(e1, e2))
             logger.info(f"[DEBUG_IMG_1129] face {idx} cosine_similarity(emb_get, emb_feat)={cos_sim:.6f}")
-        if aligned_crop is not None:
+        if crop_to_save is not None:
             try:
                 fn = f"debug_{base}_face{idx}_det{det:.3f}.png"
                 path = DEBUG_INDEX_DIR / fn
-                cv2.imwrite(str(path), aligned_crop)
+                cv2.imwrite(str(path), crop_to_save)
                 logger.info(f"[DEBUG_IMG_1129] saved {path}")
             except Exception as e:
                 logger.warning(f"[DEBUG_IMG_1129] face {idx} save crop failed: {e}")
