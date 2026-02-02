@@ -1359,6 +1359,128 @@ def _face_sort_key(f: Any) -> Tuple[float, float, float, float, float, float]:
     return (-area, -det, x1, y1, x2, y2)
 
 
+def _indexing_fallback_split_faces(
+    img: np.ndarray, faces: List[Any], r2_key_or_filename: str, face_app: Any
+) -> List[Any]:
+    """
+    Se c'è una sola faccia ma la bbox è sospetta (aspect largo, area enorme, det basso+larga),
+    prova detection su ROI con padding e opzionalmente su metà left/right per separare baci/profili.
+    Restituisce le facce da usare (originali o separate); converte bbox/kps in coordinate immagine originale.
+    """
+    if len(faces) != 1:
+        return faces
+    face = faces[0]
+    bbox = face.bbox
+    det = float(getattr(face, "det_score", 0.0))
+    bbox_w = float(bbox[2] - bbox[0])
+    bbox_h = float(bbox[3] - bbox[1])
+    if bbox_h <= 0:
+        return faces
+    aspect = bbox_w / bbox_h
+    area = bbox_w * bbox_h
+    h_img, w_img = img.shape[:2]
+    img_area = w_img * h_img
+    if img_area <= 0:
+        return faces
+    area_ratio = area / img_area
+    suspicious = (
+        aspect >= 1.25
+        or area_ratio >= 0.08
+        or (det < 0.80 and aspect >= 1.25)
+    )
+    if not suspicious:
+        return faces
+    pad_w = 0.12 * bbox_w
+    pad_h = 0.12 * bbox_h
+    x1_roi = max(0, int(bbox[0] - pad_w))
+    y1_roi = max(0, int(bbox[1] - pad_h))
+    x2_roi = min(w_img, int(bbox[2] + pad_w))
+    y2_roi = min(h_img, int(bbox[3] + pad_h))
+    if x2_roi <= x1_roi or y2_roi <= y1_roi:
+        return faces
+    roi = img[y1_roi:y2_roi, x1_roi:x2_roi]
+    roi_faces = face_app.get(roi, max_num=10)
+    reason = "aspect" if aspect >= 1.25 else "area_ratio" if area_ratio >= 0.08 else "det_wide"
+
+    def add_offset(fs: List[Any], ox: float, oy: float) -> None:
+        for f in fs:
+            f.bbox = np.array(
+                [f.bbox[0] + ox, f.bbox[1] + oy, f.bbox[2] + ox, f.bbox[3] + oy],
+                dtype=f.bbox.dtype if hasattr(f.bbox, "dtype") else np.float32,
+            )
+            if getattr(f, "kps", None) is not None:
+                f.kps = f.kps + np.array([ox, oy], dtype=f.kps.dtype)
+
+    if len(roi_faces) >= 2:
+        add_offset(roi_faces, float(x1_roi), float(y1_roi))
+        logger.info(
+            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason} det={det:.3f} "
+            f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
+            f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(roi_faces)}"
+        )
+        if DEBUG:
+            try:
+                DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+                base = Path(r2_key_or_filename).stem
+                path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
+                cv2.imwrite(str(path_roi), roi)
+                logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
+            except Exception as e:
+                logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
+        return roi_faces
+
+    if len(roi_faces) <= 1:
+        rh, rw = roi.shape[:2]
+        if rw < 40:
+            return faces
+        overlap = 0.10
+        left_w = int(rw * (0.5 + overlap / 2))
+        right_start = int(rw * (0.5 - overlap / 2))
+        left_roi = roi[:, :left_w]
+        right_roi = roi[:, right_start:]
+        left_faces = face_app.get(left_roi, max_num=5)
+        right_faces = face_app.get(right_roi, max_num=5)
+        add_offset(right_faces, float(right_start), 0.0)
+        merged = list(left_faces) + list(right_faces)
+        if len(merged) < 2:
+            return faces
+        merged_sorted = sorted(merged, key=lambda x: -float(getattr(x, "det_score", 0)))
+        dedup = []
+        for f in merged_sorted:
+            overlap_any = False
+            for g in dedup:
+                bx, by = max(f.bbox[0], g.bbox[0]), max(f.bbox[1], g.bbox[1])
+                bx2, by2 = min(f.bbox[2], g.bbox[2]), min(f.bbox[3], g.bbox[3])
+                inter = max(0, bx2 - bx) * max(0, by2 - by)
+                a1 = (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+                a2 = (g.bbox[2] - g.bbox[0]) * (g.bbox[3] - g.bbox[1])
+                iou = inter / (a1 + a2 - inter) if (a1 + a2 - inter) > 0 else 0
+                if iou > 0.5:
+                    overlap_any = True
+                    break
+            if not overlap_any:
+                dedup.append(f)
+        if len(dedup) < 2:
+            return faces
+        add_offset(dedup, float(x1_roi), float(y1_roi))
+        logger.info(
+            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason}+split det={det:.3f} "
+            f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
+            f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(dedup)}"
+        )
+        if DEBUG:
+            try:
+                DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+                base = Path(r2_key_or_filename).stem
+                path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
+                cv2.imwrite(str(path_roi), roi)
+                logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
+            except Exception as e:
+                logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
+        return dedup
+    return faces
+
+
 def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str, face_app: Any, recog: Any = None) -> None:
     """Debug solo per IMG_1129: log n_faces/det/bbox/area/kps, emb_feat norm+first5, salva original + crop (aligned o bbox) su disk."""
     base = Path(display_name).stem
@@ -3031,6 +3153,9 @@ async def startup():
                             # Foto senza volti -> salta
                             continue
                         
+                        # Fallback: 1 bbox sospetta (bacio/profili) -> prova ROI/split per separare volti
+                        faces = _indexing_fallback_split_faces(img, faces, r2_key, face_app)
+                        
                         # Debug solo per IMG_1129.jpg (log + salva crop su disk)
                         _debug_indexing_img1129(img, faces, display_name, face_app)
                         
@@ -3610,6 +3735,9 @@ async def sync_index_with_r2_incremental():
                     if not faces:
                         # Foto senza volti -> salta
                         continue
+                    
+                    # Fallback: 1 bbox sospetta (bacio/profili) -> prova ROI/split per separare volti
+                    faces = _indexing_fallback_split_faces(img, faces, filename, face_app)
                     
                     # Debug solo per IMG_1129.jpg (log + salva crop su disk)
                     _debug_indexing_img1129(img, faces, filename, face_app)
