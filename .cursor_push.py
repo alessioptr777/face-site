@@ -35,7 +35,7 @@ def run_git_push():
         
         # Commit
         print("💾 Creo commit...")
-        commit_msg = "Match: COUPLE RECOVERY (linked_faces, user_face_indices), DIAG_PER_FACE IMG_1129"
+        commit_msg = "Match: INDEX_LOCK + MATCH_STATE/INDEX_SWAP, ANCHOR PASS, COUPLE_RECOVERY se accepted>0"
         subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
         
         # Push

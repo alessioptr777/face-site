@@ -3327,13 +3327,13 @@ async def startup():
                         logger.error(f"[INDEXING] Error processing photo {r2_key}: {e}")
                         continue
                 
-                # ========== STEP 4: Aggiorna variabili globali ==========
+                # ========== STEP 4: Aggiorna variabili globali (swap atomico sotto lock) ==========
                 faiss_index = new_faiss_index
                 meta_rows = new_meta_rows
-                
                 vectors_in_index = faiss_index.ntotal
                 meta_rows_count = len(meta_rows)
-                
+                index_hash = hashlib.sha256(f"{vectors_in_index}_{meta_rows_count}".encode()).hexdigest()[:16]
+                logger.info(f"[INDEX_SWAP] vectors_in_index={vectors_in_index} meta_rows={meta_rows_count} hash={index_hash}")
                 logger.info(f"[INDEXING] faces_total={faces_total} vectors_in_index={vectors_in_index} meta_rows={meta_rows_count}")
                 
                 # ========== STEP 5: Salva su R2 (sovrascrivi sempre) ==========
@@ -3906,13 +3906,13 @@ async def sync_index_with_r2_incremental():
                     logger.error(f"[INDEXING] Error processing new photo {filename}: {e}")
                     continue
             
-            # ========== STEP 6: Swap atomico ==========
+            # ========== STEP 6: Swap atomico (sotto lock) ==========
             faiss_index = new_faiss_index
             meta_rows = new_meta_rows
-            
             vectors_in_index = faiss_index.ntotal
             meta_rows_count = len(meta_rows)
-            
+            index_hash = hashlib.sha256(f"{vectors_in_index}_{meta_rows_count}".encode()).hexdigest()[:16]
+            logger.info(f"[INDEX_SWAP] vectors_in_index={vectors_in_index} meta_rows={meta_rows_count} hash={index_hash}")
             logger.info(f"[INDEXING] faces_total={faces_total} vectors_in_index={vectors_in_index} meta_rows={meta_rows_count}")
             
             # ========== STEP 7: Salva su R2 (sovrascrivi sempre) ==========
@@ -6256,39 +6256,24 @@ async def match_selfie(
     - Ritorna fino a 80 foto ordinate per score
     - Logging dettagliato per debug
     """
-    global meta_rows
+    global meta_rows, indexing_lock
     _ensure_ready()
     
     start_time = time.time()
     t_match_start = time.perf_counter()
     
-    # Salva meta_rows originale per ripristino (prima di qualsiasi return)
-    old_meta_rows = meta_rows
-    
     try:
-        # Gestisci indice vuoto o metadata mancanti
-        if faiss_index is None or faiss_index.ntotal == 0 or len(meta_rows) == 0:
+        # Leggi indice e meta SOLO sotto lock (stesso stato usato da SYNC)
+        if indexing_lock is None:
+            indexing_lock = asyncio.Lock()
+        async with indexing_lock:
+            local_faiss_index = faiss_index
+            local_meta_rows = list(meta_rows) if meta_rows else []
+        n_faces_index_lock = local_faiss_index.ntotal if local_faiss_index else 0
+        n_meta_lock = len(local_meta_rows)
+        logger.info(f"[MATCH_STATE] vectors_in_index={n_faces_index_lock} meta_rows={n_meta_lock}")
+        if n_faces_index_lock == 0 or n_meta_lock == 0:
             logger.info("Index is empty or not loaded - returning empty result")
-            return {
-                "ok": True,
-                "count": 0,
-                "matches": [],
-                "results": [],
-                "matched_count": 0,
-                "message": "Foto non trovate oppure ancora in elaborazione. Riprova più tardi."
-            }
-        
-        # RICARICA SEMPRE I METADATA DAI FILE JSON
-        current_meta_rows = []
-        if R2_ONLY_MODE:
-            current_meta_rows = meta_rows
-        elif META_PATH.exists():
-            current_meta_rows = _load_meta_jsonl(META_PATH)
-        else:
-            current_meta_rows = []
-        
-        if len(current_meta_rows) == 0:
-            logger.info("No photos in metadata - returning empty result")
             return {
                 "ok": True,
                 "count": 0,
@@ -6397,18 +6382,15 @@ async def match_selfie(
                 "message": "Impossibile estrarre embedding dal selfie."
             }
         
-        # Aggiorna temporaneamente meta_rows
-            meta_rows = current_meta_rows
-        
-        # ========== SINGLE-PASS MATCHING ==========
-        n_faces_index = faiss_index.ntotal
-        n_meta_rows = len(meta_rows)
+        # ========== SINGLE-PASS MATCHING (usa stato letto sotto lock) ==========
+        n_faces_index = local_faiss_index.ntotal
+        n_meta_rows = len(local_meta_rows)
         top_k = min(top_k_faces, n_faces_index)
         logger.info(f"[MATCH] Starting single-pass: n_faces_index={n_faces_index} meta_rows={n_meta_rows} ref_embeddings={len(ref_embeddings)} top_k={top_k}")
 
         # STRUTTURA DATI: foto -> lista face_idx (per COUPLE RECOVERY e DIAG_PER_FACE)
         photo_to_face_indices: Dict[str, List[int]] = {}
-        for idx, row in enumerate(meta_rows):
+        for idx, row in enumerate(local_meta_rows):
             r2_key = row.get("r2_key") or row.get("photo_id")
             if not r2_key:
                 continue
@@ -6486,12 +6468,12 @@ async def match_selfie(
             t_faiss_start = time.perf_counter()
             # Single-pass FAISS search (top_k)
             for ref_idx, ref_emb in enumerate(ref_embeddings):
-                D, I = faiss_index.search(ref_emb.reshape(1, -1), top_k)
+                D, I = local_faiss_index.search(ref_emb.reshape(1, -1), top_k)
                 total_candidates += len(I[0])
                 for score, idx in zip(D[0].tolist(), I[0].tolist()):
-                    if idx < 0 or idx >= len(meta_rows):
+                    if idx < 0 or idx >= len(local_meta_rows):
                         continue
-                    row = meta_rows[idx]
+                    row = local_meta_rows[idx]
                     r2_key = row.get("r2_key") or row.get("photo_id")
                     if not r2_key:
                         continue
@@ -6554,7 +6536,7 @@ async def match_selfie(
                 c = candidates_by_photo[r2_k]
                 face_scores = c.get("face_scores", {})
                 for face_idx in face_indices:
-                    row = meta_rows[face_idx] if face_idx < len(meta_rows) else {}
+                    row = local_meta_rows[face_idx] if face_idx < len(local_meta_rows) else {}
                     det_val = float(row.get("det_score") or row.get("score") or 0)
                     best_s = face_scores.get(face_idx)
                     if best_s is not None:
@@ -6565,7 +6547,7 @@ async def match_selfie(
                         )
                     else:
                         try:
-                            vec = faiss_index.reconstruct(int(face_idx))
+                            vec = local_faiss_index.reconstruct(int(face_idx))
                             vec_n = _normalize(vec.astype(np.float32).reshape(1, -1))
                             scores_ref = [float(np.dot(vec_n, ref_emb.reshape(-1, 1)).flat[0]) for ref_emb in ref_embeddings]
                             best_s = max(scores_ref) if scores_ref else 0.0
@@ -6907,9 +6889,9 @@ async def match_selfie(
                 border_rej = [x for x in rejected if x.get("borderline")][:20]
                 for r in border_rej:
                     r2_k, idx = r.get("r2_key"), r.get("best_idx")
-                    if r2_k is None or idx is None or idx >= len(meta_rows):
+                    if r2_k is None or idx is None or idx >= len(local_meta_rows):
                         continue
-                    row = meta_rows[idx]
+                    row = local_meta_rows[idx]
                     bbox = row.get("bbox")
                     if not bbox or len(bbox) != 4:
                         continue
@@ -6938,7 +6920,61 @@ async def match_selfie(
                 f"faiss_search_ms={faiss_search_ms:.2f} scoring_ms={scoring_ms:.2f} total_match_ms={total_match_ms:.2f}"
             )
 
-            # ---------- COUPLE RECOVERY: legami co-occorrenza + foto con >=2 facce ----------
+            # ---------- accepted_photos (per ANCHOR e COUPLE RECOVERY) ----------
+            accepted_photos = set(r.get("r2_key") or r.get("photo_id") for r in results if (r.get("r2_key") or r.get("photo_id")))
+
+            # ---------- ANCHOR PASS: se 0 foto accettate, prova a prendere 1-2 "ancora" con soglie controllate ----------
+            anchor_min_small = 0.33
+            anchor_min_medium_large = 0.30
+            anchor_max_count = 2
+            if len(accepted_photos) == 0 and rejected:
+                rejected_sorted = sorted(rejected, key=lambda x: x["score"], reverse=True)
+                anchor_added = 0
+                for r in rejected_sorted:
+                    if anchor_added >= anchor_max_count:
+                        break
+                    det_score_val = float(r.get("det_score") or 0)
+                    if det_score_val < 0.80:
+                        continue
+                    best_score_val = float(r.get("score") or 0)
+                    bucket = r.get("bucket", "small")
+                    anchor_min = anchor_min_small if bucket == "small" else anchor_min_medium_large
+                    if best_score_val < anchor_min:
+                        continue
+                    margin_val = r.get("margin")
+                    if margin_val is not None and float(margin_val) < 0.08:
+                        continue
+                    hits_val = r.get("hits", 0)
+                    if hits_val < 2:
+                        continue
+                    r2_key = r.get("r2_key")
+                    if not r2_key:
+                        continue
+                    from pathlib import Path
+                    from urllib.parse import quote
+                    r2_key_encoded = quote(r2_key, safe='')
+                    results.append({
+                        "r2_key": r2_key,
+                        "display_name": Path(r2_key).name,
+                        "photo_id": r2_key,
+                        "score": best_score_val,
+                        "has_face": True,
+                        "has_selfie": True,
+                        "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
+                        "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
+                    })
+                    accepted_photos.add(r2_key)
+                    anchor_added += 1
+                    c = candidates_by_photo.get(r2_key, {})
+                    best_idx = c.get("best_idx", -1)
+                    logger.info(
+                        f"[ANCHOR_PASS] ACCEPT r2_key={r2_key} face_idx={best_idx} det={det_score_val:.3f} "
+                        f"score={best_score_val:.3f} bucket={bucket}"
+                    )
+                if anchor_added == 0 and rejected_sorted:
+                    logger.info("[ANCHOR_PASS] no anchors found, returning 0 matches")
+
+            # ---------- COUPLE RECOVERY: solo se accepted_photos non vuoto ----------
             linked_faces: Dict[int, set] = {}
             for r2_key, indices in photo_to_face_indices.items():
                 if len(indices) < 2:
@@ -6950,7 +6986,6 @@ async def match_selfie(
                         if i != j:
                             linked_faces[i].add(j)
 
-            accepted_photos = set(r.get("r2_key") or r.get("photo_id") for r in results if (r.get("r2_key") or r.get("photo_id")))
             user_strong_score = 0.35
             user_face_indices: set = set()
             for r2_key in accepted_photos:
@@ -6963,46 +6998,47 @@ async def match_selfie(
                         user_face_indices.add(face_idx)
 
             accepted_photos_recovered: List[Dict[str, Any]] = []
-            for r in rejected:
-                r2_key = r.get("r2_key")
-                if not r2_key:
-                    continue
-                faces_idx = photo_to_face_indices.get(r2_key, [])
-                if len(faces_idx) < 2:
-                    continue
-                linked_to_user = any(
-                    (f in user_face_indices) or (linked_faces.get(f, set()) & user_face_indices)
-                    for f in faces_idx
-                )
-                if not linked_to_user:
-                    continue
-                best_score_photo = float(r.get("score", 0))
-                if best_score_photo < 0.16:
-                    continue
-                dets_in_photo = []
-                for f in faces_idx:
-                    if f < len(meta_rows):
-                        row = meta_rows[f]
-                        dets_in_photo.append(float(row.get("det_score") or row.get("score") or 0))
-                if not any(d >= 0.35 for d in dets_in_photo):
-                    continue
-                from pathlib import Path
-                from urllib.parse import quote
-                r2_key_encoded = quote(r2_key, safe='')
-                accepted_photos_recovered.append({
-                    "r2_key": r2_key,
-                    "display_name": Path(r2_key).name,
-                    "photo_id": r2_key,
-                    "score": best_score_photo,
-                    "has_face": True,
-                    "has_selfie": True,
-                    "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
-                    "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
-                })
-                logger.info(
-                    f"[COUPLE_RECOVERY] ACCEPT r2_key={r2_key} best_score={best_score_photo:.3f} "
-                    f"reason=linked_to_user faces={faces_idx} dets={[round(d, 3) for d in dets_in_photo]}"
-                )
+            if len(accepted_photos) > 0:
+                for r in rejected:
+                    r2_key = r.get("r2_key")
+                    if not r2_key:
+                        continue
+                    faces_idx = photo_to_face_indices.get(r2_key, [])
+                    if len(faces_idx) < 2:
+                        continue
+                    linked_to_user = any(
+                        (f in user_face_indices) or (linked_faces.get(f, set()) & user_face_indices)
+                        for f in faces_idx
+                    )
+                    if not linked_to_user:
+                        continue
+                    best_score_photo = float(r.get("score", 0))
+                    if best_score_photo < 0.16:
+                        continue
+                    dets_in_photo = []
+                    for f in faces_idx:
+                        if f < len(local_meta_rows):
+                            row = local_meta_rows[f]
+                            dets_in_photo.append(float(row.get("det_score") or row.get("score") or 0))
+                    if not any(d >= 0.35 for d in dets_in_photo):
+                        continue
+                    from pathlib import Path
+                    from urllib.parse import quote
+                    r2_key_encoded = quote(r2_key, safe='')
+                    accepted_photos_recovered.append({
+                        "r2_key": r2_key,
+                        "display_name": Path(r2_key).name,
+                        "photo_id": r2_key,
+                        "score": best_score_photo,
+                        "has_face": True,
+                        "has_selfie": True,
+                        "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
+                        "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
+                    })
+                    logger.info(
+                        f"[COUPLE_RECOVERY] ACCEPT r2_key={r2_key} best_score={best_score_photo:.3f} "
+                        f"reason=linked_to_user faces={faces_idx} dets={[round(d, 3) for d in dets_in_photo]}"
+                    )
 
             results = results + accepted_photos_recovered
             if accepted_photos_recovered:
@@ -7056,8 +7092,7 @@ async def match_selfie(
             filtered_results = results
             
         finally:
-            # Ripristina meta_rows
-            meta_rows = old_meta_rows
+            pass  # non modificare meta_rows globali (match usa local_meta_rows)
         
         all_results = filtered_results
         
