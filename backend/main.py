@@ -1369,8 +1369,8 @@ def _indexing_fallback_split_faces(
 ) -> List[Any]:
     """
     Se c'è una sola faccia ma la bbox è sospetta (det_area / aspect / area_ratio / det_wide),
-    ordine tentativi: 1) full-pass su img (picked in zona espansa), 2) ROI contiguo + detect,
-    3) ROI multi-scala (0.75, 0.50) + dedup, 4) split left/right contiguo + dedup.
+    ordine tentativi: 1) FULL FRAME LOOSE (detector su img intera, filtra IoU>=0.10 o centro in bbox),
+    2) ROI contiguo + detect, 3) ROI multi-scala (0.75, 0.50) + dedup, 4) split left/right contiguo + dedup.
     Usa face_app_loose (det_thresh=0.25) se disponibile, altrimenti face_app.
     Restituisce le facce da usare; converte bbox/kps in coordinate immagine originale.
     """
@@ -1465,35 +1465,49 @@ def _indexing_fallback_split_faces(
                 out.append(f)
         return out
 
-    # ---------- 1) FALLBACK #1: second pass su immagine intera (picked in zona espansa) ----------
+    # ---------- 1) FULL FRAME LOOSE PASS (prima di ROI): detector su img intera, filtra per IoU/centro in bbox sospetta ----------
     logger.info(
         f"[INDEX_FALLBACK] using_detector={'loose' if detector is face_app_loose else 'normal'} "
         f"det_thresh_loose=0.25 det_size_loose=1024"
     )
     faces_full = detector.get(img, max_num=10) or []
-    expand = 0.60
-    cx1 = max(0, int(bbox[0] - expand * bbox_w))
-    cy1 = max(0, int(bbox[1] - expand * bbox_h))
-    cx2 = min(w_img, int(bbox[2] + expand * bbox_w))
-    cy2 = min(h_img, int(bbox[3] + expand * bbox_h))
+    # bbox_suspicious = bbox originale (singola faccia sospetta)
+    bx1, by1, bx2, by2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
 
-    def center_in_zone(b: np.ndarray) -> bool:
+    def _iou_bbox(a: np.ndarray, b: tuple) -> float:
+        ax1, ay1, ax2, ay2 = float(a[0]), float(a[1]), float(a[2]), float(a[3])
+        inter_w = max(0, min(ax2, b[2]) - max(ax1, b[0]))
+        inter_h = max(0, min(ay2, b[3]) - max(ay1, b[1]))
+        inter = inter_w * inter_h
+        area_a = (ax2 - ax1) * (ay2 - ay1)
+        area_b = (b[2] - b[0]) * (b[3] - b[1])
+        union = area_a + area_b - inter
+        return inter / union if union > 0 else 0.0
+
+    def _center_inside_bbox(b: np.ndarray) -> bool:
         cx = 0.5 * (float(b[0]) + float(b[2]))
         cy = 0.5 * (float(b[1]) + float(b[3]))
-        return (cx1 <= cx <= cx2) and (cy1 <= cy <= cy2)
+        return (bx1 <= cx <= bx2) and (by1 <= cy <= by2)
 
-    picked = [f for f in faces_full if center_in_zone(f.bbox)]
+    bbox_suspicious = (bx1, by1, bx2, by2)
+    faces_full_filtered = [
+        f for f in faces_full
+        if _iou_bbox(f.bbox, bbox_suspicious) >= 0.10 or _center_inside_bbox(f.bbox)
+    ]
+    faces_full_filtered = sorted(
+        faces_full_filtered,
+        key=lambda x: -float(getattr(x, "det_score", 0)),
+    )
     logger.info(
         f"[INDEX_FALLBACK] reason={reason} det={det:.3f} bbox_w={bbox_w:.0f} bbox_h={bbox_h:.0f} "
-        f"area={area:.0f} area_ratio={area_ratio:.4f} | full-pass: len(faces_full)={len(faces_full)} len(picked)={len(picked)} zone=({cx1},{cy1},{cx2},{cy2})"
+        f"area={area:.0f} area_ratio={area_ratio:.4f} | fullframe: len(faces_full)={len(faces_full)} len(faces_full_filtered)={len(faces_full_filtered)}"
     )
-    if len(picked) >= 2:
+    if len(faces_full_filtered) >= 2:
         logger.info(
-            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason}+full det={det:.3f} "
-            f"zone=({cx1},{cy1},{cx2},{cy2}) faces_full={len(faces_full)} faces2={len(picked)}"
+            f"[INDEX_FALLBACK] SUCCESS via fullframe faces2={len(faces_full_filtered)}"
         )
-        _save_fallback_debug(picked)
-        return picked
+        _save_fallback_debug(faces_full_filtered)
+        return faces_full_filtered
 
     # ---------- 2) ROI contiguo + detect ----------
     pad_ratio = 0.35 if reason == "det_area" else 0.12
