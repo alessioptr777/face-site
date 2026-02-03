@@ -35,7 +35,7 @@ def run_git_push():
         
         # Commit
         print("💾 Creo commit...")
-        commit_msg = "Index fallback: fullframe loose pass IoU/centro bbox, SUCCESS log, poi ROI/split"
+        commit_msg = "Match: COUPLE RECOVERY (linked_faces, user_face_indices), DIAG_PER_FACE IMG_1129"
         subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
         
         # Push

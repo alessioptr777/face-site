@@ -6406,6 +6406,16 @@ async def match_selfie(
         top_k = min(top_k_faces, n_faces_index)
         logger.info(f"[MATCH] Starting single-pass: n_faces_index={n_faces_index} meta_rows={n_meta_rows} ref_embeddings={len(ref_embeddings)} top_k={top_k}")
 
+        # STRUTTURA DATI: foto -> lista face_idx (per COUPLE RECOVERY e DIAG_PER_FACE)
+        photo_to_face_indices: Dict[str, List[int]] = {}
+        for idx, row in enumerate(meta_rows):
+            r2_key = row.get("r2_key") or row.get("photo_id")
+            if not r2_key:
+                continue
+            if r2_key not in photo_to_face_indices:
+                photo_to_face_indices[r2_key] = []
+            photo_to_face_indices[r2_key].append(idx)
+
         def _compute_face_area(meta: Dict[str, Any]) -> float:
             bbox = meta.get("bbox")
             if bbox and isinstance(bbox, (list, tuple)) and len(bbox) == 4:
@@ -6536,6 +6546,39 @@ async def match_selfie(
                     f"[DIAG_CANDIDATES_BEFORE_FILTER] r2_key={r2_k} best_score={cand['best_score']:.4f} "
                     f"det={cand.get('det_score', 0):.4f} area={int(cand.get('area', 0))} bucket={b}"
                 )
+            # DEBUG: per foto con "IMG_1129" stampa punteggio per ogni face_idx
+            for r2_k in list(candidates_by_photo.keys()):
+                if "IMG_1129" not in r2_k:
+                    continue
+                face_indices = photo_to_face_indices.get(r2_k, [])
+                c = candidates_by_photo[r2_k]
+                face_scores = c.get("face_scores", {})
+                for face_idx in face_indices:
+                    row = meta_rows[face_idx] if face_idx < len(meta_rows) else {}
+                    det_val = float(row.get("det_score") or row.get("score") or 0)
+                    best_s = face_scores.get(face_idx)
+                    if best_s is not None:
+                        best_ref = c.get("best_ref_index", -1) if c.get("best_idx") == face_idx else -1
+                        logger.info(
+                            f"[DIAG_PER_FACE] r2_key={r2_k} face_idx={face_idx} det={det_val:.3f} "
+                            f"best={best_s:.4f} best_ref={best_ref}"
+                        )
+                    else:
+                        try:
+                            vec = faiss_index.reconstruct(int(face_idx))
+                            vec_n = _normalize(vec.astype(np.float32).reshape(1, -1))
+                            scores_ref = [float(np.dot(vec_n, ref_emb.reshape(-1, 1)).flat[0]) for ref_emb in ref_embeddings]
+                            best_s = max(scores_ref) if scores_ref else 0.0
+                            best_ref = int(scores_ref.index(best_s)) if scores_ref else -1
+                            logger.info(
+                                f"[DIAG_PER_FACE] r2_key={r2_k} face_idx={face_idx} det={det_val:.3f} "
+                                f"best={best_s:.4f} best_ref={best_ref} (reconstructed)"
+                            )
+                        except Exception as e:
+                            logger.info(
+                                f"[DIAG_PER_FACE] r2_key={r2_k} face_idx={face_idx} det={det_val:.3f} "
+                                f"best=not_in_top_k best_ref=-1 ({e})"
+                            )
             t_faiss_end = time.perf_counter()
             faiss_search_ms = (t_faiss_end - t_faiss_start) * 1000
 
@@ -6894,6 +6937,76 @@ async def match_selfie(
                 f"[TIME] decode_selfie_ms={decode_selfie_ms:.2f} face_get_selfie_ms={face_get_selfie_ms:.2f} "
                 f"faiss_search_ms={faiss_search_ms:.2f} scoring_ms={scoring_ms:.2f} total_match_ms={total_match_ms:.2f}"
             )
+
+            # ---------- COUPLE RECOVERY: legami co-occorrenza + foto con >=2 facce ----------
+            linked_faces: Dict[int, set] = {}
+            for r2_key, indices in photo_to_face_indices.items():
+                if len(indices) < 2:
+                    continue
+                for i in indices:
+                    if i not in linked_faces:
+                        linked_faces[i] = set()
+                    for j in indices:
+                        if i != j:
+                            linked_faces[i].add(j)
+
+            accepted_photos = set(r.get("r2_key") or r.get("photo_id") for r in results if (r.get("r2_key") or r.get("photo_id")))
+            user_strong_score = 0.35
+            user_face_indices: set = set()
+            for r2_key in accepted_photos:
+                c = candidates_by_photo.get(r2_key)
+                if not c:
+                    continue
+                face_scores = c.get("face_scores", {})
+                for face_idx in photo_to_face_indices.get(r2_key, []):
+                    if face_scores.get(face_idx, 0) >= user_strong_score:
+                        user_face_indices.add(face_idx)
+
+            accepted_photos_recovered: List[Dict[str, Any]] = []
+            for r in rejected:
+                r2_key = r.get("r2_key")
+                if not r2_key:
+                    continue
+                faces_idx = photo_to_face_indices.get(r2_key, [])
+                if len(faces_idx) < 2:
+                    continue
+                linked_to_user = any(
+                    (f in user_face_indices) or (linked_faces.get(f, set()) & user_face_indices)
+                    for f in faces_idx
+                )
+                if not linked_to_user:
+                    continue
+                best_score_photo = float(r.get("score", 0))
+                if best_score_photo < 0.16:
+                    continue
+                dets_in_photo = []
+                for f in faces_idx:
+                    if f < len(meta_rows):
+                        row = meta_rows[f]
+                        dets_in_photo.append(float(row.get("det_score") or row.get("score") or 0))
+                if not any(d >= 0.35 for d in dets_in_photo):
+                    continue
+                from pathlib import Path
+                from urllib.parse import quote
+                r2_key_encoded = quote(r2_key, safe='')
+                accepted_photos_recovered.append({
+                    "r2_key": r2_key,
+                    "display_name": Path(r2_key).name,
+                    "photo_id": r2_key,
+                    "score": best_score_photo,
+                    "has_face": True,
+                    "has_selfie": True,
+                    "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
+                    "thumb_url": f"/photo/{r2_key_encoded}?variant=thumb",
+                })
+                logger.info(
+                    f"[COUPLE_RECOVERY] ACCEPT r2_key={r2_key} best_score={best_score_photo:.3f} "
+                    f"reason=linked_to_user faces={faces_idx} dets={[round(d, 3) for d in dets_in_photo]}"
+                )
+
+            results = results + accepted_photos_recovered
+            if accepted_photos_recovered:
+                logger.info(f"[MATCH_RECOVERY] recovered={len(accepted_photos_recovered)} total={len(results)}")
 
             # Deduplica risultati per r2_key (evita foto duplicate)
             seen_r2_keys = set()
