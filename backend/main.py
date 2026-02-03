@@ -1363,10 +1363,10 @@ def _indexing_fallback_split_faces(
     img: np.ndarray, faces: List[Any], r2_key_or_filename: str, face_app: Any
 ) -> List[Any]:
     """
-    Se c'è una sola faccia ma la bbox è sospetta (det_area: det basso + area grande per baci;
-    oppure aspect largo / area_ratio / det_wide), prova detection su ROI con padding e
-    opzionalmente su metà left/right per separare baci/abbracci. Restituisce le facce da usare;
-    converte bbox/kps in coordinate immagine originale.
+    Se c'è una sola faccia ma la bbox è sospetta (det_area / aspect / area_ratio / det_wide),
+    ordine tentativi: 1) full-pass su img (picked in zona espansa), 2) ROI contiguo + detect,
+    3) ROI multi-scala (0.75, 0.50) + dedup, 4) split left/right contiguo + dedup.
+    Restituisce le facce da usare; converte bbox/kps in coordinate immagine originale.
     """
     if len(faces) != 1:
         return faces
@@ -1384,12 +1384,10 @@ def _indexing_fallback_split_faces(
     if img_area <= 0:
         return faces
     area_ratio = area / img_area
-    # det_area: baci/abbracci (bbox non necessariamente larga, aspect non usato)
     det_area_suspicious = (
         det <= 0.82
         and (area >= 90000 or (bbox_w >= 280 and bbox_h >= 320))
     )
-    # euristiche legacy (aspect largo, area enorme, det basso+larga)
     legacy_suspicious = (
         aspect >= 1.25
         or area_ratio >= 0.08
@@ -1403,32 +1401,7 @@ def _indexing_fallback_split_faces(
         if det_area_suspicious
         else ("aspect" if aspect >= 1.25 else "area_ratio" if area_ratio >= 0.08 else "det_wide")
     )
-    pad_ratio = 0.35 if reason == "det_area" else 0.12
-    pad_w = pad_ratio * bbox_w
-    pad_h = pad_ratio * bbox_h
-    x1_roi = max(0, int(bbox[0] - pad_w))
-    y1_roi = max(0, int(bbox[1] - pad_h))
-    x2_roi = min(w_img, int(bbox[2] + pad_w))
-    y2_roi = min(h_img, int(bbox[3] + pad_h))
-    if x2_roi <= x1_roi or y2_roi <= y1_roi:
-        return faces
-    roi = img[y1_roi:y2_roi, x1_roi:x2_roi]
-    roi_faces = face_app.get(roi, max_num=10)
     base = Path(r2_key_or_filename).stem
-    rh, rw = roi.shape[:2] if roi.size else (0, 0)
-    logger.info(
-        f"[INDEX_FALLBACK] reason={reason} det={det:.3f} bbox_w={bbox_w:.0f} bbox_h={bbox_h:.0f} "
-        f"area={area:.0f} area_ratio={area_ratio:.4f} roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) "
-        f"roi.shape=({rh},{rw}) len(roi_faces)={len(roi_faces)}"
-    )
-    if DEBUG:
-        try:
-            DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-            path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
-            cv2.imwrite(str(path_roi), roi)
-            logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
-        except Exception as e:
-            logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
 
     def add_offset(fs: List[Any], ox: float, oy: float) -> None:
         for f in fs:
@@ -1439,15 +1412,12 @@ def _indexing_fallback_split_faces(
             if getattr(f, "kps", None) is not None:
                 f.kps = f.kps + np.array([ox, oy], dtype=f.kps.dtype)
 
-    def _save_fallback_debug(result_faces: List[Any], base: str) -> None:
-        """Salva <base>_roi.jpg e debug_<base>_face{idx}_detX.png per ogni volto risultante."""
+    def _save_fallback_debug(result_faces: List[Any]) -> None:
+        """Salva debug_<base>_face{idx}_detX.png per ogni volto (crop da img, bbox già globali)."""
         if not DEBUG:
             return
         try:
             DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-            path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
-            cv2.imwrite(str(path_roi), roi)
-            logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
             for idx, f in enumerate(result_faces):
                 d = float(getattr(f, "det_score", 0.0))
                 bx = getattr(f, "bbox", (0, 0, 0, 0))
@@ -1463,70 +1433,148 @@ def _indexing_fallback_split_faces(
         except Exception as e:
             logger.warning(f"[INDEX_FALLBACK] save debug failed: {e}")
 
-    if len(roi_faces) >= 2:
-        add_offset(roi_faces, float(x1_roi), float(y1_roi))
-        logger.info(
-            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason} det={det:.3f} "
-            f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
-            f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(roi_faces)}"
-        )
-        _save_fallback_debug(roi_faces, base)
-        return roi_faces
-
-    if len(roi_faces) <= 1:
-        if rw < 40:
-            return faces
-        left_end = int(rw * 0.70)
-        right_start = int(rw * 0.30)
-        left_roi = roi[:, :left_end]
-        right_roi = roi[:, right_start:]
-        if DEBUG:
-            try:
-                DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_left.jpg"), left_roi)
-                cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_right.jpg"), right_roi)
-                logger.info(f"[INDEX_FALLBACK] saved {base}_left.jpg and {base}_right.jpg")
-            except Exception as e:
-                logger.warning(f"[INDEX_FALLBACK] save left/right failed: {e}")
-        left_faces = face_app.get(left_roi, max_num=10)
-        right_faces = face_app.get(right_roi, max_num=10)
-        logger.info(
-            f"[INDEX_FALLBACK] split: len(left_faces)={len(left_faces)} len(right_faces)={len(right_faces)}"
-        )
-        add_offset(right_faces, float(right_start), 0.0)
-        merged = list(left_faces) + list(right_faces)
-        logger.info(f"[INDEX_FALLBACK] split: len(merged)={len(merged)}")
-        if len(merged) < 2:
-            return faces
-        merged_sorted = sorted(merged, key=lambda x: -float(getattr(x, "det_score", 0)))
-        dedup = []
-        for f in merged_sorted:
+    def _dedup_iou(fs: List[Any], iou_thresh: float = 0.5) -> List[Any]:
+        """Unisce fs, ordina per det_score desc, rimuove duplicati IoU > iou_thresh (log quando scarta)."""
+        if len(fs) < 2:
+            return list(fs)
+        sorted_fs = sorted(fs, key=lambda x: -float(getattr(x, "det_score", 0)))
+        out = []
+        for f in sorted_fs:
             overlap_any = False
-            for g in dedup:
-                bx, by = max(f.bbox[0], g.bbox[0]), max(f.bbox[1], g.bbox[1])
-                bx2, by2 = min(f.bbox[2], g.bbox[2]), min(f.bbox[3], g.bbox[3])
+            for g in out:
+                bx = max(f.bbox[0], g.bbox[0])
+                by = max(f.bbox[1], g.bbox[1])
+                bx2 = min(f.bbox[2], g.bbox[2])
+                by2 = min(f.bbox[3], g.bbox[3])
                 inter = max(0, bx2 - bx) * max(0, by2 - by)
                 a1 = (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
                 a2 = (g.bbox[2] - g.bbox[0]) * (g.bbox[3] - g.bbox[1])
                 iou = inter / (a1 + a2 - inter) if (a1 + a2 - inter) > 0 else 0
-                if iou > 0.5:
+                if iou > iou_thresh:
                     overlap_any = True
                     logger.info(f"[INDEX_FALLBACK] dedup: scarto faccia IoU={iou:.3f} (>0.5) con det={float(getattr(f, 'det_score', 0)):.3f}")
                     break
             if not overlap_any:
-                dedup.append(f)
-        logger.info(f"[INDEX_FALLBACK] split: len(dedup)={len(dedup)}")
-        if len(dedup) < 2:
-            return faces
-        add_offset(dedup, float(x1_roi), float(y1_roi))
+                out.append(f)
+        return out
+
+    # ---------- 1) FALLBACK #1: second pass su immagine intera (picked in zona espansa) ----------
+    faces_full = face_app.get(img, max_num=10) or []
+    expand = 0.60
+    cx1 = max(0, int(bbox[0] - expand * bbox_w))
+    cy1 = max(0, int(bbox[1] - expand * bbox_h))
+    cx2 = min(w_img, int(bbox[2] + expand * bbox_w))
+    cy2 = min(h_img, int(bbox[3] + expand * bbox_h))
+
+    def center_in_zone(b: np.ndarray) -> bool:
+        cx = 0.5 * (float(b[0]) + float(b[2]))
+        cy = 0.5 * (float(b[1]) + float(b[3]))
+        return (cx1 <= cx <= cx2) and (cy1 <= cy <= cy2)
+
+    picked = [f for f in faces_full if center_in_zone(f.bbox)]
+    logger.info(
+        f"[INDEX_FALLBACK] reason={reason} det={det:.3f} bbox_w={bbox_w:.0f} bbox_h={bbox_h:.0f} "
+        f"area={area:.0f} area_ratio={area_ratio:.4f} | full-pass: len(faces_full)={len(faces_full)} len(picked)={len(picked)} zone=({cx1},{cy1},{cx2},{cy2})"
+    )
+    if len(picked) >= 2:
         logger.info(
-            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason}+split det={det:.3f} "
-            f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
-            f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(dedup)}"
+            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason}+full det={det:.3f} "
+            f"zone=({cx1},{cy1},{cx2},{cy2}) faces_full={len(faces_full)} faces2={len(picked)}"
         )
-        _save_fallback_debug(dedup, base)
-        return dedup
-    return faces
+        _save_fallback_debug(picked)
+        return picked
+
+    # ---------- 2) ROI contiguo + detect ----------
+    pad_ratio = 0.35 if reason == "det_area" else 0.12
+    pad_w = pad_ratio * bbox_w
+    pad_h = pad_ratio * bbox_h
+    x1_roi = max(0, int(bbox[0] - pad_w))
+    y1_roi = max(0, int(bbox[1] - pad_h))
+    x2_roi = min(w_img, int(bbox[2] + pad_w))
+    y2_roi = min(h_img, int(bbox[3] + pad_h))
+    if x2_roi <= x1_roi or y2_roi <= y1_roi:
+        return faces
+    roi = np.ascontiguousarray(img[y1_roi:y2_roi, x1_roi:x2_roi])
+    rh, rw = roi.shape[:2]
+    logger.info(
+        f"[INDEX_FALLBACK] roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) roi.shape=({rh},{rw}) "
+        f"contiguous={roi.flags['C_CONTIGUOUS']} dtype={roi.dtype}"
+    )
+    if DEBUG:
+        try:
+            DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_roi.jpg"), roi)
+            logger.info(f"[INDEX_FALLBACK] saved {base}_roi.jpg")
+        except Exception as e:
+            logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
+
+    roi_faces = list(face_app.get(roi, max_num=10) or [])
+    logger.info(f"[INDEX_FALLBACK] ROI raw: len(roi_faces)={len(roi_faces)}")
+
+    # ---------- 3) ROI multi-scala (0.75, 0.50) + dedup ----------
+    def detect_scaled(roi_img: np.ndarray, scale: float) -> List[Any]:
+        small = cv2.resize(roi_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        small = np.ascontiguousarray(small)
+        fs = list(face_app.get(small, max_num=10) or [])
+        for f in fs:
+            f.bbox = np.array(f.bbox, dtype=np.float32) / scale
+            if getattr(f, "kps", None) is not None:
+                f.kps = np.array(f.kps, dtype=np.float32) / scale
+        return fs
+
+    if len(roi_faces) < 2:
+        extra_75 = detect_scaled(roi, 0.75)
+        roi_faces.extend(extra_75)
+        logger.info(f"[INDEX_FALLBACK] ROI after scale 0.75: len(roi_faces)={len(roi_faces)}")
+    if len(roi_faces) < 2:
+        extra_50 = detect_scaled(roi, 0.50)
+        roi_faces.extend(extra_50)
+        logger.info(f"[INDEX_FALLBACK] ROI after scale 0.50: len(roi_faces)={len(roi_faces)}")
+
+    roi_faces = _dedup_iou(roi_faces)
+    logger.info(f"[INDEX_FALLBACK] ROI after dedup: len(roi_faces)={len(roi_faces)}")
+    if len(roi_faces) >= 2:
+        add_offset(roi_faces, float(x1_roi), float(y1_roi))
+        logger.info(
+            f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason} det={det:.3f} "
+            f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(roi_faces)}"
+        )
+        _save_fallback_debug(roi_faces)
+        return roi_faces
+
+    # ---------- 4) Split left/right contiguo + detect + dedup ----------
+    if rw < 40:
+        return faces
+    left_end = int(rw * 0.70)
+    right_start = int(rw * 0.30)
+    left_roi = np.ascontiguousarray(roi[:, :left_end])
+    right_roi = np.ascontiguousarray(roi[:, right_start:])
+    if DEBUG:
+        try:
+            DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_left.jpg"), left_roi)
+            cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_right.jpg"), right_roi)
+            logger.info(f"[INDEX_FALLBACK] saved {base}_left.jpg and {base}_right.jpg")
+        except Exception as e:
+            logger.warning(f"[INDEX_FALLBACK] save left/right failed: {e}")
+    left_faces = list(face_app.get(left_roi, max_num=10) or [])
+    right_faces = list(face_app.get(right_roi, max_num=10) or [])
+    add_offset(right_faces, float(right_start), 0.0)
+    merged = left_faces + right_faces
+    logger.info(
+        f"[INDEX_FALLBACK] split: len(left_faces)={len(left_faces)} len(right_faces)={len(right_faces)} len(merged)={len(merged)}"
+    )
+    dedup = _dedup_iou(merged)
+    logger.info(f"[INDEX_FALLBACK] split: len(dedup)={len(dedup)}")
+    if len(dedup) < 2:
+        return faces
+    add_offset(dedup, float(x1_roi), float(y1_roi))
+    logger.info(
+        f"[INDEX_FALLBACK] r2_key={r2_key_or_filename} reason={reason}+split det={det:.3f} "
+        f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(dedup)}"
+    )
+    _save_fallback_debug(dedup)
+    return dedup
 
 
 def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str, face_app: Any, recog: Any = None) -> None:

@@ -35,7 +35,7 @@ def run_git_push():
         
         # Commit
         print("💾 Creo commit...")
-        commit_msg = "Index fallback: debug sempre se suspicious, padding 0.35 det_area, split 70/30, log IoU"
+        commit_msg = "Index fallback: full-pass zona espansa, ROI contiguo, multi-scala 0.75/0.50, split 70/30"
         subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
         
         # Push
