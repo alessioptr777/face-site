@@ -1403,7 +1403,7 @@ def _indexing_fallback_split_faces(
         if det_area_suspicious
         else ("aspect" if aspect >= 1.25 else "area_ratio" if area_ratio >= 0.08 else "det_wide")
     )
-    pad_ratio = 0.20 if reason == "det_area" else 0.12
+    pad_ratio = 0.35 if reason == "det_area" else 0.12
     pad_w = pad_ratio * bbox_w
     pad_h = pad_ratio * bbox_h
     x1_roi = max(0, int(bbox[0] - pad_w))
@@ -1414,6 +1414,21 @@ def _indexing_fallback_split_faces(
         return faces
     roi = img[y1_roi:y2_roi, x1_roi:x2_roi]
     roi_faces = face_app.get(roi, max_num=10)
+    base = Path(r2_key_or_filename).stem
+    rh, rw = roi.shape[:2] if roi.size else (0, 0)
+    logger.info(
+        f"[INDEX_FALLBACK] reason={reason} det={det:.3f} bbox_w={bbox_w:.0f} bbox_h={bbox_h:.0f} "
+        f"area={area:.0f} area_ratio={area_ratio:.4f} roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) "
+        f"roi.shape=({rh},{rw}) len(roi_faces)={len(roi_faces)}"
+    )
+    if DEBUG:
+        try:
+            DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            path_roi = DEBUG_INDEX_DIR / f"{base}_roi.jpg"
+            cv2.imwrite(str(path_roi), roi)
+            logger.info(f"[INDEX_FALLBACK] saved {path_roi}")
+        except Exception as e:
+            logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
 
     def add_offset(fs: List[Any], ox: float, oy: float) -> None:
         for f in fs:
@@ -1455,23 +1470,32 @@ def _indexing_fallback_split_faces(
             f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
             f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(roi_faces)}"
         )
-        base = Path(r2_key_or_filename).stem
         _save_fallback_debug(roi_faces, base)
         return roi_faces
 
     if len(roi_faces) <= 1:
-        rh, rw = roi.shape[:2]
         if rw < 40:
             return faces
-        overlap = 0.10
-        left_w = int(rw * (0.5 + overlap / 2))
-        right_start = int(rw * (0.5 - overlap / 2))
-        left_roi = roi[:, :left_w]
+        left_end = int(rw * 0.70)
+        right_start = int(rw * 0.30)
+        left_roi = roi[:, :left_end]
         right_roi = roi[:, right_start:]
-        left_faces = face_app.get(left_roi, max_num=5)
-        right_faces = face_app.get(right_roi, max_num=5)
+        if DEBUG:
+            try:
+                DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_left.jpg"), left_roi)
+                cv2.imwrite(str(DEBUG_INDEX_DIR / f"{base}_right.jpg"), right_roi)
+                logger.info(f"[INDEX_FALLBACK] saved {base}_left.jpg and {base}_right.jpg")
+            except Exception as e:
+                logger.warning(f"[INDEX_FALLBACK] save left/right failed: {e}")
+        left_faces = face_app.get(left_roi, max_num=10)
+        right_faces = face_app.get(right_roi, max_num=10)
+        logger.info(
+            f"[INDEX_FALLBACK] split: len(left_faces)={len(left_faces)} len(right_faces)={len(right_faces)}"
+        )
         add_offset(right_faces, float(right_start), 0.0)
         merged = list(left_faces) + list(right_faces)
+        logger.info(f"[INDEX_FALLBACK] split: len(merged)={len(merged)}")
         if len(merged) < 2:
             return faces
         merged_sorted = sorted(merged, key=lambda x: -float(getattr(x, "det_score", 0)))
@@ -1487,9 +1511,11 @@ def _indexing_fallback_split_faces(
                 iou = inter / (a1 + a2 - inter) if (a1 + a2 - inter) > 0 else 0
                 if iou > 0.5:
                     overlap_any = True
+                    logger.info(f"[INDEX_FALLBACK] dedup: scarto faccia IoU={iou:.3f} (>0.5) con det={float(getattr(f, 'det_score', 0)):.3f}")
                     break
             if not overlap_any:
                 dedup.append(f)
+        logger.info(f"[INDEX_FALLBACK] split: len(dedup)={len(dedup)}")
         if len(dedup) < 2:
             return faces
         add_offset(dedup, float(x1_roi), float(y1_roi))
@@ -1498,7 +1524,6 @@ def _indexing_fallback_split_faces(
             f"bbox=({int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}) "
             f"roi=({x1_roi},{y1_roi},{x2_roi},{y2_roi}) faces2={len(dedup)}"
         )
-        base = Path(r2_key_or_filename).stem
         _save_fallback_debug(dedup, base)
         return dedup
     return faces
