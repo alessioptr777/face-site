@@ -694,6 +694,7 @@ logger.info(f"Will serve photos from: {PHOTOS_DIR.resolve()}")
 # === PHOTO ENDPOINT ===
 
 face_app: Optional[FaceAnalysis] = None
+face_app_loose: Optional[FaceAnalysis] = None  # detector permissivo solo per fallback indexing (baci/abbracci)
 faiss_index: Optional[faiss.Index] = None
 meta_rows: List[Dict[str, Any]] = []
 indexing_lock: Optional[asyncio.Lock] = None  # Lock globale per indicizzazione automatica
@@ -1360,14 +1361,20 @@ def _face_sort_key(f: Any) -> Tuple[float, float, float, float, float, float]:
 
 
 def _indexing_fallback_split_faces(
-    img: np.ndarray, faces: List[Any], r2_key_or_filename: str, face_app: Any
+    img: np.ndarray,
+    faces: List[Any],
+    r2_key_or_filename: str,
+    face_app: Any,
+    face_app_loose: Any = None,
 ) -> List[Any]:
     """
     Se c'è una sola faccia ma la bbox è sospetta (det_area / aspect / area_ratio / det_wide),
     ordine tentativi: 1) full-pass su img (picked in zona espansa), 2) ROI contiguo + detect,
     3) ROI multi-scala (0.75, 0.50) + dedup, 4) split left/right contiguo + dedup.
+    Usa face_app_loose (det_thresh=0.25) se disponibile, altrimenti face_app.
     Restituisce le facce da usare; converte bbox/kps in coordinate immagine originale.
     """
+    detector = face_app_loose if face_app_loose is not None else face_app
     if len(faces) != 1:
         return faces
     face = faces[0]
@@ -1459,7 +1466,11 @@ def _indexing_fallback_split_faces(
         return out
 
     # ---------- 1) FALLBACK #1: second pass su immagine intera (picked in zona espansa) ----------
-    faces_full = face_app.get(img, max_num=10) or []
+    logger.info(
+        f"[INDEX_FALLBACK] using_detector={'loose' if detector is face_app_loose else 'normal'} "
+        f"det_thresh_loose=0.25 det_size_loose=1024"
+    )
+    faces_full = detector.get(img, max_num=10) or []
     expand = 0.60
     cx1 = max(0, int(bbox[0] - expand * bbox_w))
     cy1 = max(0, int(bbox[1] - expand * bbox_h))
@@ -1508,14 +1519,14 @@ def _indexing_fallback_split_faces(
         except Exception as e:
             logger.warning(f"[INDEX_FALLBACK] save roi failed: {e}")
 
-    roi_faces = list(face_app.get(roi, max_num=10) or [])
+    roi_faces = list(detector.get(roi, max_num=10) or [])
     logger.info(f"[INDEX_FALLBACK] ROI raw: len(roi_faces)={len(roi_faces)}")
 
     # ---------- 3) ROI multi-scala (0.75, 0.50) + dedup ----------
     def detect_scaled(roi_img: np.ndarray, scale: float) -> List[Any]:
         small = cv2.resize(roi_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         small = np.ascontiguousarray(small)
-        fs = list(face_app.get(small, max_num=10) or [])
+        fs = list(detector.get(small, max_num=10) or [])
         for f in fs:
             f.bbox = np.array(f.bbox, dtype=np.float32) / scale
             if getattr(f, "kps", None) is not None:
@@ -1557,15 +1568,15 @@ def _indexing_fallback_split_faces(
             logger.info(f"[INDEX_FALLBACK] saved {base}_left.jpg and {base}_right.jpg")
         except Exception as e:
             logger.warning(f"[INDEX_FALLBACK] save left/right failed: {e}")
-    left_faces = list(face_app.get(left_roi, max_num=10) or [])
-    right_faces = list(face_app.get(right_roi, max_num=10) or [])
+    left_faces = list(detector.get(left_roi, max_num=10) or [])
+    right_faces = list(detector.get(right_roi, max_num=10) or [])
     add_offset(right_faces, float(right_start), 0.0)
     merged = left_faces + right_faces
     logger.info(
         f"[INDEX_FALLBACK] split: len(left_faces)={len(left_faces)} len(right_faces)={len(right_faces)} len(merged)={len(merged)}"
     )
     dedup = _dedup_iou(merged)
-    logger.info(f"[INDEX_FALLBACK] split: len(dedup)={len(dedup)}")
+    logger.info(f"[INDEX_FALLBACK] split: len(left_faces)={len(left_faces)} len(right_faces)={len(right_faces)} len(merged)={len(merged)} len(dedup)={len(dedup)}")
     if len(dedup) < 2:
         return faces
     add_offset(dedup, float(x1_roi), float(y1_roi))
@@ -2961,7 +2972,7 @@ def _ensure_ready():
 @app.on_event("startup")
 async def startup():
     """Carica il modello e l'indice all'avvio"""
-    global face_app, faiss_index, meta_rows, db_pool
+    global face_app, face_app_loose, faiss_index, meta_rows, db_pool
     
     # Inizializza database PostgreSQL all'avvio
     logger.info("=" * 80)
@@ -3004,6 +3015,15 @@ async def startup():
         logger.error(f"Error loading face model: {e}")
         face_app = None
         return
+
+    logger.info("Loading loose face detector for indexing fallback (baci/abbracci)...")
+    try:
+        face_app_loose = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        face_app_loose.prepare(ctx_id=0, det_size=(1024, 1024), det_thresh=0.25)
+        logger.info("Face recognition loose detector loaded (det_thresh=0.25 det_size=1024)")
+    except Exception as e:
+        logger.warning(f"Loose face detector not loaded (fallback will use normal detector): {e}")
+        face_app_loose = None
     
     # In R2_ONLY_MODE: carica indice e metadata da R2
     if r2_only_mode:
@@ -3250,7 +3270,8 @@ async def startup():
                             continue
                         
                         # Fallback: 1 bbox sospetta (bacio/profili) -> prova ROI/split per separare volti
-                        faces = _indexing_fallback_split_faces(img, faces, r2_key, face_app)
+                        faces = _indexing_fallback_split_faces(img, faces, r2_key, face_app, face_app_loose)
+                        logger.info(f"[INDEX_FALLBACK] FINAL faces_to_index={len(faces)} for {r2_key}")
                         
                         # Debug solo per IMG_1129.jpg (log + salva crop su disk)
                         _debug_indexing_img1129(img, faces, display_name, face_app)
@@ -3833,7 +3854,8 @@ async def sync_index_with_r2_incremental():
                         continue
                     
                     # Fallback: 1 bbox sospetta (bacio/profili) -> prova ROI/split per separare volti
-                    faces = _indexing_fallback_split_faces(img, faces, filename, face_app)
+                    faces = _indexing_fallback_split_faces(img, faces, filename, face_app, face_app_loose)
+                    logger.info(f"[INDEX_FALLBACK] FINAL faces_to_index={len(faces)} for {filename}")
                     
                     # Debug solo per IMG_1129.jpg (log + salva crop su disk)
                     _debug_indexing_img1129(img, faces, filename, face_app)
