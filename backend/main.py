@@ -7335,15 +7335,31 @@ async def match_selfie(
                 candidate_str = "si" if is_candidate else "no"
                 best_score_val = candidates_by_basename[photo_id]["best_score"] if is_candidate else None
                 best_score_str = f"{best_score_val:.3f}" if best_score_val is not None else "None"
+                # Per candidati: second_best_score, margin, hits (solo logging)
+                if is_candidate:
+                    c = candidates_by_basename[photo_id]
+                    face_scores = c.get("face_scores", {})
+                    scores_sorted = sorted(face_scores.values(), reverse=True)
+                    second_best_score = scores_sorted[1] if len(scores_sorted) > 1 else None
+                    margin_val = (best_score_val - second_best_score) if second_best_score is not None else None
+                    det_c = float(c.get("det_score") or 0)
+                    area_c = float(c.get("area") or 0)
+                    min_score_dyn_report = _dynamic_min_score(det_c, area_c)
+                    hits_report = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn_report)
+                    second_str = f"{second_best_score:.3f}" if second_best_score is not None else "None"
+                    margin_str = f"{margin_val:.3f}" if margin_val is not None else "None"
+                    candidate_extra = f" second_best={second_str} margin={margin_str} hits={hits_report}"
+                else:
+                    candidate_extra = ""
                 # status: NOT_INDEXED | ACCEPTED | REJECTED | NOT_CANDIDATE
                 if n_faces == 0:
                     status = "NOT_INDEXED"
                     count_not_indexed += 1
-                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}{candidate_extra}"
                 elif photo_id in accepted_basenames:
                     status = "ACCEPTED"
                     count_accepted += 1
-                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}{candidate_extra}"
                 elif photo_id in rejected_by_basename:
                     status = "REJECTED"
                     count_rejected += 1
@@ -7354,14 +7370,14 @@ async def match_selfie(
                     bucket = r.get("bucket", "")
                     min_score = r.get("min_score", 0)
                     line = (
-                        f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                        f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}{candidate_extra}"
                         + (f" reason={reason}" if reason else "")
                         + f" det_score={det_score:.3f} area={int(area)} bucket={bucket} min_score={min_score:.2f}"
                     )
                 else:
                     status = "NOT_CANDIDATE"
                     count_not_candidate += 1
-                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}{candidate_extra}"
                 logger.info(line)
             n_candidates = len(candidates_by_basename)
             logger.info(
