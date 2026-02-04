@@ -7307,7 +7307,7 @@ async def match_selfie(
         sample = matched_photo_ids[0] if matched_photo_ids else "none"
         logger.info(f"[MATCH_RESPONSE] count={len(matched_photo_ids)} sample={sample}")
         
-        # ---------- Report una riga per ogni foto in R2 (originals/) ----------
+        # ---------- MATCH_REPORT: una riga per ogni foto in R2 + summary (solo report, logica invariata) ----------
         try:
             r2_keys = await get_r2_keys_set_cached()
             r2_photo_basenames = sorted({
@@ -7322,56 +7322,53 @@ async def match_selfie(
                 rk = row.get("r2_key") or row.get("photo_id")
                 if rk:
                     indexed_face_count[Path(rk).name] += 1
-            accepted_basenames = {Path(r.get("r2_key") or r.get("photo_id") or "").name for r in all_results}
+            indexed_photos_set = {pid for pid, n in indexed_face_count.items() if n > 0}
+            accepted_basenames = {Path(r2_key).name for r2_key in accepted_photos if r2_key}
             rejected_by_basename = {Path(r["r2_key"]).name: r for r in rejected if r.get("r2_key")}
             candidates_by_basename = {Path(r2_key).name: c for r2_key, c in candidates_by_photo.items() if r2_key}
+            # Contatori per summary
+            count_accepted = count_rejected = count_not_candidate = count_not_indexed = 0
             for photo_id in r2_photo_basenames:
                 n_faces = indexed_face_count.get(photo_id, 0)
                 indexed_str = f"si({n_faces})" if n_faces else "no"
-                if photo_id in accepted_basenames:
+                is_candidate = photo_id in candidates_by_basename
+                candidate_str = "si" if is_candidate else "no"
+                best_score_val = candidates_by_basename[photo_id]["best_score"] if is_candidate else None
+                best_score_str = f"{best_score_val:.3f}" if best_score_val is not None else "None"
+                # status: NOT_INDEXED | ACCEPTED | REJECTED | NOT_CANDIDATE
+                if n_faces == 0:
+                    status = "NOT_INDEXED"
+                    count_not_indexed += 1
+                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                elif photo_id in accepted_basenames:
                     status = "ACCEPTED"
-                    entry = next((r for r in all_results if Path(r.get("r2_key") or r.get("photo_id") or "").name == photo_id), None)
-                    if entry and entry.get("det_score") is not None:
-                        best_score = entry.get("score", 0)
-                        det_score = entry.get("det_score", 0)
-                        area = entry.get("area", 0)
-                        bucket = entry.get("bucket", "")
-                        min_score = entry.get("min_score", 0)
-                    else:
-                        rej = rejected_by_basename.get(photo_id)
-                        cand = candidates_by_basename.get(photo_id)
-                        if rej:
-                            best_score, det_score, area = rej.get("score", 0), rej.get("det_score", 0), rej.get("area", 0)
-                            bucket, min_score = rej.get("bucket", ""), rej.get("min_score", 0)
-                        elif cand:
-                            best_score = cand.get("best_score", 0)
-                            det_score = float(cand.get("det_score") or 0)
-                            area = int(cand.get("area") or 0)
-                            bucket = _diag_bucket_for_face(area, det_score)
-                            min_score = _dynamic_min_score(det_score, area)
-                        else:
-                            best_score = det_score = area = min_score = 0
-                            bucket = ""
-                    reason = ""
+                    count_accepted += 1
+                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
                 elif photo_id in rejected_by_basename:
                     status = "REJECTED"
+                    count_rejected += 1
                     r = rejected_by_basename[photo_id]
-                    best_score = r.get("score", 0)
+                    reason = r.get("reason", "")
                     det_score = r.get("det_score", 0)
                     area = r.get("area", 0)
                     bucket = r.get("bucket", "")
                     min_score = r.get("min_score", 0)
-                    reason = r.get("reason", "")
+                    line = (
+                        f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                        + (f" reason={reason}" if reason else "")
+                        + f" det_score={det_score:.3f} area={int(area)} bucket={bucket} min_score={min_score:.2f}"
+                    )
                 else:
-                    status = "NON_CANDIDATE"
-                    best_score = det_score = area = min_score = 0
-                    bucket = ""
-                    reason = ""
-                logger.info(
-                    f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} best_score={best_score:.3f} "
-                    f"status={status}" + (f" reason={reason}" if reason else "")
-                    + f" det_score={det_score:.3f} area={int(area)} bucket={bucket} min_score={min_score:.2f}"
-                )
+                    status = "NOT_CANDIDATE"
+                    count_not_candidate += 1
+                    line = f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}"
+                logger.info(line)
+            n_candidates = len(candidates_by_basename)
+            logger.info(
+                f"[MATCH_REPORT] summary total_r2={len(r2_photo_basenames)} indexed_photos={len(indexed_photos_set)} "
+                f"candidates={n_candidates} accepted={count_accepted} rejected={count_rejected} "
+                f"not_candidate={count_not_candidate} not_indexed={count_not_indexed}"
+            )
         except Exception as report_err:
             logger.warning(f"[MATCH_REPORT] failed: {report_err}")
         
