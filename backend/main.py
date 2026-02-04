@@ -126,8 +126,94 @@ DEBUG_CROPS = str(os.getenv("DEBUG_CROPS", "0")).strip().lower() in {"1", "true"
 DEBUG = str(os.getenv("DEBUG", "0")).strip().lower() in {"1", "true", "yes", "on"}
 # Cartella per salvare crop debug indicizzazione (es. IMG_1129); default static/debug
 DEBUG_INDEX_DIR = Path(os.getenv("DEBUG_INDEX_DIR", str(STATIC_DIR / "debug")))
+# Diagnostica indexing: log per-foto e salva debug per foto con <=1 faccia (sempre attivo per report)
+DIAG_INDEX_DEBUG_IMAGES = str(os.getenv("DIAG_INDEX_DEBUG_IMAGES", "1")).strip().lower() in {"1", "true", "yes", "on"}
 _DIAG_EMB_CACHE_MAX = 10
 _DIAG_EMB_CACHE: Dict[str, np.ndarray] = {}  # file_sha1 -> emb0 per confronto cosine tra run
+
+
+def _diag_bucket_for_face(area: float, det_score: float) -> str:
+    """Stessa formula del match: small/medium/large (solo diagnostica)."""
+    if area < 30000 or det_score < 0.75:
+        return "small"
+    if area < 60000 or det_score < 0.85:
+        return "medium"
+    return "large"
+
+
+def _log_index_diag_photo(
+    photo_id: str,
+    n_faces_strict: int,
+    faces: List[Any],
+    img_shape: Tuple[int, ...],
+    skipped_reason: Optional[str] = None,
+) -> None:
+    """Log diagnostica per ogni foto in sync/indexing (TASK 2)."""
+    if skipped_reason:
+        logger.info(
+            f"[DIAG_INDEX_PHOTO] photo_id={photo_id} n_faces_strict={n_faces_strict} "
+            f"n_faces_after_fallback=0 faces_to_index=0 reason={skipped_reason}"
+        )
+        return
+    n_after = len(faces)
+    logger.info(
+        f"[DIAG_INDEX_PHOTO] photo_id={photo_id} n_faces_strict={n_faces_strict} "
+        f"n_faces_after_fallback={n_after} faces_to_index={n_after}"
+    )
+    h, w = (img_shape[0], img_shape[1]) if len(img_shape) >= 2 else (1, 1)
+    img_area = float(h * w) if (h and w) else 1.0
+    for idx, f in enumerate(faces):
+        bbox = getattr(f, "bbox", (0, 0, 0, 0))
+        try:
+            x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+            area = (x2 - x1) * (y2 - y1)
+        except (TypeError, IndexError):
+            area = 0.0
+        area_ratio = area / img_area if img_area else 0.0
+        det = float(getattr(f, "det_score", 0.0))
+        bucket = _diag_bucket_for_face(area, det)
+        logger.info(
+            f"[DIAG_INDEX_FACE] photo_id={photo_id} face_idx={idx} det_score={det:.4f} "
+            f"bbox=[{bbox[0]:.0f},{bbox[1]:.0f},{bbox[2]:.0f},{bbox[3]:.0f}] "
+            f"area={int(area)} area_ratio={area_ratio:.4f} bucket={bucket}"
+        )
+
+
+def _save_index_diag_images(photo_id: str, img: np.ndarray, faces: List[Any], base_name: str) -> None:
+    """Salva in static/debug immagine con bbox e crop per faccia (TASK 4). Solo se <=1 faccia."""
+    if not DIAG_INDEX_DEBUG_IMAGES or len(faces) > 1:
+        return
+    try:
+        DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        safe_base = "".join(c if c.isalnum() or c in "._-" else "_" for c in base_name)
+        # Immagine con bbox disegnate
+        img_bbox = img.copy()
+        for f in faces:
+            bx = getattr(f, "bbox", (0, 0, 0, 0))
+            x1, y1 = max(0, int(bx[0])), max(0, int(bx[1]))
+            x2, y2 = min(img.shape[1], int(bx[2])), min(img.shape[0], int(bx[3]))
+            if x2 > x1 and y2 > y1:
+                cv2.rectangle(img_bbox, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        path_bbox = DEBUG_INDEX_DIR / f"index_diag_{safe_base}_bbox.png"
+        cv2.imwrite(str(path_bbox), img_bbox)
+        logger.info(f"[DIAG_INDEX_DEBUG] saved {path_bbox}")
+        # Crop per ogni faccia
+        for idx, f in enumerate(faces):
+            det = float(getattr(f, "det_score", 0.0))
+            bx = getattr(f, "bbox", (0, 0, 0, 0))
+            x1 = max(0, int(bx[0]))
+            y1 = max(0, int(bx[1]))
+            x2 = min(img.shape[1], int(bx[2]))
+            y2 = min(img.shape[0], int(bx[3]))
+            if x2 > x1 and y2 > y1:
+                area = (x2 - x1) * (y2 - y1)
+                crop = img[y1:y2, x1:x2].copy()
+                path_crop = DEBUG_INDEX_DIR / f"index_diag_{safe_base}_face{idx}_det{det:.3f}_area{int(area)}.png"
+                cv2.imwrite(str(path_crop), crop)
+                logger.info(f"[DIAG_INDEX_DEBUG] saved {path_crop}")
+    except Exception as e:
+        logger.warning(f"[DIAG_INDEX_DEBUG] save failed for {photo_id}: {e}")
+
 
 # Configurazione family members
 MAX_FAMILY_MEMBERS = int(os.getenv("MAX_FAMILY_MEMBERS", "8"))  # Max membri famiglia per email
@@ -3278,14 +3364,21 @@ async def startup():
                         
                         # Estrai volti
                         faces = face_app.get(img)
+                        n_faces_strict = len(faces)
                         
                         if not faces:
-                            # Foto senza volti -> salta
+                            _log_index_diag_photo(
+                                display_name, n_faces_strict, [], img.shape, skipped_reason="no_faces"
+                            )
                             continue
                         
                         # Fallback: 1 bbox sospetta (bacio/profili) -> prova ROI/split per separare volti
                         faces = _indexing_fallback_split_faces(img, faces, r2_key, face_app, face_app_loose)
                         logger.info(f"[INDEX_FALLBACK] FINAL faces_to_index={len(faces)} for {r2_key}")
+                        
+                        _log_index_diag_photo(display_name, n_faces_strict, faces, img.shape)
+                        if len(faces) <= 1:
+                            _save_index_diag_images(r2_key, img, faces, display_name)
                         
                         # Debug solo per IMG_1129.jpg (log + salva crop su disk)
                         _debug_indexing_img1129(img, faces, display_name, face_app)
@@ -3326,6 +3419,13 @@ async def startup():
                     except Exception as e:
                         logger.error(f"[INDEXING] Error processing photo {r2_key}: {e}")
                         continue
+                
+                total_photos_in_r2 = len(original_photos)
+                total_photos_indexed = len(set((m.get("r2_key") or m.get("photo_id") or "") for m in new_meta_rows))
+                logger.info(
+                    f"[INDEX_SUMMARY] total_photos_in_r2={total_photos_in_r2} total_photos_indexed={total_photos_indexed} "
+                    f"faces_total={faces_total} vectors_in_index={new_faiss_index.ntotal} meta_rows={len(new_meta_rows)}"
+                )
                 
                 # ========== STEP 4: Aggiorna variabili globali (swap atomico sotto lock) ==========
                 faiss_index = new_faiss_index
@@ -3862,14 +3962,21 @@ async def sync_index_with_r2_incremental():
                     
                     # Estrai volti
                     faces = face_app.get(img)
+                    n_faces_strict = len(faces)
                     
                     if not faces:
-                        # Foto senza volti -> salta
+                        _log_index_diag_photo(
+                            filename, n_faces_strict, [], img.shape, skipped_reason="no_faces"
+                        )
                         continue
                     
                     # Fallback: 1 bbox sospetta (bacio/profili) -> prova ROI/split per separare volti
                     faces = _indexing_fallback_split_faces(img, faces, filename, face_app, face_app_loose)
                     logger.info(f"[INDEX_FALLBACK] FINAL faces_to_index={len(faces)} for {filename}")
+                    
+                    _log_index_diag_photo(filename, n_faces_strict, faces, img.shape)
+                    if len(faces) <= 1:
+                        _save_index_diag_images(filename, img, faces, filename)
                     
                     # Debug solo per IMG_1129.jpg (log + salva crop su disk)
                     _debug_indexing_img1129(img, faces, filename, face_app)
@@ -3905,6 +4012,18 @@ async def sync_index_with_r2_incremental():
                 except Exception as e:
                     logger.error(f"[INDEXING] Error processing new photo {filename}: {e}")
                     continue
+            
+            total_photos_in_r2 = len(r2_originals_keys)
+            indexed_photo_ids = set()
+            for m in new_meta_rows:
+                rk = m.get("r2_key") or m.get("photo_id")
+                if rk:
+                    indexed_photo_ids.add(Path(rk).name)
+            total_photos_indexed = len(indexed_photo_ids)
+            logger.info(
+                f"[INDEX_SUMMARY] total_photos_in_r2={total_photos_in_r2} total_photos_indexed={total_photos_indexed} "
+                f"faces_total={faces_total} vectors_in_index={new_faiss_index.ntotal} meta_rows={len(new_meta_rows)}"
+            )
             
             # ========== STEP 6: Swap atomico (sotto lock) ==========
             faiss_index = new_faiss_index
@@ -4028,6 +4147,81 @@ async def admin_index_rebuild(password: Optional[str] = Query(None)):
     except Exception as e:
         logger.error(f"Error in admin index rebuild: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Rebuild failed: {str(e)}")
+
+
+@app.get("/admin/index/diag")
+async def admin_index_diag(password: Optional[str] = Query(None)):
+    """Diagnostica post-sync: photo_id indicizzati con dettagli facce, e photo in R2 non indicizzati (TASK 3)."""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # Raggruppa meta_rows per photo_id (basename per normalizzare)
+    by_photo: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in (meta_rows or []):
+        rk = row.get("r2_key") or row.get("photo_id")
+        if not rk:
+            continue
+        pid = Path(rk).name
+        by_photo[pid].append(row)
+    
+    def _area_from_row(r: Dict[str, Any]) -> float:
+        bbox = r.get("bbox")
+        if not bbox or len(bbox) != 4:
+            return 0.0
+        try:
+            return max(0.0, float(bbox[2]) - float(bbox[0])) * max(0.0, float(bbox[3]) - float(bbox[1]))
+        except (TypeError, ValueError):
+            return 0.0
+    
+    indexed = []
+    for photo_id, rows in sorted(by_photo.items()):
+        faces_info = []
+        for r in rows:
+            det = float(r.get("det_score") or 0.0)
+            area = _area_from_row(r)
+            bucket = _diag_bucket_for_face(area, det)
+            faces_info.append({"det_score": round(det, 4), "area": int(area), "bucket": bucket})
+        indexed.append({"photo_id": photo_id, "face_count": len(rows), "faces": faces_info})
+    
+    # Lista R2 originali (stesso filtro di sync)
+    in_r2_not_indexed: List[str] = []
+    photos_in_r2 = 0
+    if USE_R2 and r2_client:
+        try:
+            paginator = r2_client.get_paginator("list_objects_v2")
+            paginate_kwargs = {"Bucket": R2_BUCKET}
+            if R2_PHOTOS_PREFIX:
+                paginate_kwargs["Prefix"] = R2_PHOTOS_PREFIX
+            r2_keys = set()
+            for page in paginator.paginate(**paginate_kwargs):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.startswith("faces.") or key.startswith("downloads_track"):
+                        continue
+                    if key.startswith("wm/") or key.startswith("thumbs/"):
+                        continue
+                    if not any(key.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".heic"]):
+                        continue
+                    r2_keys.add(Path(key).name)
+            photos_in_r2 = len(r2_keys)
+            indexed_names = set(by_photo.keys())
+            in_r2_not_indexed = sorted(r2_keys - indexed_names)
+        except Exception as e:
+            logger.warning(f"[INDEX_DIAG] R2 list failed: {e}")
+    
+    n_vectors = faiss_index.ntotal if faiss_index else 0
+    n_meta = len(meta_rows) if meta_rows else 0
+    return {
+        "indexed": indexed,
+        "in_r2_not_indexed": in_r2_not_indexed,
+        "summary": {
+            "vectors_in_index": n_vectors,
+            "meta_rows": n_meta,
+            "photos_in_r2": photos_in_r2,
+            "photos_indexed": len(by_photo),
+        },
+    }
+
 
 @app.post("/admin/cleanup")
 async def cleanup_downloads():
@@ -6835,6 +7029,10 @@ async def match_selfie(
                         "display_name": Path(r2_key).name,
                         "photo_id": r2_key,
                         "score": best_score,
+                        "det_score": det_score_val,
+                        "area": int(area),
+                        "bucket": bucket,
+                        "min_score": min_score_dyn,
                         "has_face": True,
                         "has_selfie": True,
                         "wm_url": f"/photo/{r2_key_encoded}?variant=wm",
@@ -7108,6 +7306,74 @@ async def match_selfie(
         # Log per debug
         sample = matched_photo_ids[0] if matched_photo_ids else "none"
         logger.info(f"[MATCH_RESPONSE] count={len(matched_photo_ids)} sample={sample}")
+        
+        # ---------- Report una riga per ogni foto in R2 (originals/) ----------
+        try:
+            r2_keys = await get_r2_keys_set_cached()
+            r2_photo_basenames = sorted({
+                Path(key).name for key in r2_keys
+                if not key.startswith("faces.") and not key.startswith("downloads_track")
+                and not key.startswith("wm/") and not key.startswith("thumbs/")
+                and any(key.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".heic"])
+            })
+            # Facce indicizzate per photo_id (basename)
+            indexed_face_count: Dict[str, int] = defaultdict(int)
+            for row in (local_meta_rows or []):
+                rk = row.get("r2_key") or row.get("photo_id")
+                if rk:
+                    indexed_face_count[Path(rk).name] += 1
+            accepted_basenames = {Path(r.get("r2_key") or r.get("photo_id") or "").name for r in all_results}
+            rejected_by_basename = {Path(r["r2_key"]).name: r for r in rejected if r.get("r2_key")}
+            candidates_by_basename = {Path(r2_key).name: c for r2_key, c in candidates_by_photo.items() if r2_key}
+            for photo_id in r2_photo_basenames:
+                n_faces = indexed_face_count.get(photo_id, 0)
+                indexed_str = f"si({n_faces})" if n_faces else "no"
+                if photo_id in accepted_basenames:
+                    status = "ACCEPTED"
+                    entry = next((r for r in all_results if Path(r.get("r2_key") or r.get("photo_id") or "").name == photo_id), None)
+                    if entry and entry.get("det_score") is not None:
+                        best_score = entry.get("score", 0)
+                        det_score = entry.get("det_score", 0)
+                        area = entry.get("area", 0)
+                        bucket = entry.get("bucket", "")
+                        min_score = entry.get("min_score", 0)
+                    else:
+                        rej = rejected_by_basename.get(photo_id)
+                        cand = candidates_by_basename.get(photo_id)
+                        if rej:
+                            best_score, det_score, area = rej.get("score", 0), rej.get("det_score", 0), rej.get("area", 0)
+                            bucket, min_score = rej.get("bucket", ""), rej.get("min_score", 0)
+                        elif cand:
+                            best_score = cand.get("best_score", 0)
+                            det_score = float(cand.get("det_score") or 0)
+                            area = int(cand.get("area") or 0)
+                            bucket = _diag_bucket_for_face(area, det_score)
+                            min_score = _dynamic_min_score(det_score, area)
+                        else:
+                            best_score = det_score = area = min_score = 0
+                            bucket = ""
+                    reason = ""
+                elif photo_id in rejected_by_basename:
+                    status = "REJECTED"
+                    r = rejected_by_basename[photo_id]
+                    best_score = r.get("score", 0)
+                    det_score = r.get("det_score", 0)
+                    area = r.get("area", 0)
+                    bucket = r.get("bucket", "")
+                    min_score = r.get("min_score", 0)
+                    reason = r.get("reason", "")
+                else:
+                    status = "NON_CANDIDATE"
+                    best_score = det_score = area = min_score = 0
+                    bucket = ""
+                    reason = ""
+                logger.info(
+                    f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} best_score={best_score:.3f} "
+                    f"status={status}" + (f" reason={reason}" if reason else "")
+                    + f" det_score={det_score:.3f} area={int(area)} bucket={bucket} min_score={min_score:.2f}"
+                )
+        except Exception as report_err:
+            logger.warning(f"[MATCH_REPORT] failed: {report_err}")
         
         # Se non ci sono risultati
         if len(all_results) == 0:
