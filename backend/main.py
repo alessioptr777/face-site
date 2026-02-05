@@ -219,6 +219,51 @@ def _save_index_diag_images(photo_id: str, img: np.ndarray, faces: List[Any], ba
         logger.warning(f"[DIAG_INDEX_DEBUG] save failed for {photo_id}: {e}")
 
 
+def _save_match_debug_images(
+    request_id: str,
+    photo_id: str,
+    img_bgr: np.ndarray,
+    face_row: Dict[str, Any],
+    reason: str,
+    reject_info: Dict[str, Any],
+    out_dir: Path,
+) -> None:
+    """Salva debug per una foto REJECTED: immagine con bbox+testo e crop volto (solo diagnostica)."""
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        bbox = face_row.get("bbox")
+        if not bbox or len(bbox) != 4:
+            return
+        h, w = img_bgr.shape[:2]
+        x1 = max(0, int(round(float(bbox[0]))))
+        y1 = max(0, int(round(float(bbox[1]))))
+        x2 = min(w, int(round(float(bbox[2]))))
+        y2 = min(h, int(round(float(bbox[3]))))
+        safe_photo_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in photo_id)
+        safe_req = "".join(c if c.isalnum() or c in "._-" else "_" for c in request_id)
+        prefix = f"rej_{safe_req}__{safe_photo_id}"
+        det_score = reject_info.get("det_score", 0)
+        best_score = reject_info.get("score", 0)
+        min_score = reject_info.get("min_score", 0)
+        bucket = reject_info.get("bucket", "")
+        rule_id = reject_info.get("rule_id", "")
+        label = f"det={det_score:.2f} score={best_score:.2f} min={min_score:.2f} {bucket} {rule_id} {reason[:120]}"
+        img_ann = img_bgr.copy()
+        cv2.rectangle(img_ann, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(img_ann, label[:120], (x1, max(20, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        path_bbox = out_dir / f"{prefix}__bbox.jpg"
+        cv2.imwrite(str(path_bbox), img_ann)
+        logger.info(f"[MATCH_DEBUG] saved {path_bbox}")
+        if x2 > x1 and y2 > y1:
+            crop = img_bgr[y1:y2, x1:x2].copy()
+            if crop.size > 0:
+                path_crop = out_dir / f"{prefix}__crop.jpg"
+                cv2.imwrite(str(path_crop), crop)
+                logger.info(f"[MATCH_DEBUG] saved {path_crop}")
+    except Exception as e:
+        logger.warning(f"[MATCH_DEBUG] save failed {photo_id}: {e}")
+
+
 # Configurazione family members
 MAX_FAMILY_MEMBERS = int(os.getenv("MAX_FAMILY_MEMBERS", "8"))  # Max membri famiglia per email
 
@@ -1889,7 +1934,7 @@ def _generate_multi_embeddings_from_image(
 
     embeddings = []
     _log_variant("orig", aligned)
-    if DEBUG_SAVE_SELFIE_DEBUG and request_id:
+    if request_id:
         try:
             ref_size = getattr(recog, "input_size", (112, 112)) if recog else (112, 112)
             if aligned.shape[0] != ref_size[1] or aligned.shape[1] != ref_size[0]:
@@ -1897,11 +1942,11 @@ def _generate_multi_embeddings_from_image(
             else:
                 aligned_112 = aligned.copy()
             DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-            path_crop112 = DEBUG_INDEX_DIR / f"selfie_{request_id}_crop112.jpg"
+            path_crop112 = DEBUG_INDEX_DIR / f"selfie_{request_id}__crop112.jpg"
             cv2.imwrite(str(path_crop112), aligned_112)
-            logger.info(f"[DEBUG_SELFIE] saved {path_crop112}")
+            logger.info(f"[MATCH_DEBUG] saved {path_crop112}")
         except Exception as e:
-            logger.warning(f"[DEBUG_SELFIE] save crop112 failed: {e}")
+            logger.warning(f"[MATCH_DEBUG] save crop112 failed: {e}")
     emb0 = _emb_from_aligned(aligned, "orig_feat")
     if emb0 is None:
         emb0 = _normalize(main_face.embedding.astype(np.float32))
@@ -6564,14 +6609,14 @@ async def match_selfie(
                     "matched_count": 0,
                     "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
                 }
-            if DEBUG_SAVE_SELFIE_DEBUG and request_id and not is_video:
+            if request_id and not is_video:
                 try:
                     DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-                    path_resized = DEBUG_INDEX_DIR / f"selfie_{request_id}_resized.jpg"
+                    path_resized = DEBUG_INDEX_DIR / f"selfie_{request_id}__resized.jpg"
                     cv2.imwrite(str(path_resized), img)
-                    logger.info(f"[DEBUG_SELFIE] saved {path_resized}")
+                    logger.info(f"[MATCH_DEBUG] saved {path_resized}")
                 except Exception as e:
-                    logger.warning(f"[DEBUG_SELFIE] save resized failed: {e}")
+                    logger.warning(f"[MATCH_DEBUG] save selfie resized failed: {e}")
             ref_embeddings = _generate_multi_embeddings_from_image(
                 img, num_embeddings=NUM_REF_EMBEDDINGS, request_id=request_id, file_sha1=file_sha1_full
             )
@@ -7110,6 +7155,21 @@ async def match_selfie(
                         f"best_ref_index={cand.get('best_ref_index')} ref_max={ref_max_str} best_score={cand['best_score']:.4f}"
                     )
             rejected.sort(key=lambda x: x["score"], reverse=True)
+            for r in rejected:
+                photo_id_r = Path(r["r2_key"]).name if r.get("r2_key") else ""
+                face_idx_r = r.get("best_idx")
+                best_ref_r = r.get("best_ref_index")
+                second_b = r.get("second_best")
+                margin_v = r.get("margin")
+                sb_str = f"{second_b:.4f}" if second_b is not None else "None"
+                margin_str = f"{margin_v:.4f}" if margin_v is not None else "None"
+                logger.info(
+                    f"[REJECTED] photo_id={photo_id_r} face_idx={face_idx_r} best_ref_index={best_ref_r} "
+                    f"best_score={r['score']:.4f} second_best={sb_str} margin={margin_str} "
+                    f"det_score={r.get('det_score', 0):.3f} area={r.get('area', 0)} bucket={r.get('bucket', '')} "
+                    f"hits={r.get('hits')} hits_required={r.get('hits_required')} "
+                    f"min_score={r.get('min_score', 0):.2f} rule_id={r.get('rule_id', '')} reason={r['reason']}"
+                )
             for r in rejected[:10]:
                 ref_max_str = [round(float(x), 4) for x in r.get("ref_max", [])]
                 second_b = r.get("second_best")
@@ -7155,49 +7215,35 @@ async def match_selfie(
                     except Exception as e:
                         logger.warning(f"[DEBUG_CROPS] failed candidate crop {r2_k}: {e}")
 
-            # DEBUG_REJECT_IMAGES: per ogni REJECTED salva immagine con bbox+testo e crop in static/debug
-            if DEBUG_REJECT_IMAGES and rejected:
+            # Salva debug immagini SOLO per REJECTED (selfie già salvato sopra; qui foto candidate)
+            if rejected and request_id and not is_video:
                 try:
-                    DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
                     for r in rejected:
                         r2_k, idx = r.get("r2_key"), r.get("best_idx")
                         if r2_k is None or idx is None or idx >= len(local_meta_rows):
                             continue
                         row = local_meta_rows[idx]
-                        bbox = row.get("bbox")
-                        if not bbox or len(bbox) != 4:
-                            continue
                         try:
                             photo_bytes = await _r2_get_object_bytes(r2_k)
                             nparr = np.frombuffer(photo_bytes, np.uint8)
                             img_photo = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_photo is None:
                                 continue
-                            h, w = img_photo.shape[:2]
-                            x1 = max(0, int(round(bbox[0])))
-                            y1 = max(0, int(round(bbox[1])))
-                            x2 = min(w, int(round(bbox[2])))
-                            y2 = min(h, int(round(bbox[3])))
                             photo_id = Path(r2_k).name
-                            safe_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in photo_id)
-                            # Immagine con bbox e testo: det_score, best_score, min_score, bucket, rule_id
-                            img_ann = img_photo.copy()
-                            cv2.rectangle(img_ann, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            rule_id = r.get("rule_id", "")
-                            label = f"det={r.get('det_score', 0):.2f} score={r.get('score', 0):.2f} min={r.get('min_score', 0):.2f} {r.get('bucket', '')} {rule_id}"
-                            cv2.putText(img_ann, label[:80], (x1, max(20, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                            path_bbox = DEBUG_INDEX_DIR / f"reject_{safe_id}_face{idx}.jpg"
-                            cv2.imwrite(str(path_bbox), img_ann)
-                            logger.info(f"[DEBUG_REJECT] saved {path_bbox}")
-                            crop = img_photo[y1:y2, x1:x2]
-                            if crop.size > 0:
-                                path_crop = DEBUG_INDEX_DIR / f"reject_{safe_id}_face{idx}_crop.jpg"
-                                cv2.imwrite(str(path_crop), crop)
-                                logger.info(f"[DEBUG_REJECT] saved {path_crop}")
+                            reject_info = {
+                                "det_score": r.get("det_score", 0),
+                                "score": r.get("score", 0),
+                                "min_score": r.get("min_score", 0),
+                                "bucket": r.get("bucket", ""),
+                                "rule_id": r.get("rule_id", ""),
+                            }
+                            _save_match_debug_images(
+                                request_id, photo_id, img_photo, row, r.get("reason", ""), reject_info, DEBUG_INDEX_DIR
+                            )
                         except Exception as e:
-                            logger.warning(f"[DEBUG_REJECT] failed {r2_k}: {e}")
+                            logger.warning(f"[MATCH_DEBUG] failed {r2_k}: {e}")
                 except Exception as e:
-                    logger.warning(f"[DEBUG_REJECT] failed: {e}")
+                    logger.warning(f"[MATCH_DEBUG] failed: {e}")
 
             total_match_ms = (time.perf_counter() - t_match_start) * 1000
             logger.info(
@@ -9803,7 +9849,7 @@ async def admin_debug(password: str = Query(..., description="Password admin")):
 
 @app.get("/admin/debug/list")
 async def admin_debug_list(password: Optional[str] = Query(None)):
-    """Elenco file in static/debug ordinati per mtime (solo lettura, per scaricare/aprire debug)."""
+    """Elenco file in static/debug con name, size, mtime ordinati per mtime desc."""
     if not _check_admin_auth(password):
         raise HTTPException(status_code=401, detail="Unauthorized")
     try:
@@ -9813,15 +9859,31 @@ async def admin_debug_list(password: Optional[str] = Query(None)):
         for f in DEBUG_INDEX_DIR.iterdir():
             if f.is_file():
                 try:
-                    mtime = f.stat().st_mtime
+                    st = f.stat()
+                    entries.append({"name": f.name, "size": st.st_size, "mtime": st.st_mtime})
                 except OSError:
-                    mtime = 0
-                entries.append({"name": f.name, "mtime": mtime})
+                    entries.append({"name": f.name, "size": 0, "mtime": 0})
         entries.sort(key=lambda x: -x["mtime"])
-        return {"files": [e["name"] for e in entries], "dir": str(DEBUG_INDEX_DIR)}
+        return {"files": entries, "dir": str(DEBUG_INDEX_DIR)}
     except Exception as e:
         logger.warning(f"[admin/debug/list] {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/debug/file/{name:path}")
+async def admin_debug_file(name: str, password: Optional[str] = Query(None)):
+    """Serve un file dalla cartella static/debug (solo admin, no path traversal)."""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="Invalid name")
+    path = DEBUG_INDEX_DIR / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type = "image/jpeg"
+    if name.lower().endswith(".png"):
+        media_type = "image/png"
+    return FileResponse(str(path), media_type=media_type)
 
 
 @app.get("/admin/stats")
