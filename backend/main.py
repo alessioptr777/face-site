@@ -128,6 +128,10 @@ DEBUG = str(os.getenv("DEBUG", "0")).strip().lower() in {"1", "true", "yes", "on
 DEBUG_INDEX_DIR = Path(os.getenv("DEBUG_INDEX_DIR", str(STATIC_DIR / "debug")))
 # Diagnostica indexing: log per-foto e salva debug per foto con <=1 faccia (sempre attivo per report)
 DIAG_INDEX_DEBUG_IMAGES = str(os.getenv("DIAG_INDEX_DEBUG_IMAGES", "1")).strip().lower() in {"1", "true", "yes", "on"}
+# Debug REJECTED: salva in static/debug immagine con bbox + crop per ogni foto rifiutata
+DEBUG_REJECT_IMAGES = str(os.getenv("DEBUG_REJECT_IMAGES", "0")).strip().lower() in {"1", "true", "yes", "on"}
+# Debug selfie: salva resized e crop 112x112 in static/debug
+DEBUG_SAVE_SELFIE_DEBUG = str(os.getenv("DEBUG_SAVE_SELFIE_DEBUG", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _DIAG_EMB_CACHE_MAX = 10
 _DIAG_EMB_CACHE: Dict[str, np.ndarray] = {}  # file_sha1 -> emb0 per confronto cosine tra run
 
@@ -1885,6 +1889,19 @@ def _generate_multi_embeddings_from_image(
 
     embeddings = []
     _log_variant("orig", aligned)
+    if DEBUG_SAVE_SELFIE_DEBUG and request_id:
+        try:
+            ref_size = getattr(recog, "input_size", (112, 112)) if recog else (112, 112)
+            if aligned.shape[0] != ref_size[1] or aligned.shape[1] != ref_size[0]:
+                aligned_112 = cv2.resize(aligned, (ref_size[0], ref_size[1]), interpolation=cv2.INTER_LINEAR)
+            else:
+                aligned_112 = aligned.copy()
+            DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            path_crop112 = DEBUG_INDEX_DIR / f"selfie_{request_id}_crop112.jpg"
+            cv2.imwrite(str(path_crop112), aligned_112)
+            logger.info(f"[DEBUG_SELFIE] saved {path_crop112}")
+        except Exception as e:
+            logger.warning(f"[DEBUG_SELFIE] save crop112 failed: {e}")
     emb0 = _emb_from_aligned(aligned, "orig_feat")
     if emb0 is None:
         emb0 = _normalize(main_face.embedding.astype(np.float32))
@@ -6547,6 +6564,14 @@ async def match_selfie(
                     "matched_count": 0,
                     "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
                 }
+            if DEBUG_SAVE_SELFIE_DEBUG and request_id and not is_video:
+                try:
+                    DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+                    path_resized = DEBUG_INDEX_DIR / f"selfie_{request_id}_resized.jpg"
+                    cv2.imwrite(str(path_resized), img)
+                    logger.info(f"[DEBUG_SELFIE] saved {path_resized}")
+                except Exception as e:
+                    logger.warning(f"[DEBUG_SELFIE] save resized failed: {e}")
             ref_embeddings = _generate_multi_embeddings_from_image(
                 img, num_embeddings=NUM_REF_EMBEDDINGS, request_id=request_id, file_sha1=file_sha1_full
             )
@@ -6788,6 +6813,8 @@ async def match_selfie(
                     bucket = "medium"
 
                 reject_reason = None
+                rule_id = None
+                required_hits = 0
                 # PROTEZIONE CRITICA: det_score alto ma score molto basso = RIFIUTA (privacy)
                 # Eccezione chirurgica: det>=0.90 e hits>=2 -> accetta anche se score>=0.47 (stabilità selfie diversi)
                 # Se det_score >= 0.90, richiedi score >= 0.50, tranne se hits>=2 e score>=0.47
@@ -6795,26 +6822,29 @@ async def match_selfie(
                     if not (hits_count >= 2 and best_score >= 0.47):
                         stats["filtered_by_score"] += 1
                         reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto molto alto, falso positivo)"
+                        rule_id = "DET_GE_0.90_NEED_0.50"
                 # Se det_score >= 0.85, richiedi score >= 0.50 per evitare falsi positivi (es. MIT00045.jpg, MIT00044.jpg, MIT00062.jpg)
                 elif det_score_val >= 0.85 and best_score < 0.50:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
+                    rule_id = "DET_GE_0.85_NEED_0.50"
                 # PROTEZIONE SPECIALE: foto con area molto grande (>150000) e det_score medio-alto (0.70-0.85)
-                # Queste foto hanno min_score=0.10 (troppo basso), ma se det_score è buono e score è basso = falso positivo
-                # Es. MIT00044.jpg (det=0.728, area=216071, score=0.127) e MIT00062.jpg (det=0.727, area=243526, score=0.161)
                 elif area >= 150000 and 0.70 <= det_score_val < 0.85 and best_score < 0.25:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.25 (det={det_score_val:.3f} area_grande={int(area)}, falso positivo)"
+                    rule_id = "AREA_150K_DET_70_85_NEED_0.25"
                 elif det_score_val >= 0.80 and best_score < 0.30:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.30 (det={det_score_val:.3f} molto alto, falso positivo)"
+                    rule_id = "DET_GE_0.80_NEED_0.30"
                 elif det_score_val >= 0.78 and best_score < 0.25:
-                    # Protezione anche per det_score molto vicino a 0.80 (es. 0.797)
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.25 (det={det_score_val:.3f} alto, falso positivo)"
+                    rule_id = "DET_GE_0.78_NEED_0.25"
                 elif det_score_val >= 0.75 and best_score < 0.20:
                     stats["filtered_by_score"] += 1
                     reject_reason = f"score={best_score:.3f}<0.20 (det={det_score_val:.3f} alto, falso positivo)"
+                    rule_id = "DET_GE_0.75_NEED_0.20"
                 else:
                     # Tolleranza per score molto vicini alla soglia
                     # Per foto molto grandi, tolleranza maggiore
@@ -6832,6 +6862,7 @@ async def match_selfie(
                     if score_diff > tolerance:  # Differenza > tolerance = rifiuta
                         stats["filtered_by_score"] += 1
                         reject_reason = f"score={best_score:.3f}<{min_score_dyn:.2f}"
+                        rule_id = "DYN_MIN_SCORE"
                     elif score_diff > 0:  # Differenza <= tolerance = accetta ma richiede 2/2 hits
                         # Score molto vicino alla soglia: accetta ma richiede conferma doppia
                         # Considera come se avesse superato la soglia, ma richiedi 2/2 hits
@@ -6943,6 +6974,7 @@ async def match_selfie(
                     if hits_count < required_hits:
                         stats["filtered_by_score"] += 1
                         reject_reason = f"hits={hits_count}/{required_hits} (bucket={bucket}, score={best_score:.3f})"
+                        rule_id = "HITS_REQUIRED"
                     
                     if reject_reason is None:
                         # Per foto "facili" (large), se margin è None (solo una faccia), 
@@ -6965,6 +6997,7 @@ async def match_selfie(
                             elif bucket != "large" and best_score < (min_score_dyn + 0.02):
                                 stats["filtered_by_margin"] += 1
                                 reject_reason = f"margin_missing best<{min_score_dyn + 0.02:.2f}"
+                                rule_id = "MARGIN_MISSING"
                         else:
                             # Per foto difficili con det_score buono, riduci margin_min
                             # Ma AUMENTA margin_min per foto con score bassi (protezione falsi positivi)
@@ -7007,6 +7040,7 @@ async def match_selfie(
                             if margin < effective_margin_min:
                                 stats["filtered_by_margin"] += 1
                                 reject_reason = f"margin={margin:.3f}<{effective_margin_min:.3f}"
+                                rule_id = "MARGIN_MIN"
 
                 if reject_reason is None:
                     from pathlib import Path
@@ -7051,8 +7085,11 @@ async def match_selfie(
                         "margin": margin,
                         "margin_min": margin_min,
                         "hits": hits_count,
+                        "hits_required": required_hits,
+                        "second_best": second_best,
                         "bucket": bucket,
                         "reason": reject_reason,
+                        "rule_id": rule_id or "UNKNOWN",
                         "best_idx": c.get("best_idx"),
                         "best_ref_index": c.get("best_ref_index"),
                         "ref_max": c.get("ref_max", []),
@@ -7075,9 +7112,15 @@ async def match_selfie(
             rejected.sort(key=lambda x: x["score"], reverse=True)
             for r in rejected[:10]:
                 ref_max_str = [round(float(x), 4) for x in r.get("ref_max", [])]
+                second_b = r.get("second_best")
+                margin_v = r.get("margin")
+                sb_str = f"{second_b:.4f}" if second_b is not None else "None"
+                margin_str = f"{margin_v:.4f}" if margin_v is not None else "None"
                 logger.info(
                     f"[DIAG_SCORING] REJECTED r2_key={r['r2_key']} face_idx={r.get('best_idx')} "
-                    f"best_ref_index={r.get('best_ref_index')} ref_max={ref_max_str} best_score={r['score']:.4f} reason={r['reason']}"
+                    f"best_ref_index={r.get('best_ref_index')} ref_max={ref_max_str} best_score={r['score']:.4f} "
+                    f"second_best={sb_str} margin={margin_str} hits={r.get('hits')} hits_required={r.get('hits_required')} "
+                    f"min_score={r.get('min_score', 0):.2f} rule_id={r.get('rule_id', '')} reason={r['reason']}"
                 )
 
             # DEBUG_CROPS: salva crop candidati borderline rejected (solo se DEBUG_CROPS=1)
@@ -7111,6 +7154,50 @@ async def match_selfie(
                         logger.info(f"[DEBUG_CROPS] saved {crop_path}")
                     except Exception as e:
                         logger.warning(f"[DEBUG_CROPS] failed candidate crop {r2_k}: {e}")
+
+            # DEBUG_REJECT_IMAGES: per ogni REJECTED salva immagine con bbox+testo e crop in static/debug
+            if DEBUG_REJECT_IMAGES and rejected:
+                try:
+                    DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+                    for r in rejected:
+                        r2_k, idx = r.get("r2_key"), r.get("best_idx")
+                        if r2_k is None or idx is None or idx >= len(local_meta_rows):
+                            continue
+                        row = local_meta_rows[idx]
+                        bbox = row.get("bbox")
+                        if not bbox or len(bbox) != 4:
+                            continue
+                        try:
+                            photo_bytes = await _r2_get_object_bytes(r2_k)
+                            nparr = np.frombuffer(photo_bytes, np.uint8)
+                            img_photo = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            if img_photo is None:
+                                continue
+                            h, w = img_photo.shape[:2]
+                            x1 = max(0, int(round(bbox[0])))
+                            y1 = max(0, int(round(bbox[1])))
+                            x2 = min(w, int(round(bbox[2])))
+                            y2 = min(h, int(round(bbox[3])))
+                            photo_id = Path(r2_k).name
+                            safe_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in photo_id)
+                            # Immagine con bbox e testo: det_score, best_score, min_score, bucket, rule_id
+                            img_ann = img_photo.copy()
+                            cv2.rectangle(img_ann, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                            rule_id = r.get("rule_id", "")
+                            label = f"det={r.get('det_score', 0):.2f} score={r.get('score', 0):.2f} min={r.get('min_score', 0):.2f} {r.get('bucket', '')} {rule_id}"
+                            cv2.putText(img_ann, label[:80], (x1, max(20, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                            path_bbox = DEBUG_INDEX_DIR / f"reject_{safe_id}_face{idx}.jpg"
+                            cv2.imwrite(str(path_bbox), img_ann)
+                            logger.info(f"[DEBUG_REJECT] saved {path_bbox}")
+                            crop = img_photo[y1:y2, x1:x2]
+                            if crop.size > 0:
+                                path_crop = DEBUG_INDEX_DIR / f"reject_{safe_id}_face{idx}_crop.jpg"
+                                cv2.imwrite(str(path_crop), crop)
+                                logger.info(f"[DEBUG_REJECT] saved {path_crop}")
+                        except Exception as e:
+                            logger.warning(f"[DEBUG_REJECT] failed {r2_k}: {e}")
+                except Exception as e:
+                    logger.warning(f"[DEBUG_REJECT] failed: {e}")
 
             total_match_ms = (time.perf_counter() - t_match_start) * 1000
             logger.info(
@@ -7369,10 +7456,11 @@ async def match_selfie(
                     area = r.get("area", 0)
                     bucket = r.get("bucket", "")
                     min_score = r.get("min_score", 0)
+                    rule_id = r.get("rule_id", "")
                     line = (
                         f"[MATCH_REPORT] photo_id={photo_id} indexed={indexed_str} candidate={candidate_str} status={status} best_score={best_score_str}{candidate_extra}"
                         + (f" reason={reason}" if reason else "")
-                        + f" det_score={det_score:.3f} area={int(area)} bucket={bucket} min_score={min_score:.2f}"
+                        + f" det_score={det_score:.3f} area={int(area)} bucket={bucket} min_score={min_score:.2f} rule_id={rule_id}"
                     )
                 else:
                     status = "NOT_CANDIDATE"
@@ -9711,6 +9799,30 @@ async def admin_debug(password: str = Query(..., description="Password admin")):
         result["traceback"] = traceback.format_exc()
     
     return result
+
+
+@app.get("/admin/debug/list")
+async def admin_debug_list(password: Optional[str] = Query(None)):
+    """Elenco file in static/debug ordinati per mtime (solo lettura, per scaricare/aprire debug)."""
+    if not _check_admin_auth(password):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        if not DEBUG_INDEX_DIR.exists():
+            return {"files": [], "dir": str(DEBUG_INDEX_DIR)}
+        entries = []
+        for f in DEBUG_INDEX_DIR.iterdir():
+            if f.is_file():
+                try:
+                    mtime = f.stat().st_mtime
+                except OSError:
+                    mtime = 0
+                entries.append({"name": f.name, "mtime": mtime})
+        entries.sort(key=lambda x: -x["mtime"])
+        return {"files": [e["name"] for e in entries], "dir": str(DEBUG_INDEX_DIR)}
+    except Exception as e:
+        logger.warning(f"[admin/debug/list] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/admin/stats")
 async def admin_stats(password: str = Query(..., description="Password admin")):
