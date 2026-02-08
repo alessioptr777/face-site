@@ -4,7 +4,7 @@ hits_047 = numero di ref_embeddings con score >= 0.47; margin = best_score - sec
 """
 import pytest
 
-from main import _near_miss_exception_accept
+from main import _near_miss_exception_accept, _near_miss_tier2_accept
 
 
 def test_near_miss_det_86_best_49_hits_3_margin_none_accept():
@@ -45,3 +45,26 @@ def test_near_miss_best_below_47_reject():
 def test_near_miss_best_above_50_not_near_miss():
     """best_score >= 0.50 -> non è near-miss (soglia normale)."""
     assert _near_miss_exception_accept(0.90, 0.50, 1, None) is False
+
+
+# --- NEAR_MISS_TIER2 (det>=0.87, 0.40<=best<0.47, margin>=0.30, hits_040>=4 o face_count<=2) ---
+
+
+def test_tier2_det_872_best_41_margin_393_hits8_accept():
+    """det=0.872 best=0.410 margin=0.393 hits_040=8 -> ACCEPT."""
+    assert _near_miss_tier2_accept(0.872, 0.410, 0.393, 8, None) is True
+
+
+def test_tier2_det_872_best_41_margin_low_reject():
+    """det=0.872 best=0.410 margin=0.05 hits_040=8 -> REJECT (margin<0.30)."""
+    assert _near_miss_tier2_accept(0.872, 0.410, 0.05, 8, None) is False
+
+
+def test_tier2_det_88_best_42_margin_31_hits2_reject():
+    """det=0.88 best=0.42 margin=0.31 hits_040=2 -> REJECT (hits_040<4 e face_count non<=2)."""
+    assert _near_miss_tier2_accept(0.88, 0.42, 0.31, 2, 5) is False
+
+
+def test_tier2_det_86_no_tier2_reject():
+    """det=0.86 best=0.42 margin=0.31 hits_040=8 -> REJECT (tier2 solo se det>=0.87)."""
+    assert _near_miss_tier2_accept(0.86, 0.42, 0.31, 8, None) is False

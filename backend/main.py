@@ -162,6 +162,25 @@ def _near_miss_exception_accept(
     return False
 
 
+def _near_miss_tier2_accept(
+    det_score_val: float,
+    best_score: float,
+    margin: Optional[float],
+    hits_040: int,
+    face_count: Optional[int],
+) -> bool:
+    """
+    NEAR_MISS_TIER2: molto conservativo. det>=0.87, 0.40<=best<0.47.
+    ACCEPT solo se margin>=0.30 e (hits_040>=4 oppure face_count<=2).
+    Se margin è None non usare tier2.
+    """
+    if margin is None or det_score_val < 0.87 or best_score < 0.40 or best_score >= 0.47:
+        return False
+    if margin < 0.30:
+        return False
+    return hits_040 >= 4 or (face_count is not None and face_count <= 2)
+
+
 def _log_index_diag_photo(
     photo_id: str,
     n_faces_strict: int,
@@ -3463,6 +3482,7 @@ async def startup():
                         _debug_indexing_img1129(img, faces, display_name, face_app)
                         
                         # Per ogni volto, crea embedding e metadata
+                        face_count_photo = len(faces)
                         for face in faces:
                             embedding = face.embedding.astype(np.float32)
                             embedding = _normalize(embedding)
@@ -3478,7 +3498,8 @@ async def startup():
                                 "display_name": display_name,  # Solo nome file
                                 "photo_id": r2_key,  # Compatibilità retroattiva
                                 "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
-                                "det_score": float(face.det_score)
+                                "det_score": float(face.det_score),
+                                "face_count": face_count_photo,
                             })
                             faces_total += 1
                         
@@ -4061,6 +4082,7 @@ async def sync_index_with_r2_incremental():
                     _debug_indexing_img1129(img, faces, filename, face_app)
                     
                     # Per ogni volto, crea embedding e metadata
+                    face_count_photo = len(faces)
                     for face in faces:
                         embedding = face.embedding.astype(np.float32)
                         embedding = _normalize(embedding)
@@ -4076,7 +4098,8 @@ async def sync_index_with_r2_incremental():
                             "display_name": filename,  # Stesso del r2_key
                             "photo_id": filename,  # Compatibilità retroattiva
                             "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
-                            "det_score": float(face.det_score)
+                            "det_score": float(face.det_score),
+                            "face_count": face_count_photo,
                         })
                         new_faces_count += 1
                         faces_total += 1
@@ -6873,6 +6896,13 @@ async def match_selfie(
                 ref_max_list = c.get("ref_max", [])
                 hits_count = sum(1 for v in ref_max_list if v >= min_score_dyn)
                 hits_047 = sum(1 for v in ref_max_list if v >= 0.47)
+                hits_040 = sum(1 for v in ref_max_list if v >= 0.40)
+                best_idx_c = c.get("best_idx")
+                face_count = None
+                if best_idx_c is not None and 0 <= best_idx_c < len(local_meta_rows):
+                    face_count = local_meta_rows[best_idx_c].get("face_count")
+                if face_count is None:
+                    face_count = len(photo_to_face_indices.get(r2_key, []))
                 bucket = "large"
                 if area < 30000 or det_score_val < 0.75:
                     bucket = "small"
@@ -6919,9 +6949,27 @@ async def match_selfie(
                             f"det={det_score_val:.3f} best={best_score:.3f} need=0.50 hits={hits_047} second={_sb} margin={_m}"
                         )
                     else:
-                        stats["filtered_by_score"] += 1
-                        reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
-                        rule_id = "DET_GE_0.85_NEED_0.50"
+                        # best_score < 0.47: prova NEAR_MISS_TIER2 (solo det>=0.87, 0.40<=best<0.47, margin>=0.30, hits_040>=4 o face_count<=2)
+                        if det_score_val >= 0.87 and best_score >= 0.40 and _near_miss_tier2_accept(
+                            det_score_val, best_score, margin, hits_040, face_count
+                        ):
+                            logger.info(
+                                f"[NEAR_MISS_TIER2_ACCEPT] photo_id={Path(r2_key).name} det={det_score_val:.3f} "
+                                f"best={best_score:.3f} margin={_m} hits_040={hits_040} face_count={face_count}"
+                            )
+                        else:
+                            if det_score_val >= 0.87 and best_score >= 0.40:
+                                stats["filtered_by_score"] += 1
+                                reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, tier2 non soddisfatto)"
+                                rule_id = "NEAR_MISS_TIER2"
+                                logger.info(
+                                    f"[NEAR_MISS_TIER2_REJECT] photo_id={Path(r2_key).name} det={det_score_val:.3f} "
+                                    f"best={best_score:.3f} margin={_m} hits_040={hits_040} face_count={face_count}"
+                                )
+                            else:
+                                stats["filtered_by_score"] += 1
+                                reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
+                                rule_id = "DET_GE_0.85_NEED_0.50"
                 # PROTEZIONE SPECIALE: foto con area molto grande (>150000) e det_score medio-alto (0.70-0.85)
                 elif area >= 150000 and 0.70 <= det_score_val < 0.85 and best_score < 0.25:
                     stats["filtered_by_score"] += 1
