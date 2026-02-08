@@ -145,6 +145,23 @@ def _diag_bucket_for_face(area: float, det_score: float) -> str:
     return "large"
 
 
+def _near_miss_exception_accept(
+    det_score_val: float, best_score: float, hits_047: int, margin: Optional[float]
+) -> bool:
+    """
+    Near-Miss Exception: accetta solo se 0.47<=best_score<0.50 e det>=0.85.
+    - det>=0.90: ACCEPT se hits_047>=3.
+    - det>=0.85: ACCEPT se (hits_047>=2) OR (margin>=0.10).
+    """
+    if best_score < 0.47 or best_score >= 0.50:
+        return False
+    if det_score_val >= 0.90:
+        return hits_047 >= 3
+    if det_score_val >= 0.85:
+        return hits_047 >= 2 or (margin is not None and margin >= 0.10)
+    return False
+
+
 def _log_index_diag_photo(
     photo_id: str,
     n_faces_strict: int,
@@ -6836,7 +6853,10 @@ async def match_selfie(
             }
             
             # Log versione protezioni (per verificare che i cambiamenti siano attivi su Render)
-            logger.info("[PROTECTION_VERSION] det>=0.90: score>=0.50 (eccezione: hits>=2 e score>=0.47), det>=0.85: score>=0.50, det>=0.80: score>=0.30, det>=0.78: score>=0.25")
+            logger.info(
+                "[PROTECTION_VERSION] det>=0.90: score>=0.50 (near-miss: hits_047>=3); "
+                "det>=0.85: score>=0.50 (near-miss: hits_047>=2 OR margin>=0.10); det>=0.80: score>=0.30; det>=0.78: score>=0.25"
+            )
 
             t_scoring_start = time.perf_counter()
             for r2_key, c in candidates_by_photo.items():
@@ -6850,7 +6870,9 @@ async def match_selfie(
 
                 min_score_dyn = _dynamic_min_score(det_score_val, area)
                 margin_min = _dynamic_margin_min(det_score_val, area)
-                hits_count = sum(1 for v in c.get("ref_max", []) if v >= min_score_dyn)
+                ref_max_list = c.get("ref_max", [])
+                hits_count = sum(1 for v in ref_max_list if v >= min_score_dyn)
+                hits_047 = sum(1 for v in ref_max_list if v >= 0.47)
                 bucket = "large"
                 if area < 30000 or det_score_val < 0.75:
                     bucket = "small"
@@ -6861,18 +6883,45 @@ async def match_selfie(
                 rule_id = None
                 required_hits = 0
                 # PROTEZIONE CRITICA: det_score alto ma score molto basso = RIFIUTA (privacy)
-                # Eccezione chirurgica: det>=0.90 e hits>=2 -> accetta anche se score>=0.47 (stabilità selfie diversi)
-                # Se det_score >= 0.90, richiedi score >= 0.50, tranne se hits>=2 e score>=0.47
+                # Near-Miss Exception: 0.47<=score<0.50 e det>=0.85 -> ACCEPT se (det>=0.90 e hits_047>=3) oppure (det>=0.85 e (hits_047>=2 o margin>=0.10))
+                _sb = f"{second_best:.3f}" if second_best is not None else "None"
+                _m = f"{margin:.3f}" if margin is not None else "None"
                 if det_score_val >= 0.90 and best_score < 0.50:
-                    if not (hits_count >= 2 and best_score >= 0.47):
+                    if _near_miss_exception_accept(det_score_val, best_score, hits_047, margin):
+                        logger.info(
+                            f"[NEAR_MISS_ACCEPT] photo_id={Path(r2_key).name} face_idx={c.get('best_idx')} "
+                            f"det={det_score_val:.3f} best={best_score:.3f} need=0.50 hits={hits_047} second={_sb} margin={_m}"
+                        )
+                    elif best_score >= 0.47:
                         stats["filtered_by_score"] += 1
                         reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto molto alto, falso positivo)"
                         rule_id = "DET_GE_0.90_NEED_0.50"
-                # Se det_score >= 0.85, richiedi score >= 0.50 per evitare falsi positivi (es. MIT00045.jpg, MIT00044.jpg, MIT00062.jpg)
+                        logger.info(
+                            f"[NEAR_MISS_REJECT] photo_id={Path(r2_key).name} face_idx={c.get('best_idx')} "
+                            f"det={det_score_val:.3f} best={best_score:.3f} need=0.50 hits={hits_047} second={_sb} margin={_m}"
+                        )
+                    else:
+                        stats["filtered_by_score"] += 1
+                        reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto molto alto, falso positivo)"
+                        rule_id = "DET_GE_0.90_NEED_0.50"
                 elif det_score_val >= 0.85 and best_score < 0.50:
-                    stats["filtered_by_score"] += 1
-                    reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
-                    rule_id = "DET_GE_0.85_NEED_0.50"
+                    if _near_miss_exception_accept(det_score_val, best_score, hits_047, margin):
+                        logger.info(
+                            f"[NEAR_MISS_ACCEPT] photo_id={Path(r2_key).name} face_idx={c.get('best_idx')} "
+                            f"det={det_score_val:.3f} best={best_score:.3f} need=0.50 hits={hits_047} second={_sb} margin={_m}"
+                        )
+                    elif best_score >= 0.47:
+                        stats["filtered_by_score"] += 1
+                        reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
+                        rule_id = "DET_GE_0.85_NEED_0.50"
+                        logger.info(
+                            f"[NEAR_MISS_REJECT] photo_id={Path(r2_key).name} face_idx={c.get('best_idx')} "
+                            f"det={det_score_val:.3f} best={best_score:.3f} need=0.50 hits={hits_047} second={_sb} margin={_m}"
+                        )
+                    else:
+                        stats["filtered_by_score"] += 1
+                        reject_reason = f"score={best_score:.3f}<0.50 (det={det_score_val:.3f} molto alto, falso positivo)"
+                        rule_id = "DET_GE_0.85_NEED_0.50"
                 # PROTEZIONE SPECIALE: foto con area molto grande (>150000) e det_score medio-alto (0.70-0.85)
                 elif area >= 150000 and 0.70 <= det_score_val < 0.85 and best_score < 0.25:
                     stats["filtered_by_score"] += 1
