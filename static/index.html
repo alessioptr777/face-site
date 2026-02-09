@@ -3145,13 +3145,11 @@
           return;
         }
         
-        // Flow normale per il primo selfie: vai alla lingua
-        // Vai subito alla lingua (piu' logico per l'utente)
+        // Flow normale per il primo selfie: avvia subito caricamento e match (non bloccare sulla lingua)
+        startPhotosSearchInBackground();
         showScreen('language');
 
-        // BLOCCA: NON avviare ricerca automatica - aspetta che l'utente selezioni lingua
-        // La ricerca partirà solo quando l'utente seleziona la lingua (se capturedBlob esiste)
-        // startPhotosSearchInBackground(); // DISATTIVATO - parte solo dopo selezione lingua
+        // La scelta lingua è solo UI: non blocca /match_selfie e /api/photos (già avviati sopra)
 
         // Se l'utente aveva gia' scelto una lingua in questa sessione, non chiedere di nuovo
         if(selectedLanguage){
@@ -5722,9 +5720,8 @@
         // Marca selfie come completato
         selfieCompleted = true;
 
-        // BLOCCA: NON avviare ricerca automatica - aspetta che l'utente selezioni lingua
-        // La ricerca partirà solo quando l'utente seleziona la lingua (se capturedBlob esiste)
-        // startPhotosSearchInBackground(); // DISATTIVATO - parte solo dopo selezione lingua
+        // Avvia subito caricamento e match (la scelta lingua è solo UI, non blocca le API)
+        startPhotosSearchInBackground();
 
         // Vai subito alla schermata lingua
         showScreen('language');
