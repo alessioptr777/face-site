@@ -1859,32 +1859,25 @@ def _debug_indexing_img1129(img: np.ndarray, faces: List[Any], display_name: str
 NUM_REF_EMBEDDINGS = 8
 
 
-def _generate_multi_embeddings_from_image(
+def _generate_multi_embeddings_from_face(
     img: np.ndarray,
+    main_face: Any,
+    faces_sorted: Optional[List[Any]] = None,
     num_embeddings: int = NUM_REF_EMBEDDINGS,
     request_id: Optional[str] = None,
     file_sha1: Optional[str] = None,
 ) -> List[np.ndarray]:
     """
-    Genera 6-10 embeddings di riferimento con augment controllati: originale, flip, crop ±8%, gamma/brightness.
-    Usa UNA sola detection: crop dal bbox + (se disponibile) alignment con landmarks.
-    Ordinamento volti deterministico: area DESC, det_score DESC, bbox x1,y1,x2,y2 ASC.
+    Genera 8 embeddings di riferimento con augment: orig, flip, crop_tight, crop_wide, gamma_lo, gamma_hi, bright_lo, bright_hi.
+    Usa main_face già fornito (nessuna chiamata a face_app.get). Crop da bbox + alignment con landmarks se disponibile.
     score_final = max(score su tutte le ref) già gestito in match_selfie.
     """
     assert face_app is not None
 
-    faces = face_app.get(img)
-    if not faces:
-        return []
-    faces_sorted = sorted(faces, key=_face_sort_key)
-    if not faces_sorted:
-        return []
-    main_face = faces_sorted[0]
-
     # --- Log diagnostica SELFIE ---
-    n_faces = len(faces)
+    n_faces = len(faces_sorted) if faces_sorted else 1
     face_details = []
-    for i, f in enumerate(faces_sorted):
+    for i, f in enumerate(faces_sorted or [main_face]):
         area = (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
         det = float(getattr(f, "det_score", 0.0))
         bbox_int = (int(round(f.bbox[0])), int(round(f.bbox[1])), int(round(f.bbox[2])), int(round(f.bbox[3])))
@@ -1930,7 +1923,7 @@ def _generate_multi_embeddings_from_image(
             logger.warning(f"[DEBUG_CROPS] failed to save selfie_crop: {e}")
 
     recog = getattr(face_app, "models", {}).get("recognition") if hasattr(face_app, "models") else None
-    target_count = max(num_embeddings, NUM_REF_EMBEDDINGS)
+    target_count = int(num_embeddings)
 
     def _variant_sha1(arr: np.ndarray) -> str:
         """SHA1 dei bytes dell'immagine per verificare che le varianti siano diverse."""
@@ -1970,7 +1963,7 @@ def _generate_multi_embeddings_from_image(
 
     embeddings = []
     _log_variant("orig", aligned)
-    if request_id:
+    if DEBUG_CROPS and request_id:
         try:
             ref_size = getattr(recog, "input_size", (112, 112)) if recog else (112, 112)
             if aligned.shape[0] != ref_size[1] or aligned.shape[1] != ref_size[0]:
@@ -6633,7 +6626,7 @@ async def match_selfie(
             ref_embeddings = frame_embeddings
             logger.info(f"[VIDEO] frames_ok={len(frames)} ref_embeddings={len(ref_embeddings)}")
         else:
-            # Immagine: decode + face get + multi embeddings
+            # Immagine: decode + face get (una sola volta) + multi embeddings da main_face
             t0 = time.perf_counter()
             img = _read_selfie_image_with_resize(file_bytes, max_side=1024)
             t1 = time.perf_counter()
@@ -6649,7 +6642,9 @@ async def match_selfie(
                     "matched_count": 0,
                     "message": "Nessun volto rilevato nel selfie. Assicurati che il volto sia ben visibile."
                 }
-            if request_id and not is_video:
+            faces_sorted = sorted(faces, key=_face_sort_key)
+            main_face = faces_sorted[0]
+            if DEBUG_CROPS and request_id and not is_video:
                 try:
                     DEBUG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
                     path_resized = DEBUG_INDEX_DIR / f"selfie_{request_id}__resized.jpg"
@@ -6657,8 +6652,9 @@ async def match_selfie(
                     logger.info(f"[MATCH_DEBUG] saved {path_resized}")
                 except Exception as e:
                     logger.warning(f"[MATCH_DEBUG] save selfie resized failed: {e}")
-            ref_embeddings = _generate_multi_embeddings_from_image(
-                img, num_embeddings=NUM_REF_EMBEDDINGS, request_id=request_id, file_sha1=file_sha1_full
+            ref_embeddings = _generate_multi_embeddings_from_face(
+                img, main_face, faces_sorted=faces_sorted,
+                num_embeddings=NUM_REF_EMBEDDINGS, request_id=request_id, file_sha1=file_sha1_full
             )
             t2 = time.perf_counter()
             face_get_selfie_ms = (t2 - t1) * 1000
